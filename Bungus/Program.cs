@@ -17,7 +17,7 @@ public enum WeaponClass { Melee, Ranged }
 public enum ItemType { Weapon, Armor, Consumable }
 public enum ConsumableType { Medkit, Stim }
 public enum ArmorRarity { Common, Rare, Epic, Legendary }
-public enum StatType { Strength, Agility, Tech }
+public enum StatType { Strength, Dexterity, Speed, Gunsmith }
 
 public static class Palette
 {
@@ -37,7 +37,7 @@ public sealed class SciFiRogueGame : IDisposable
 {
     private const int W = 1280;
     private const int H = 720;
-    private const int World = 2400;
+    private const int World = 24000;
 
     private readonly Random _rng = new();
     private Camera2D _camera;
@@ -50,6 +50,7 @@ public sealed class SciFiRogueGame : IDisposable
     private List<Projectile> _projectiles = [];
     private List<Explosion> _explosions = [];
     private List<SwingArc> _swings = [];
+    private List<DashAfterImage> _dashAfterImages = [];
 
     private List<LootZone> _buildings = [];
     private List<LootZone> _outposts = [];
@@ -66,6 +67,7 @@ public sealed class SciFiRogueGame : IDisposable
         Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint);
         Raylib.InitWindow(W, H, "Bungus");
         Raylib.SetTargetFPS(60);
+        Raylib.SetExitKey(KeyboardKey.Null);
         Raylib.ToggleFullscreen();
 
         _camera = new Camera2D { Zoom = 1.08f, Rotation = 0f };
@@ -136,7 +138,7 @@ public sealed class SciFiRogueGame : IDisposable
         if (Raylib.IsKeyPressed(KeyboardKey.Escape)) { _state = GameState.Paused; return; }
         if (Raylib.IsKeyPressed(KeyboardKey.Tab)) _player.InventoryOpen = !_player.InventoryOpen;
 
-        _player.Update(dt);
+        _player.Update(dt, _obstacles, World, _dashAfterImages);
         if (Raylib.IsKeyPressed(KeyboardKey.Q)) _player.UseMedkit();
         if (Raylib.IsKeyPressed(KeyboardKey.R)) _player.UseStim();
         if (Raylib.IsKeyPressed(KeyboardKey.E)) _player.SwitchActiveWeapon();
@@ -166,10 +168,10 @@ public sealed class SciFiRogueGame : IDisposable
         {
             e.UpdateVisionSweep(dt);
             e.UpdateAwareness(_player.Position, dt, _obstacles);
-            e.UpdateMovement(dt, _player.Position);
+            e.UpdateMovement(dt, _player.Position, _obstacles, World);
             e.TryShootBurst(_player.Position, _projectiles);
 
-            if (e.TryMeleeHit(_player) && _rng.NextSingle() <= 0.05f)
+            if (e.TryMeleeHit(_player) && _rng.NextSingle() <= _player.GetStatusEffectChance(0.05f))
             {
                 _player.ApplyBleed(3f);
             }
@@ -196,7 +198,7 @@ public sealed class SciFiRogueGame : IDisposable
     {
         foreach (var b in _bosses)
         {
-            b.Update(dt, _player.Position, _projectiles, _player, _obstacles);
+            b.Update(dt, _player.Position, _projectiles, _player, _obstacles, World, _dashAfterImages);
             if (!b.Alive && !b.KillAwarded)
             {
                 b.KillAwarded = true;
@@ -213,6 +215,12 @@ public sealed class SciFiRogueGame : IDisposable
         {
             var p = _projectiles[i];
             p.Update(dt);
+
+            if (p.Position.X < 0 || p.Position.Y < 0 || p.Position.X > World || p.Position.Y > World || MovementUtils.CircleHitsObstacle(p.Position, 3f, _obstacles))
+            {
+                _projectiles.RemoveAt(i);
+                continue;
+            }
 
             if (p.OwnerEnemy)
             {
@@ -293,6 +301,12 @@ public sealed class SciFiRogueGame : IDisposable
             _explosions[i].Life -= dt;
             if (_explosions[i].Life <= 0) _explosions.RemoveAt(i);
         }
+
+        for (var i = _dashAfterImages.Count - 1; i >= 0; i--)
+        {
+            _dashAfterImages[i].Life -= dt;
+            if (_dashAfterImages[i].Life <= 0f) _dashAfterImages.RemoveAt(i);
+        }
     }
 
     private void UpdatePickups()
@@ -347,9 +361,10 @@ public sealed class SciFiRogueGame : IDisposable
     {
         if (!_player.InventoryOpen || _player.StatPoints <= 0) return;
         if (Clicked(new Rectangle(218, 170, 22, 22))) { _pendingUpgrade = true; _pendingStat = StatType.Strength; }
-        if (Clicked(new Rectangle(218, 200, 22, 22))) { _pendingUpgrade = true; _pendingStat = StatType.Agility; }
-        if (Clicked(new Rectangle(218, 230, 22, 22))) { _pendingUpgrade = true; _pendingStat = StatType.Tech; }
-        if (_pendingUpgrade && Clicked(new Rectangle(20, 264, 96, 30)))
+        if (Clicked(new Rectangle(218, 200, 22, 22))) { _pendingUpgrade = true; _pendingStat = StatType.Dexterity; }
+        if (Clicked(new Rectangle(218, 230, 22, 22))) { _pendingUpgrade = true; _pendingStat = StatType.Speed; }
+        if (Clicked(new Rectangle(218, 260, 22, 22))) { _pendingUpgrade = true; _pendingStat = StatType.Gunsmith; }
+        if (_pendingUpgrade && Clicked(new Rectangle(20, 294, 96, 30)))
         {
             _player.ApplyPoint(_pendingStat);
             _pendingUpgrade = false;
@@ -360,22 +375,21 @@ public sealed class SciFiRogueGame : IDisposable
     {
         var list = new List<UiSlot>
         {
-            new(new Rectangle(430, 144, 58, 58), SlotKind.RangedWeapon, null, _player.RangedWeapon, -1),
-            new(new Rectangle(496, 144, 58, 58), SlotKind.MeleeWeapon, null, _player.MeleeWeapon, -1),
-            new(new Rectangle(562, 144, 58, 58), SlotKind.Armor, null, _player.Armor, -1),
-            new(new Rectangle(628, 144, 58, 58), SlotKind.Trash, null, _player.Inventory.Trash, -1)
+            new(new Rectangle(280, 166, 58, 58), SlotKind.RangedWeapon, null, _player.RangedWeapon, -1),
+            new(new Rectangle(280, 232, 58, 58), SlotKind.MeleeWeapon, null, _player.MeleeWeapon, -1),
+            new(new Rectangle(280, 298, 58, 58), SlotKind.Armor, null, _player.Armor, -1),
+            new(new Rectangle(1174, 430, 58, 58), SlotKind.Trash, null, _player.Inventory.Trash, -1)
         };
 
         for (var i = 0; i < _player.Inventory.Items.Count; i++)
         {
-            var c = i % 7;
-            var r = i / 7;
-            list.Add(new UiSlot(new Rectangle(720 + c * 62, 144 + r * 62, 58, 58), SlotKind.Backpack, i, _player.Inventory.Items[i], i));
+            var c = i % 12;
+            var r = i / 12;
+            list.Add(new UiSlot(new Rectangle(368 + c * 62, 166 + r * 62, 58, 58), SlotKind.Backpack, i, _player.Inventory.Items[i], i));
         }
 
-        // dedicated consumable slots (stacked counters)
-        list.Add(new UiSlot(new Rectangle(430, 210, 58, 58), SlotKind.MedkitStack, null, ItemStack.Consumable(ConsumableType.Medkit), -1));
-        list.Add(new UiSlot(new Rectangle(496, 210, 58, 58), SlotKind.StimStack, null, ItemStack.Consumable(ConsumableType.Stim), -1));
+        list.Add(new UiSlot(new Rectangle(280, 364, 58, 58), SlotKind.MedkitStack, null, ItemStack.Consumable(ConsumableType.Medkit), -1));
+        list.Add(new UiSlot(new Rectangle(280, 430, 58, 58), SlotKind.StimStack, null, ItemStack.Consumable(ConsumableType.Stim), -1));
 
         return list;
     }
@@ -511,6 +525,8 @@ public sealed class SciFiRogueGame : IDisposable
             DrawItemIcon(p.Item, new Rectangle(rect.X + 4, rect.Y + 4, 16, 16));
         }
 
+        foreach (var ghost in _dashAfterImages) ghost.Draw();
+
         foreach (var e in _enemies) e.DrawSight();
         foreach (var b in _bosses) b.DrawSight();
         foreach (var e in _enemies) e.Draw();
@@ -539,6 +555,7 @@ public sealed class SciFiRogueGame : IDisposable
             }
         }
 
+        Raylib.DrawRectangleLinesEx(new Rectangle(0, 0, World, World), 6f, Palette.C(120, 160, 220));
         Raylib.DrawCircleV(_player.Position, 16f, Color.SkyBlue);
         Raylib.EndMode2D();
     }
@@ -556,7 +573,7 @@ public sealed class SciFiRogueGame : IDisposable
         Raylib.DrawText(_player.Armor?.Name ?? "None", 120, 74, 20, _player.Armor?.Color ?? Color.LightGray);
 
         Raylib.DrawText($"Consumables: Q Medkit({_player.Inventory.Medkits}) R Stim({_player.Inventory.Stims})", 660, 20, 20, Color.White);
-        Raylib.DrawText($"Stats: STR {_player.Str} AGI {_player.Agi} TECH {_player.Tech} Points {_player.StatPoints}", 660, 50, 20, Color.White);
+        Raylib.DrawText($"Stats: STR {_player.Str} DEX {_player.Dex} SPD {_player.Spd} GUN {_player.Guns} Points {_player.StatPoints}", 660, 50, 20, Color.White);
         Raylib.DrawText("WASD move | LMB attack | E switch active weapon | TAB inventory | ESC menu", 20, Raylib.GetScreenHeight() - 28, 18, Color.Gray);
     }
 
@@ -566,7 +583,7 @@ public sealed class SciFiRogueGame : IDisposable
 
         Raylib.DrawRectangle(10, 124, 1240, 380, Palette.C(6, 10, 20, 230));
         Raylib.DrawRectangleLines(10, 124, 1240, 380, Color.SkyBlue);
-        Raylib.DrawText("Inventory (drag/drop). Trash slot replaces previous item.", 20, 132, 20, Color.White);
+        Raylib.DrawText("Equipment left, inventory right (drag/drop). Trash is bottom-right.", 20, 132, 20, Color.White);
 
         var slots = BuildSlots();
         foreach (var slot in slots)
@@ -583,20 +600,22 @@ public sealed class SciFiRogueGame : IDisposable
             }
         }
 
-        Raylib.DrawText($"Medkit x{_player.Inventory.Medkits}", 430, 272, 16, Color.Green);
-        Raylib.DrawText($"Stim x{_player.Inventory.Stims}", 496, 272, 16, Color.Yellow);
+        Raylib.DrawText($"Medkit x{_player.Inventory.Medkits}", 280, 424, 16, Color.Green);
+        Raylib.DrawText($"Stim x{_player.Inventory.Stims}", 280, 490, 16, Color.Yellow);
 
         Raylib.DrawText($"STR {_player.Str}", 20, 172, 20, Color.LightGray);
-        Raylib.DrawText($"AGI {_player.Agi}", 20, 202, 20, Color.LightGray);
-        Raylib.DrawText($"TECH {_player.Tech}", 20, 232, 20, Color.LightGray);
-        Raylib.DrawText($"Points {_player.StatPoints}", 20, 260, 20, Color.Yellow);
+        Raylib.DrawText($"DEX {_player.Dex}", 20, 202, 20, Color.LightGray);
+        Raylib.DrawText($"SPD {_player.Spd}", 20, 232, 20, Color.LightGray);
+        Raylib.DrawText($"GUN {_player.Guns}", 20, 262, 20, Color.LightGray);
+        Raylib.DrawText($"Points {_player.StatPoints}", 20, 292, 20, Color.Yellow);
 
         if (_player.StatPoints > 0)
         {
             DrawPlus(new Rectangle(218, 170, 22, 22));
             DrawPlus(new Rectangle(218, 200, 22, 22));
             DrawPlus(new Rectangle(218, 230, 22, 22));
-            if (_pendingUpgrade) DrawButton(new Rectangle(20, 264, 96, 30), "Confirm");
+            DrawPlus(new Rectangle(218, 260, 22, 22));
+            if (_pendingUpgrade) DrawButton(new Rectangle(20, 294, 96, 30), "Confirm");
         }
 
         if (_drag is not null)
@@ -872,8 +891,9 @@ public sealed class Player
     public bool InventoryOpen { get; set; }
 
     public int Str { get; private set; } = 6;
-    public int Agi { get; private set; } = 8;
-    public int Tech { get; private set; } = 7;
+    public int Dex { get; private set; } = 8;
+    public int Spd { get; private set; } = 7;
+    public int Guns { get; private set; } = 7;
 
     public int Level { get; private set; } = 1;
     public int Kills { get; private set; }
@@ -903,7 +923,7 @@ public sealed class Player
 
     public static Player Create(Vector2 p) => new(p);
 
-    public void Update(float dt)
+    public void Update(float dt, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages)
     {
         _attackCd -= dt;
         _dodgeCd -= dt;
@@ -924,14 +944,18 @@ public sealed class Player
         if (Raylib.IsKeyPressed(KeyboardKey.Space) && _dodgeCd <= 0f)
         {
             var dir = d == Vector2.Zero ? new Vector2(1f, 0f) : Vector2.Normalize(d);
-            Position += dir * (140f + Agi * 6f);
+            var dist = 150f + Spd * 8f;
+            Position = MovementUtils.MoveWithCollisions(Position, dir * dist, 16f, obstacles, worldSize);
+            DashAfterImage.Spawn(afterImages, Position, dir, dist, Palette.C(120, 200, 255), false);
             _dodgeCd = 1.1f;
         }
 
         if (d != Vector2.Zero)
         {
-            var speed = 220f + Agi * 2f + (_stim > 0 ? 70f : 0f);
-            Position += Vector2.Normalize(d) * speed * dt;
+            var speed = 210f + Spd * 6f;
+            if (_stim > 0) speed *= 1.25f;
+            var delta = Vector2.Normalize(d) * speed * dt;
+            Position = MovementUtils.MoveWithCollisions(Position, delta, 16f, obstacles, worldSize);
         }
     }
 
@@ -963,13 +987,19 @@ public sealed class Player
     public float GetMeleeDamage()
     {
         var power = MeleeWeapon?.PowerBonus ?? 0f;
-        return (14f + Str * 1.8f + Agi * 0.8f + power) * 0.5f;
+        return (12f + Str * 2.2f + Dex * 0.6f + power) * 0.7f;
     }
 
     public float GetRangedDamage()
     {
         var power = RangedWeapon?.PowerBonus ?? 0f;
-        return (10f + Tech * 1.9f + power) * 1.25f;
+        return (9f + Guns * 2.4f + power) * 1.3f;
+    }
+
+    public float GetStatusEffectChance(float baseChance)
+    {
+        var reduction = Math.Clamp(Dex * 0.02f, 0f, 0.6f);
+        return baseChance * (1f - reduction);
     }
 
     public void SwitchActiveWeapon() => ActiveWeaponClass = ActiveWeaponClass == WeaponClass.Ranged ? WeaponClass.Melee : WeaponClass.Ranged;
@@ -994,7 +1024,7 @@ public sealed class Player
     public void TakeDamage(float value)
     {
         var armor = Armor?.Defense ?? 0f;
-        var reduced = MathF.Max(1f, value - armor * 0.75f - Tech * 0.2f);
+        var reduced = MathF.Max(1f, value - armor * 0.75f - Dex * 0.12f);
         Health = MathF.Max(0f, Health - reduced);
     }
 
@@ -1013,8 +1043,9 @@ public sealed class Player
         StatPoints--;
 
         if (stat == StatType.Strength) Str++;
-        if (stat == StatType.Agility) Agi++;
-        if (stat == StatType.Tech) Tech++;
+        if (stat == StatType.Dexterity) Dex++;
+        if (stat == StatType.Speed) Spd++;
+        if (stat == StatType.Gunsmith) Guns++;
     }
 }
 
@@ -1044,6 +1075,8 @@ public sealed class Enemy
     private float _sweepDir = 1f;
 
     private float _burstCd;
+    private float _patrolTurnTimer;
+    private bool _patrolTurning;
     private int _burstShotsLeft;
     private float _burstShotCd;
 
@@ -1051,7 +1084,7 @@ public sealed class Enemy
 
     private const float BaseView = 290f;
     private const float StrongView = 360f;
-    private const float FovHalf = MathF.PI * 0.75f; // 270 total -> blind 90
+    private const float FovHalf = MathF.PI / 3f; // 120 total
 
     private Enemy(Vector2 pos)
     {
@@ -1087,13 +1120,13 @@ public sealed class Enemy
     {
         if (!Alive) { _deathAnim -= dt; return; }
 
-        // sweep left-right in 270° window (no full circles)
-        _sweepPhase += dt * 1.4f * _sweepDir;
+        // sweep left-right
+        _sweepPhase += dt * 1.2f * _sweepDir;
         if (_sweepPhase > 1f) { _sweepPhase = 1f; _sweepDir = -1f; }
         if (_sweepPhase < -1f) { _sweepPhase = -1f; _sweepDir = 1f; }
 
         var baseAngle = MathF.Atan2(_facing.Y, _facing.X);
-        var sweepOffset = _sweepPhase * (MathF.PI * 0.45f);
+        var sweepOffset = _sweepPhase * (MathF.PI * 0.18f);
         var a = baseAngle + sweepOffset;
         _facing = Vector2.Normalize(new Vector2(MathF.Cos(a), MathF.Sin(a)));
     }
@@ -1130,7 +1163,7 @@ public sealed class Enemy
         _target = target;
     }
 
-    public void UpdateMovement(float dt, Vector2 playerPos)
+    public void UpdateMovement(float dt, Vector2 playerPos, List<Obstacle> obstacles, int worldSize)
     {
         _attackCd -= dt;
 
@@ -1143,7 +1176,7 @@ public sealed class Enemy
             {
                 var dir = Vector2.Normalize(to);
                 _facing = dir;
-                Position += dir * (IsStrong ? 95f : 118f) * dt;
+                Position = MovementUtils.MoveWithCollisions(Position, dir * (IsStrong ? 95f : 118f) * dt, 14f, obstacles, worldSize);
             }
 
             if (IsStrong)
@@ -1157,17 +1190,31 @@ public sealed class Enemy
 
         if (IsPatrol)
         {
+            if (_patrolTurning)
+            {
+                _patrolTurnTimer -= dt;
+                var turned = VisibilityUtils.Rotate(_facing, MathF.PI * dt / 2f);
+                if (turned != Vector2.Zero) _facing = Vector2.Normalize(turned);
+                if (_patrolTurnTimer <= 0f)
+                {
+                    _patrolTurning = false;
+                    _toB = !_toB;
+                }
+                return;
+            }
+
             var target = _toB ? _patrolB : _patrolA;
             var to = target - Position;
             if (to.Length() < 8f)
             {
-                _toB = !_toB;
+                _patrolTurning = true;
+                _patrolTurnTimer = 2f;
             }
             else
             {
                 var dir = Vector2.Normalize(to);
                 _facing = dir;
-                Position += dir * 86f * dt;
+                Position = MovementUtils.MoveWithCollisions(Position, dir * 86f * dt, 14f, obstacles, worldSize);
             }
         }
     }
@@ -1269,11 +1316,11 @@ public sealed class BossEnemy
     private Vector2 _facing = new(1f, 0f);
 
     private const float ViewDistance = 460f;
-    private const float FovHalf = MathF.PI * 0.72f;
+    private const float FovHalf = MathF.PI / 3f;
 
     public BossEnemy(Vector2 pos) { Position = pos; }
 
-    public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, Player player, List<Obstacle> obstacles)
+    public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, Player player, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages)
     {
         if (!Alive) return;
 
@@ -1291,11 +1338,12 @@ public sealed class BossEnemy
         if (!_alert || toPlayer == Vector2.Zero) return;
 
         var dir = Vector2.Normalize(toPlayer);
-        Position += dir * 42f * dt;
+        Position = MovementUtils.MoveWithCollisions(Position, dir * 42f * dt, 28f, obstacles, worldSize);
 
         if (_ramCd <= 0f)
         {
-            Position += dir * 120f;
+            Position = MovementUtils.MoveWithCollisions(Position, dir * 120f, 28f, obstacles, worldSize);
+            DashAfterImage.Spawn(afterImages, Position, dir, 120f, Palette.C(230, 100, 100), true);
             _ramCd = 4f;
             if (Vector2.Distance(Position, playerPos) < 56f) player.TakeDamage(24f);
         }
@@ -1406,6 +1454,75 @@ public sealed class LootZone(Rectangle rect, bool isOutpost)
 public sealed class Obstacle(Rectangle rect)
 {
     public Rectangle Rect { get; } = rect;
+}
+
+public static class MovementUtils
+{
+    public static Vector2 MoveWithCollisions(Vector2 position, Vector2 delta, float radius, List<Obstacle> obstacles, int worldSize)
+    {
+        var next = position;
+        var xTry = new Vector2(position.X + delta.X, position.Y);
+        if (!CircleHitsObstacle(xTry, radius, obstacles)) next.X = xTry.X;
+
+        var yTry = new Vector2(next.X, position.Y + delta.Y);
+        if (!CircleHitsObstacle(yTry, radius, obstacles)) next.Y = yTry.Y;
+
+        next.X = Math.Clamp(next.X, radius, worldSize - radius);
+        next.Y = Math.Clamp(next.Y, radius, worldSize - radius);
+        return next;
+    }
+
+    public static bool CircleHitsObstacle(Vector2 center, float radius, List<Obstacle> obstacles)
+    {
+        foreach (var o in obstacles)
+        {
+            var nx = Math.Clamp(center.X, o.Rect.X, o.Rect.X + o.Rect.Width);
+            var ny = Math.Clamp(center.Y, o.Rect.Y, o.Rect.Y + o.Rect.Height);
+            var dx = center.X - nx;
+            var dy = center.Y - ny;
+            if (dx * dx + dy * dy < radius * radius) return true;
+        }
+
+        return false;
+    }
+}
+
+public sealed class DashAfterImage(Vector2 position, Color color, float alpha, bool square)
+{
+    public Vector2 Position { get; } = position;
+    public Color Color { get; } = color;
+    public float InitialAlpha { get; } = alpha;
+    public float Life { get; set; } = 1f;
+    public bool Square { get; } = square;
+
+    public void Draw()
+    {
+        var current = MathF.Max(0f, InitialAlpha * (Life / 1f));
+        var c = new Color(Color.R, Color.G, Color.B, (byte)(255 * current));
+        if (Square)
+            Raylib.DrawRectangle((int)Position.X - 21, (int)Position.Y - 21, 42, 42, c);
+        else
+            Raylib.DrawCircleV(Position, 16f, c);
+    }
+
+    public static void Spawn(List<DashAfterImage> target, Vector2 endPosition, Vector2 dashDir, float distance, Color color, bool square)
+    {
+        var dir = dashDir == Vector2.Zero ? new Vector2(1f, 0f) : Vector2.Normalize(dashDir);
+        var steps = new[]
+        {
+            (9f, 0.5f),
+            (8f, 0.45f),
+            (7f, 0.35f),
+            (6f, 0.25f),
+            (5f, 0.15f),
+            (4f, 0.05f)
+        };
+
+        foreach (var (ratio, alpha) in steps)
+        {
+            target.Add(new DashAfterImage(endPosition - dir * (distance * (10f - ratio) / 10f), color, alpha, square));
+        }
+    }
 }
 
 public static class VisibilityUtils

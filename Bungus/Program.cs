@@ -53,6 +53,7 @@ public sealed class SciFiRogueGame : IDisposable
 
     private List<LootZone> _buildings = [];
     private List<LootZone> _outposts = [];
+    private List<Obstacle> _obstacles = [];
     private List<Pickup> _pickups = [];
 
     private DragPayload? _drag;
@@ -80,6 +81,7 @@ public sealed class SciFiRogueGame : IDisposable
 
         _buildings = GenerateZones(6, false);
         _outposts = GenerateZones(3, true);
+        _obstacles = GenerateObstacles();
 
         _pickups = GeneratePickupsInZones();
         _enemies = GenerateEnemies();
@@ -163,7 +165,7 @@ public sealed class SciFiRogueGame : IDisposable
         foreach (var e in _enemies)
         {
             e.UpdateVisionSweep(dt);
-            e.UpdateAwareness(_player.Position, dt);
+            e.UpdateAwareness(_player.Position, dt, _obstacles);
             e.UpdateMovement(dt, _player.Position);
             e.TryShootBurst(_player.Position, _projectiles);
 
@@ -185,7 +187,7 @@ public sealed class SciFiRogueGame : IDisposable
             src.JustHitByPlayer = false;
             foreach (var other in _enemies.Where(x => x != src && x.Alive))
             {
-                if (other.CanSeePoint(src.Position)) other.ForceAggro(src.Position);
+                if (other.CanSeePoint(src.Position, _obstacles)) other.ForceAggro(src.Position);
             }
         }
     }
@@ -194,7 +196,7 @@ public sealed class SciFiRogueGame : IDisposable
     {
         foreach (var b in _bosses)
         {
-            b.Update(dt, _player.Position, _projectiles, _player);
+            b.Update(dt, _player.Position, _projectiles, _player, _obstacles);
             if (!b.Alive && !b.KillAwarded)
             {
                 b.KillAwarded = true;
@@ -491,8 +493,14 @@ public sealed class SciFiRogueGame : IDisposable
 
         foreach (var o in _outposts)
         {
-            Raylib.DrawRectangleRec(o.Rect, Palette.C(180, 45, 45, 45));
-            Raylib.DrawRectangleLinesEx(o.Rect, 2f, Palette.C(220, 80, 80, 130));
+            Raylib.DrawRectangleRec(o.Rect, Palette.C(180, 45, 45, 40));
+            Raylib.DrawRectangleLinesEx(o.Rect, 2f, Palette.C(220, 80, 80, 110));
+        }
+
+        foreach (var obstacle in _obstacles)
+        {
+            Raylib.DrawRectangleRec(obstacle.Rect, Palette.C(52, 56, 68, 245));
+            Raylib.DrawRectangleLinesEx(obstacle.Rect, 1.5f, Palette.C(88, 96, 116, 255));
         }
 
         foreach (var p in _pickups.Where(x => !x.Picked))
@@ -504,6 +512,7 @@ public sealed class SciFiRogueGame : IDisposable
         }
 
         foreach (var e in _enemies) e.DrawSight();
+        foreach (var b in _bosses) b.DrawSight();
         foreach (var e in _enemies) e.Draw();
         foreach (var b in _bosses) b.Draw();
 
@@ -692,7 +701,7 @@ public sealed class SciFiRogueGame : IDisposable
         var list = new List<LootZone>();
         for (var i = 0; i < count; i++)
         {
-            var size = outpost ? new Vector2(_rng.Next(260, 340), _rng.Next(260, 340)) : new Vector2(_rng.Next(180, 250), _rng.Next(180, 250));
+            var size = outpost ? new Vector2(_rng.Next(330, 450), _rng.Next(330, 450)) : new Vector2(_rng.Next(250, 360), _rng.Next(250, 360));
             var pos = new Vector2(_rng.Next(120, World - (int)size.X - 120), _rng.Next(120, World - (int)size.Y - 120));
             list.Add(new LootZone(new Rectangle(pos, size), outpost));
         }
@@ -705,7 +714,7 @@ public sealed class SciFiRogueGame : IDisposable
 
         foreach (var b in _buildings)
         {
-            var amount = _rng.Next(2, 5);
+            var amount = _rng.Next(1, 4);
             for (var i = 0; i < amount; i++)
             {
                 var p = RandomPointIn(b.Rect);
@@ -753,6 +762,37 @@ public sealed class SciFiRogueGame : IDisposable
     private Vector2 RandomPointIn(Rectangle r)
         => new(_rng.Next((int)r.X + 18, (int)(r.X + r.Width - 18)), _rng.Next((int)r.Y + 18, (int)(r.Y + r.Height - 18)));
 
+    private Vector2 RandomOutdoorPoint()
+    {
+        while (true)
+        {
+            var point = new Vector2(_rng.Next(100, World - 100), _rng.Next(100, World - 100));
+            if (_buildings.Any(z => Raylib.CheckCollisionPointRec(point, z.Rect))) continue;
+            if (_outposts.Any(z => Raylib.CheckCollisionPointRec(point, z.Rect))) continue;
+            return point;
+        }
+    }
+
+    private List<Obstacle> GenerateObstacles()
+    {
+        var list = new List<Obstacle>();
+
+        foreach (var zone in _buildings.Concat(_outposts))
+        {
+            var count = zone.IsOutpost ? _rng.Next(5, 8) : _rng.Next(3, 6);
+            for (var i = 0; i < count; i++)
+            {
+                var w = zone.IsOutpost ? _rng.Next(60, 110) : _rng.Next(44, 84);
+                var h = zone.IsOutpost ? _rng.Next(60, 110) : _rng.Next(44, 84);
+                var x = _rng.Next((int)zone.Rect.X + 18, (int)(zone.Rect.X + zone.Rect.Width - w - 18));
+                var y = _rng.Next((int)zone.Rect.Y + 18, (int)(zone.Rect.Y + zone.Rect.Height - h - 18));
+                list.Add(new Obstacle(new Rectangle(x, y, w, h)));
+            }
+        }
+
+        return list;
+    }
+
     private List<Enemy> GenerateEnemies()
     {
         var list = new List<Enemy>();
@@ -786,6 +826,18 @@ public sealed class SciFiRogueGame : IDisposable
             var strong = _rng.Next(3, 5);
             for (var i = 0; i < strong; i++) list.Add(Enemy.CreateStrong(RandomPointIn(o.Rect)));
         }
+
+        var outdoorPatrols = _rng.Next(8, 13);
+        for (var i = 0; i < outdoorPatrols; i++)
+        {
+            var patrolA = RandomOutdoorPoint();
+            var patrolB = patrolA + new Vector2(_rng.Next(-160, 161), _rng.Next(-160, 161));
+            patrolB = Vector2.Clamp(patrolB, new Vector2(40f, 40f), new Vector2(World - 40f, World - 40f));
+            list.Add(Enemy.CreatePatrol(patrolA, patrolB, false));
+        }
+
+        var outdoorStrong = _rng.Next(4, 8);
+        for (var i = 0; i < outdoorStrong; i++) list.Add(Enemy.CreateStrong(RandomOutdoorPoint()));
 
         return list;
     }
@@ -911,13 +963,13 @@ public sealed class Player
     public float GetMeleeDamage()
     {
         var power = MeleeWeapon?.PowerBonus ?? 0f;
-        return 14f + Str * 1.8f + Agi * 0.8f + power;
+        return (14f + Str * 1.8f + Agi * 0.8f + power) * 0.5f;
     }
 
     public float GetRangedDamage()
     {
         var power = RangedWeapon?.PowerBonus ?? 0f;
-        return 10f + Tech * 1.9f + power;
+        return (10f + Tech * 1.9f + power) * 1.25f;
     }
 
     public void SwitchActiveWeapon() => ActiveWeaponClass = ActiveWeaponClass == WeaponClass.Ranged ? WeaponClass.Melee : WeaponClass.Ranged;
@@ -1046,11 +1098,11 @@ public sealed class Enemy
         _facing = Vector2.Normalize(new Vector2(MathF.Cos(a), MathF.Sin(a)));
     }
 
-    public void UpdateAwareness(Vector2 playerPos, float dt)
+    public void UpdateAwareness(Vector2 playerPos, float dt, List<Obstacle> obstacles)
     {
         if (!Alive) return;
 
-        if (CanSeePoint(playerPos))
+        if (CanSeePoint(playerPos, obstacles))
         {
             _alert = true;
             _target = playerPos;
@@ -1061,7 +1113,7 @@ public sealed class Enemy
         }
     }
 
-    public bool CanSeePoint(Vector2 point)
+    public bool CanSeePoint(Vector2 point, List<Obstacle> obstacles)
     {
         var to = point - Position;
         var dist = to.Length();
@@ -1069,7 +1121,7 @@ public sealed class Enemy
 
         var dir = Vector2.Normalize(to);
         var angle = MathF.Acos(Math.Clamp(Vector2.Dot(_facing, dir), -1f, 1f));
-        return angle <= FovHalf;
+        return angle <= FovHalf && VisibilityUtils.HasLineOfSight(Position, point, obstacles);
     }
 
     public void ForceAggro(Vector2 target)
@@ -1191,44 +1243,13 @@ public sealed class Enemy
     {
         if (!Alive) return;
 
-        var c = Palette.C(120, 140, 160, 55);
-        DrawDashedCircle(Position, GetViewDistance(), 28, c);
+        var c = Palette.C(120, 140, 160, 26);
+        VisibilityUtils.DrawDashedCircle(Position, GetViewDistance(), 28, c);
 
-        var left = Rotate(_facing, -FovHalf);
-        var right = Rotate(_facing, FovHalf);
-        DrawDashedLine(Position, Position + left * GetViewDistance(), 22, c);
-        DrawDashedLine(Position, Position + right * GetViewDistance(), 22, c);
-    }
-
-    private static Vector2 Rotate(Vector2 v, float a)
-    {
-        var c = MathF.Cos(a);
-        var s = MathF.Sin(a);
-        return new Vector2(v.X * c - v.Y * s, v.X * s + v.Y * c);
-    }
-
-    private static void DrawDashedLine(Vector2 a, Vector2 b, int segments, Color c)
-    {
-        for (var i = 0; i < segments; i++)
-        {
-            if (i % 2 == 1) continue;
-            var t1 = i / (float)segments;
-            var t2 = (i + 1) / (float)segments;
-            Raylib.DrawLineV(Vector2.Lerp(a, b, t1), Vector2.Lerp(a, b, t2), c);
-        }
-    }
-
-    private static void DrawDashedCircle(Vector2 center, float radius, int segments, Color c)
-    {
-        for (var i = 0; i < segments; i++)
-        {
-            if (i % 2 == 1) continue;
-            var a1 = i / (float)segments * MathF.Tau;
-            var a2 = (i + 1) / (float)segments * MathF.Tau;
-            var p1 = center + new Vector2(MathF.Cos(a1), MathF.Sin(a1)) * radius;
-            var p2 = center + new Vector2(MathF.Cos(a2), MathF.Sin(a2)) * radius;
-            Raylib.DrawLineV(p1, p2, c);
-        }
+        var left = VisibilityUtils.Rotate(_facing, -FovHalf);
+        var right = VisibilityUtils.Rotate(_facing, FovHalf);
+        VisibilityUtils.DrawDashedLine(Position, Position + left * GetViewDistance(), 22, c);
+        VisibilityUtils.DrawDashedLine(Position, Position + right * GetViewDistance(), 22, c);
     }
 }
 
@@ -1244,10 +1265,15 @@ public sealed class BossEnemy
     private float _shootCd = 1.2f;
     private float _slamCd = 3.5f;
     private float _slamVisual;
+    private bool _alert;
+    private Vector2 _facing = new(1f, 0f);
+
+    private const float ViewDistance = 460f;
+    private const float FovHalf = MathF.PI * 0.72f;
 
     public BossEnemy(Vector2 pos) { Position = pos; }
 
-    public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, Player player)
+    public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, Player player, List<Obstacle> obstacles)
     {
         if (!Alive) return;
 
@@ -1256,38 +1282,63 @@ public sealed class BossEnemy
         _slamCd -= dt;
         _slamVisual -= dt;
 
-        var to = playerPos - Position;
-        if (to != Vector2.Zero)
+        var toPlayer = playerPos - Position;
+        if (toPlayer != Vector2.Zero) _facing = Vector2.Normalize(toPlayer);
+
+        if (CanSeePoint(playerPos, obstacles)) _alert = true;
+        else if (_alert && Vector2.Distance(Position, playerPos) > ViewDistance * 1.6f) _alert = false;
+
+        if (!_alert || toPlayer == Vector2.Zero) return;
+
+        var dir = Vector2.Normalize(toPlayer);
+        Position += dir * 42f * dt;
+
+        if (_ramCd <= 0f)
         {
-            var dir = Vector2.Normalize(to);
-            Position += dir * 42f * dt;
-
-            if (_ramCd <= 0f)
-            {
-                Position += dir * 120f;
-                _ramCd = 4f;
-                if (Vector2.Distance(Position, playerPos) < 56f) player.TakeDamage(24f);
-            }
-
-            if (_shootCd <= 0f)
-            {
-                projectiles.Add(new Projectile(Position + dir * 28f, dir, 460f, 1.3f, Palette.C(255, 150, 120), true, 4f));
-                _shootCd = 1.1f;
-            }
-
-            if (_slamCd <= 0f)
-            {
-                _slamVisual = 0.7f;
-                _slamCd = 3.6f;
-                if (Vector2.Distance(Position, playerPos) < 120f) player.TakeDamage(20f);
-            }
+            Position += dir * 120f;
+            _ramCd = 4f;
+            if (Vector2.Distance(Position, playerPos) < 56f) player.TakeDamage(24f);
         }
+
+        if (_shootCd <= 0f)
+        {
+            projectiles.Add(new Projectile(Position + dir * 28f, dir, 460f, 1.3f, Palette.C(255, 150, 120), true, 4f));
+            _shootCd = 1.1f;
+        }
+
+        if (_slamCd <= 0f)
+        {
+            _slamVisual = 0.7f;
+            _slamCd = 3.6f;
+            if (Vector2.Distance(Position, playerPos) < 120f) player.TakeDamage(20f);
+        }
+    }
+
+    private bool CanSeePoint(Vector2 point, List<Obstacle> obstacles)
+    {
+        var to = point - Position;
+        var dist = to.Length();
+        if (dist > ViewDistance || dist < 0.01f) return false;
+
+        var dir = Vector2.Normalize(to);
+        var angle = MathF.Acos(Math.Clamp(Vector2.Dot(_facing, dir), -1f, 1f));
+        return angle <= FovHalf && VisibilityUtils.HasLineOfSight(Position, point, obstacles);
     }
 
     public void Damage(float amount)
     {
         if (!Alive) return;
         Health = MathF.Max(0f, Health - amount);
+    }
+
+    public void DrawSight()
+    {
+        if (!Alive) return;
+
+        var c = Palette.C(255, 130, 110, 24);
+        VisibilityUtils.DrawDashedCircle(Position, ViewDistance, 32, c);
+        VisibilityUtils.DrawDashedLine(Position, Position + VisibilityUtils.Rotate(_facing, -FovHalf) * ViewDistance, 24, c);
+        VisibilityUtils.DrawDashedLine(Position, Position + VisibilityUtils.Rotate(_facing, FovHalf) * ViewDistance, 24, c);
     }
 
     public void Draw()
@@ -1350,6 +1401,65 @@ public sealed class LootZone(Rectangle rect, bool isOutpost)
 {
     public Rectangle Rect { get; } = rect;
     public bool IsOutpost { get; } = isOutpost;
+}
+
+public sealed class Obstacle(Rectangle rect)
+{
+    public Rectangle Rect { get; } = rect;
+}
+
+public static class VisibilityUtils
+{
+    public static bool HasLineOfSight(Vector2 from, Vector2 to, List<Obstacle> obstacles)
+    {
+        foreach (var obstacle in obstacles)
+        {
+            var r = InflateRect(obstacle.Rect, 2f);
+            Vector2 hit = default;
+
+            if (Raylib.CheckCollisionPointRec(from, r) || Raylib.CheckCollisionPointRec(to, r)) continue;
+            if (Raylib.CheckCollisionLines(from, to, new Vector2(r.X, r.Y), new Vector2(r.X + r.Width, r.Y), ref hit)) return false;
+            if (Raylib.CheckCollisionLines(from, to, new Vector2(r.X + r.Width, r.Y), new Vector2(r.X + r.Width, r.Y + r.Height), ref hit)) return false;
+            if (Raylib.CheckCollisionLines(from, to, new Vector2(r.X + r.Width, r.Y + r.Height), new Vector2(r.X, r.Y + r.Height), ref hit)) return false;
+            if (Raylib.CheckCollisionLines(from, to, new Vector2(r.X, r.Y + r.Height), new Vector2(r.X, r.Y), ref hit)) return false;
+        }
+
+        return true;
+    }
+
+    public static Vector2 Rotate(Vector2 v, float a)
+    {
+        var c = MathF.Cos(a);
+        var s = MathF.Sin(a);
+        return new Vector2(v.X * c - v.Y * s, v.X * s + v.Y * c);
+    }
+
+    public static void DrawDashedLine(Vector2 a, Vector2 b, int segments, Color c)
+    {
+        for (var i = 0; i < segments; i++)
+        {
+            if (i % 2 == 1) continue;
+            var t1 = i / (float)segments;
+            var t2 = (i + 1) / (float)segments;
+            Raylib.DrawLineV(Vector2.Lerp(a, b, t1), Vector2.Lerp(a, b, t2), c);
+        }
+    }
+
+    public static void DrawDashedCircle(Vector2 center, float radius, int segments, Color c)
+    {
+        for (var i = 0; i < segments; i++)
+        {
+            if (i % 2 == 1) continue;
+            var a1 = i / (float)segments * MathF.Tau;
+            var a2 = (i + 1) / (float)segments * MathF.Tau;
+            var p1 = center + new Vector2(MathF.Cos(a1), MathF.Sin(a1)) * radius;
+            var p2 = center + new Vector2(MathF.Cos(a2), MathF.Sin(a2)) * radius;
+            Raylib.DrawLineV(p1, p2, c);
+        }
+    }
+
+    private static Rectangle InflateRect(Rectangle rect, float pad)
+        => new(rect.X - pad, rect.Y - pad, rect.Width + pad * 2f, rect.Height + pad * 2f);
 }
 
 public sealed class Pickup(Vector2 position, ItemStack item)

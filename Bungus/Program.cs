@@ -37,7 +37,7 @@ public sealed class SciFiRogueGame : IDisposable
 {
     private const int W = 1280;
     private const int H = 720;
-    private const int World = 24000;
+    private const int World = 12000;
 
     private readonly Random _rng = new();
     private Camera2D _camera;
@@ -81,8 +81,8 @@ public sealed class SciFiRogueGame : IDisposable
         _explosions = [];
         _swings = [];
 
-        _buildings = GenerateZones(6, false);
-        _outposts = GenerateZones(3, true);
+        _buildings = GenerateZones(8, false);
+        _outposts = GenerateZones(5, true);
         _obstacles = GenerateObstacles();
 
         _pickups = GeneratePickupsInZones();
@@ -375,9 +375,9 @@ public sealed class SciFiRogueGame : IDisposable
     {
         var list = new List<UiSlot>
         {
-            new(new Rectangle(280, 166, 58, 58), SlotKind.RangedWeapon, null, _player.RangedWeapon, -1),
-            new(new Rectangle(280, 232, 58, 58), SlotKind.MeleeWeapon, null, _player.MeleeWeapon, -1),
-            new(new Rectangle(280, 298, 58, 58), SlotKind.Armor, null, _player.Armor, -1),
+            new(new Rectangle(280, 166, 58, 58), SlotKind.Armor, null, _player.Armor, -1),
+            new(new Rectangle(248, 234, 58, 58), SlotKind.MeleeWeapon, null, _player.MeleeWeapon, -1),
+            new(new Rectangle(312, 234, 58, 58), SlotKind.RangedWeapon, null, _player.RangedWeapon, -1),
             new(new Rectangle(1174, 430, 58, 58), SlotKind.Trash, null, _player.Inventory.Trash, -1)
         };
 
@@ -388,8 +388,8 @@ public sealed class SciFiRogueGame : IDisposable
             list.Add(new UiSlot(new Rectangle(368 + c * 62, 166 + r * 62, 58, 58), SlotKind.Backpack, i, _player.Inventory.Items[i], i));
         }
 
-        list.Add(new UiSlot(new Rectangle(280, 364, 58, 58), SlotKind.MedkitStack, null, ItemStack.Consumable(ConsumableType.Medkit), -1));
-        list.Add(new UiSlot(new Rectangle(280, 430, 58, 58), SlotKind.StimStack, null, ItemStack.Consumable(ConsumableType.Stim), -1));
+        list.Add(new UiSlot(new Rectangle(280, 332, 58, 58), SlotKind.MedkitStack, null, ItemStack.Consumable(ConsumableType.Medkit), -1));
+        list.Add(new UiSlot(new Rectangle(280, 398, 58, 58), SlotKind.StimStack, null, ItemStack.Consumable(ConsumableType.Stim), -1));
 
         return list;
     }
@@ -557,6 +557,7 @@ public sealed class SciFiRogueGame : IDisposable
 
         Raylib.DrawRectangleLinesEx(new Rectangle(0, 0, World, World), 6f, Palette.C(120, 160, 220));
         Raylib.DrawCircleV(_player.Position, 16f, Color.SkyBlue);
+        DrawNearestZoneArrow();
         Raylib.EndMode2D();
     }
 
@@ -566,8 +567,8 @@ public sealed class SciFiRogueGame : IDisposable
         Raylib.DrawText($"HP {_player.Health:0}/{_player.MaxHealth:0} | Level {_player.Level} ({_player.Kills}/{_player.KillsTarget})", 20, 14, 24, Color.White);
 
         Raylib.DrawText("Weapons:", 20, 46, 20, Color.LightGray);
-        Raylib.DrawText($"Ranged: {_player.RangedWeapon?.Name ?? "None"}", 120, 46, 20, _player.RangedWeapon?.Color ?? Color.LightGray);
-        Raylib.DrawText($"Melee: {_player.MeleeWeapon?.Name ?? "None"}", 420, 46, 20, _player.MeleeWeapon?.Color ?? Color.LightGray);
+        Raylib.DrawText($"Ranged: {_player.RangedWeapon?.Name ?? "None"} {BuildWeaponDamageText(_player.RangedWeapon, WeaponClass.Ranged)}", 120, 46, 20, _player.RangedWeapon?.Color ?? Color.LightGray);
+        Raylib.DrawText($"Melee: {_player.MeleeWeapon?.Name ?? "None"} {BuildWeaponDamageText(_player.MeleeWeapon, WeaponClass.Melee)}", 420, 46, 20, _player.MeleeWeapon?.Color ?? Color.LightGray);
 
         Raylib.DrawText("Armor:", 20, 74, 20, Color.LightGray);
         Raylib.DrawText(_player.Armor?.Name ?? "None", 120, 74, 20, _player.Armor?.Color ?? Color.LightGray);
@@ -600,14 +601,16 @@ public sealed class SciFiRogueGame : IDisposable
             }
         }
 
-        Raylib.DrawText($"Medkit x{_player.Inventory.Medkits}", 280, 424, 16, Color.Green);
-        Raylib.DrawText($"Stim x{_player.Inventory.Stims}", 280, 490, 16, Color.Yellow);
+        Raylib.DrawText($"Medkit x{_player.Inventory.Medkits}", 280, 392, 16, Color.Green);
+        Raylib.DrawText($"Stim x{_player.Inventory.Stims}", 280, 458, 16, Color.Yellow);
 
         Raylib.DrawText($"STR {_player.Str}", 20, 172, 20, Color.LightGray);
         Raylib.DrawText($"DEX {_player.Dex}", 20, 202, 20, Color.LightGray);
         Raylib.DrawText($"SPD {_player.Spd}", 20, 232, 20, Color.LightGray);
         Raylib.DrawText($"GUN {_player.Guns}", 20, 262, 20, Color.LightGray);
         Raylib.DrawText($"Points {_player.StatPoints}", 20, 292, 20, Color.Yellow);
+
+        DrawStatTooltip();
 
         if (_player.StatPoints > 0)
         {
@@ -714,6 +717,65 @@ public sealed class SciFiRogueGame : IDisposable
 
     private static Rectangle CenterRect(int offsetX, int y, int w, int h) => new((Raylib.GetScreenWidth() - w) / 2f + offsetX, y, w, h);
     private static bool Clicked(Rectangle rect) => Raylib.IsMouseButtonPressed(MouseButton.Left) && Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), rect);
+
+    private void DrawNearestZoneArrow()
+    {
+        var nearest = _buildings
+            .Concat(_outposts)
+            .OrderBy(zone => Vector2.DistanceSquared(_player.Position, zone.Center))
+            .FirstOrDefault();
+
+        if (nearest is null) return;
+
+        var to = nearest.Center - _player.Position;
+        if (to.LengthSquared() < 0.01f) return;
+
+        var dir = Vector2.Normalize(to);
+        var normal = new Vector2(-dir.Y, dir.X);
+        var color = nearest.IsOutpost ? Palette.C(240, 108, 108) : Palette.C(120, 186, 255);
+        var tip = _player.Position + dir * 44f;
+        var backCenter = _player.Position + dir * 27f;
+        var p2 = backCenter + normal * 9f;
+        var p3 = backCenter - normal * 9f;
+        Raylib.DrawTriangle(tip, p2, p3, color);
+    }
+
+    private void DrawStatTooltip()
+    {
+        var mouse = Raylib.GetMousePosition();
+        var hints = new (Rectangle Rect, string Header, string Body)[]
+        {
+            (new Rectangle(20, 172, 180, 24), "STR", "Увеличивает урон ближнего боя."),
+            (new Rectangle(20, 202, 180, 24), "DEX", "Усиливает ближний урон, снижает входящий урон и шанс негативных эффектов."),
+            (new Rectangle(20, 232, 180, 24), "SPD", "Увеличивает скорость передвижения и рывка."),
+            (new Rectangle(20, 262, 180, 24), "GUN", "Увеличивает бонусный урон дальнего оружия.")
+        };
+
+        var hit = hints.FirstOrDefault(h => Raylib.CheckCollisionPointRec(mouse, h.Rect));
+        if (string.IsNullOrEmpty(hit.Header)) return;
+
+        var x = (int)mouse.X + 20;
+        var y = (int)mouse.Y + 14;
+        Raylib.DrawRectangle(x, y, 420, 72, Palette.C(0, 0, 0, 225));
+        Raylib.DrawRectangleLines(x, y, 420, 72, Color.SkyBlue);
+        Raylib.DrawText(hit.Header, x + 8, y + 8, 18, Color.White);
+        Raylib.DrawText(hit.Body, x + 8, y + 34, 16, Color.LightGray);
+    }
+
+    private string BuildWeaponDamageText(ItemStack? weapon, WeaponClass kind)
+    {
+        if (weapon is null) return string.Empty;
+
+        var bonus = kind == WeaponClass.Ranged
+            ? _player.GetRangedStatBonus()
+            : _player.GetMeleeStatBonus();
+
+        var total = kind == WeaponClass.Ranged
+            ? _player.GetRangedDamage()
+            : _player.GetMeleeDamage();
+
+        return $"dmg {total:0}(+{bonus:0})";
+    }
 
     private List<LootZone> GenerateZones(int count, bool outpost)
     {
@@ -846,7 +908,7 @@ public sealed class SciFiRogueGame : IDisposable
             for (var i = 0; i < strong; i++) list.Add(Enemy.CreateStrong(RandomPointIn(o.Rect)));
         }
 
-        var outdoorPatrols = _rng.Next(8, 13);
+        var outdoorPatrols = _rng.Next(12, 19);
         for (var i = 0; i < outdoorPatrols; i++)
         {
             var patrolA = RandomOutdoorPoint();
@@ -855,8 +917,15 @@ public sealed class SciFiRogueGame : IDisposable
             list.Add(Enemy.CreatePatrol(patrolA, patrolB, false));
         }
 
-        var outdoorStrong = _rng.Next(4, 8);
+        var outdoorStrong = _rng.Next(6, 11);
         for (var i = 0; i < outdoorStrong; i++) list.Add(Enemy.CreateStrong(RandomOutdoorPoint()));
+
+        var outdoorGuards = _rng.Next(10, 17);
+        for (var i = 0; i < outdoorGuards; i++)
+        {
+            var point = RandomOutdoorPoint();
+            list.Add(Enemy.CreatePatrol(point, point, false));
+        }
 
         return list;
     }
@@ -987,14 +1056,20 @@ public sealed class Player
     public float GetMeleeDamage()
     {
         var power = MeleeWeapon?.PowerBonus ?? 0f;
-        return (12f + Str * 2.2f + Dex * 0.6f + power) * 0.7f;
+        return (12f + GetMeleeStatBonusRaw() + power) * 0.7f;
     }
 
     public float GetRangedDamage()
     {
         var power = RangedWeapon?.PowerBonus ?? 0f;
-        return (9f + Guns * 2.4f + power) * 1.3f;
+        return (9f + GetRangedStatBonusRaw() + power) * 1.3f;
     }
+
+    public float GetMeleeStatBonus() => GetMeleeStatBonusRaw() * 0.7f;
+    public float GetRangedStatBonus() => GetRangedStatBonusRaw() * 1.3f;
+
+    private float GetMeleeStatBonusRaw() => Str * 2.2f + Dex * 0.6f;
+    private float GetRangedStatBonusRaw() => Guns * 2.4f;
 
     public float GetStatusEffectChance(float baseChance)
     {

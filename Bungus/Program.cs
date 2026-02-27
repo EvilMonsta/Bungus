@@ -38,6 +38,8 @@ public sealed class SciFiRogueGame : IDisposable
     private const int W = 1280;
     private const int H = 720;
     private const int World = 6000;
+    private const float MinZoneGap = 300f;
+    private const float CenterNoZoneRadius = 850f;
 
     private readonly Random _rng = new();
     private Camera2D _camera;
@@ -55,7 +57,7 @@ public sealed class SciFiRogueGame : IDisposable
     private List<LootZone> _buildings = [];
     private List<LootZone> _outposts = [];
     private List<Obstacle> _obstacles = [];
-    private List<Pickup> _pickups = [];
+    private List<LootChest> _chests = [];
 
     private DragPayload? _drag;
     private ItemStack? _hovered;
@@ -81,11 +83,9 @@ public sealed class SciFiRogueGame : IDisposable
         _explosions = [];
         _swings = [];
 
-        _buildings = GenerateZones(_rng.Next(14, 21), false);
-        _outposts = GenerateZones(_rng.Next(7, 11), true);
+        (_buildings, _outposts) = GenerateZones(_rng.Next(14, 21), _rng.Next(7, 11));
         _obstacles = GenerateObstacles();
-
-        _pickups = GeneratePickupsInZones();
+        _chests = GenerateChestsInZones();
         _enemies = GenerateEnemies();
         _bosses = GenerateBosses();
 
@@ -154,7 +154,7 @@ public sealed class SciFiRogueGame : IDisposable
         UpdateProjectiles(dt);
         UpdateSwings(dt);
         UpdateEffects(dt);
-        UpdatePickups();
+        UpdateChests();
         UpdateInventoryUi();
         UpdateLevelUi();
 
@@ -226,7 +226,7 @@ public sealed class SciFiRogueGame : IDisposable
             {
                 if (Vector2.Distance(p.Position, _player.Position) < 14f)
                 {
-                    _player.TakeDamage(8f + p.DamageBonus);
+                    _player.TakeDamage(p.Damage);
                     _explosions.Add(new Explosion(p.Position, 26f, p.Color));
                     _projectiles.RemoveAt(i);
                 }
@@ -237,7 +237,7 @@ public sealed class SciFiRogueGame : IDisposable
             Enemy? enemyHit = _enemies.FirstOrDefault(e => e.Alive && Vector2.Distance(e.Position, p.Position) < 15f);
             if (enemyHit is not null)
             {
-                enemyHit.Damage(enemyHit.MaxHealth / 3f + p.DamageBonus);
+                enemyHit.Damage(p.Damage);
                 enemyHit.ForceAggro(_player.Position);
                 enemyHit.JustHitByPlayer = true;
                 _explosions.Add(new Explosion(p.Position, 34f, p.Color));
@@ -248,7 +248,7 @@ public sealed class SciFiRogueGame : IDisposable
             BossEnemy? bossHit = _bosses.FirstOrDefault(b => b.Alive && Vector2.Distance(b.Position, p.Position) < 30f);
             if (bossHit is not null)
             {
-                bossHit.Damage(16f + p.DamageBonus);
+                bossHit.Damage(p.Damage);
                 _explosions.Add(new Explosion(p.Position, 34f, p.Color));
                 _projectiles.RemoveAt(i);
                 continue;
@@ -304,25 +304,22 @@ public sealed class SciFiRogueGame : IDisposable
 
         for (var i = _dashAfterImages.Count - 1; i >= 0; i--)
         {
-            _dashAfterImages[i].Life -= dt;
+            _dashAfterImages[i].Life -= dt * 3f;
             if (_dashAfterImages[i].Life <= 0f) _dashAfterImages.RemoveAt(i);
         }
     }
 
-    private void UpdatePickups()
+    private void UpdateChests()
     {
-        foreach (var p in _pickups.Where(x => !x.Picked))
+        foreach (var chest in _chests.Where(x => !x.Opened))
         {
-            if (Vector2.Distance(p.Position, _player.Position) > 22f) continue;
-            p.Picked = true;
+            if (Vector2.Distance(chest.Position, _player.Position) > 28f) continue;
 
-            if (p.Item.Type == ItemType.Consumable)
+            chest.Opened = true;
+            foreach (var item in chest.Items)
             {
-                _player.Inventory.AddConsumable(p.Item.ConsumableKind!.Value);
-            }
-            else
-            {
-                _player.Inventory.Items.Add(p.Item);
+                if (item.Type == ItemType.Consumable) _player.Inventory.AddConsumable(item.ConsumableKind!.Value);
+                else _player.Inventory.Items.Add(item);
             }
         }
     }
@@ -376,8 +373,8 @@ public sealed class SciFiRogueGame : IDisposable
         var list = new List<UiSlot>
         {
             new(new Rectangle(280, 166, 58, 58), SlotKind.Armor, null, _player.Armor, -1),
-            new(new Rectangle(248, 234, 58, 58), SlotKind.MeleeWeapon, null, _player.MeleeWeapon, -1),
-            new(new Rectangle(312, 234, 58, 58), SlotKind.RangedWeapon, null, _player.RangedWeapon, -1),
+            new(new Rectangle(280, 234, 58, 58), SlotKind.RangedWeapon, null, _player.RangedWeapon, -1),
+            new(new Rectangle(280, 298, 58, 58), SlotKind.MeleeWeapon, null, _player.MeleeWeapon, -1),
             new(new Rectangle(1174, 430, 58, 58), SlotKind.Trash, null, _player.Inventory.Trash, -1)
         };
 
@@ -517,12 +514,12 @@ public sealed class SciFiRogueGame : IDisposable
             Raylib.DrawRectangleLinesEx(obstacle.Rect, 1.5f, Palette.C(88, 96, 116, 255));
         }
 
-        foreach (var p in _pickups.Where(x => !x.Picked))
+        foreach (var chest in _chests)
         {
-            var rect = new Rectangle(p.Position.X - 12, p.Position.Y - 12, 24, 24);
-            Raylib.DrawRectangleRec(rect, Palette.C(20, 26, 36, 230));
-            Raylib.DrawRectangleLinesEx(rect, 1f, Color.Gray);
-            DrawItemIcon(p.Item, new Rectangle(rect.X + 4, rect.Y + 4, 16, 16));
+            var rect = new Rectangle(chest.Position.X - 14, chest.Position.Y - 10, 28, 20);
+            Raylib.DrawRectangleRec(rect, chest.Opened ? Palette.C(65, 65, 65, 180) : Palette.C(122, 82, 38, 240));
+            Raylib.DrawRectangleLinesEx(rect, 1.5f, chest.Opened ? Color.Gray : Color.Gold);
+            Raylib.DrawLine((int)rect.X, (int)(rect.Y + rect.Height / 2), (int)(rect.X + rect.Width), (int)(rect.Y + rect.Height / 2), Color.Black);
         }
 
         foreach (var ghost in _dashAfterImages) ghost.Draw();
@@ -557,7 +554,7 @@ public sealed class SciFiRogueGame : IDisposable
 
         Raylib.DrawRectangleLinesEx(new Rectangle(0, 0, World, World), 6f, Palette.C(120, 160, 220));
         Raylib.DrawCircleV(_player.Position, 16f, Color.SkyBlue);
-        DrawNearestZoneArrow();
+        DrawZoneArrows();
         Raylib.EndMode2D();
     }
 
@@ -568,13 +565,12 @@ public sealed class SciFiRogueGame : IDisposable
 
         Raylib.DrawText("Weapons:", 20, 46, 20, Color.LightGray);
         Raylib.DrawText($"Ranged: {_player.RangedWeapon?.Name ?? "None"} {BuildWeaponDamageText(_player.RangedWeapon, WeaponClass.Ranged)}", 120, 46, 20, _player.RangedWeapon?.Color ?? Color.LightGray);
-        Raylib.DrawText($"Melee: {_player.MeleeWeapon?.Name ?? "None"} {BuildWeaponDamageText(_player.MeleeWeapon, WeaponClass.Melee)}", 420, 46, 20, _player.MeleeWeapon?.Color ?? Color.LightGray);
+        Raylib.DrawText($"Melee: {_player.MeleeWeapon?.Name ?? "None"} {BuildWeaponDamageText(_player.MeleeWeapon, WeaponClass.Melee)}", 120, 70, 20, _player.MeleeWeapon?.Color ?? Color.LightGray);
 
-        Raylib.DrawText("Armor:", 20, 74, 20, Color.LightGray);
-        Raylib.DrawText(_player.Armor?.Name ?? "None", 120, 74, 20, _player.Armor?.Color ?? Color.LightGray);
+        Raylib.DrawText("Armor:", 420, 46, 20, Color.LightGray);
+        Raylib.DrawText(_player.Armor?.Name ?? "None", 500, 46, 20, _player.Armor?.Color ?? Color.LightGray);
 
-        Raylib.DrawText($"Consumables: Q Medkit({_player.Inventory.Medkits}) R Stim({_player.Inventory.Stims})", 660, 20, 20, Color.White);
-        Raylib.DrawText($"Stats: STR {_player.Str} DEX {_player.Dex} SPD {_player.Spd} GUN {_player.Guns} Points {_player.StatPoints}", 660, 50, 20, Color.White);
+        Raylib.DrawText($"Consumables: Q Medkit({_player.Inventory.Medkits}) R Stim({_player.Inventory.Stims})", 760, 20, 20, Color.White);
         Raylib.DrawText("WASD move | LMB attack | E switch active weapon | TAB inventory | ESC menu", 20, Raylib.GetScreenHeight() - 28, 18, Color.Gray);
     }
 
@@ -718,31 +714,27 @@ public sealed class SciFiRogueGame : IDisposable
     private static Rectangle CenterRect(int offsetX, int y, int w, int h) => new((Raylib.GetScreenWidth() - w) / 2f + offsetX, y, w, h);
     private static bool Clicked(Rectangle rect) => Raylib.IsMouseButtonPressed(MouseButton.Left) && Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), rect);
 
-    private void DrawNearestZoneArrow()
+    private void DrawZoneArrows()
     {
-        var nearest = _buildings
-            .Concat(_outposts)
-            .OrderBy(zone =>
-            {
-                var center = new Vector2(zone.Rect.X + zone.Rect.Width / 2f, zone.Rect.Y + zone.Rect.Height / 2f);
-                return Vector2.DistanceSquared(_player.Position, center);
-            })
-            .FirstOrDefault();
+        DrawZoneArrow(_buildings, Palette.C(80, 170, 255));
+        DrawZoneArrow(_outposts, Palette.C(245, 90, 90));
+    }
 
+    private void DrawZoneArrow(List<LootZone> zones, Color color)
+    {
+        var nearest = zones
+            .OrderBy(zone => Vector2.DistanceSquared(_player.Position, zone.Center))
+            .FirstOrDefault();
         if (nearest is null) return;
 
-        var nearestCenter = new Vector2(nearest.Rect.X + nearest.Rect.Width / 2f, nearest.Rect.Y + nearest.Rect.Height / 2f);
-        var to = nearestCenter - _player.Position;
+        var to = nearest.Center - _player.Position;
         if (to.LengthSquared() < 0.01f) return;
 
         var dir = Vector2.Normalize(to);
         var normal = new Vector2(-dir.Y, dir.X);
-        var color = nearest.IsOutpost ? Palette.C(240, 108, 108) : Palette.C(120, 186, 255);
-        var tip = _player.Position + dir * 44f;
-        var backCenter = _player.Position + dir * 27f;
-        var p2 = backCenter + normal * 9f;
-        var p3 = backCenter - normal * 9f;
-        Raylib.DrawTriangle(tip, p2, p3, color);
+        var tip = _player.Position + dir * 46f;
+        var backCenter = _player.Position + dir * 28f;
+        Raylib.DrawTriangle(tip, backCenter + normal * 9f, backCenter - normal * 9f, color);
     }
 
     private void DrawStatTooltip()
@@ -782,39 +774,66 @@ public sealed class SciFiRogueGame : IDisposable
         return $"dmg {total:0}(+{bonus:0})";
     }
 
-    private List<LootZone> GenerateZones(int count, bool outpost)
+    private (List<LootZone> buildings, List<LootZone> outposts) GenerateZones(int buildingCount, int outpostCount)
     {
-        var list = new List<LootZone>();
-        for (var i = 0; i < count; i++)
-        {
-            var size = outpost ? new Vector2(_rng.Next(330, 450), _rng.Next(330, 450)) : new Vector2(_rng.Next(250, 360), _rng.Next(250, 360));
-            var pos = new Vector2(_rng.Next(120, World - (int)size.X - 120), _rng.Next(120, World - (int)size.Y - 120));
-            list.Add(new LootZone(new Rectangle(pos, size), outpost));
-        }
-        return list;
+        var all = new List<LootZone>();
+
+        PlaceZones(all, buildingCount, false);
+        PlaceZones(all, outpostCount, true);
+
+        return (all.Where(x => !x.IsOutpost).ToList(), all.Where(x => x.IsOutpost).ToList());
     }
 
-    private List<Pickup> GeneratePickupsInZones()
+    private void PlaceZones(List<LootZone> all, int count, bool outpost)
     {
-        var list = new List<Pickup>();
-
-        foreach (var b in _buildings)
+        var created = 0;
+        var attempts = 0;
+        while (created < count && attempts < count * 180)
         {
-            var amount = _rng.Next(1, 4);
-            for (var i = 0; i < amount; i++)
-            {
-                var p = RandomPointIn(b.Rect);
-                list.Add(new Pickup(p, RollLoot(false)));
-            }
+            attempts++;
+            var size = outpost
+                ? new Vector2(_rng.Next(520, 780), _rng.Next(520, 780))
+                : new Vector2(_rng.Next(420, 620), _rng.Next(420, 620));
+            var pos = new Vector2(_rng.Next(80, World - (int)size.X - 80), _rng.Next(80, World - (int)size.Y - 80));
+            var rect = new Rectangle(pos, size);
+            if (!IsZonePlacementValid(rect, all)) continue;
+            all.Add(new LootZone(rect, outpost));
+            created++;
+        }
+    }
+
+    private bool IsZonePlacementValid(Rectangle rect, List<LootZone> existing)
+    {
+        var center = new Vector2(rect.X + rect.Width / 2f, rect.Y + rect.Height / 2f);
+        var worldCenter = new Vector2(World / 2f, World / 2f);
+        if (Vector2.Distance(center, worldCenter) < CenterNoZoneRadius + MathF.Max(rect.Width, rect.Height) * 0.5f)
+        {
+            return false;
         }
 
-        foreach (var o in _outposts)
+        foreach (var zone in existing)
         {
-            var amount = _rng.Next(3, 6);
-            for (var i = 0; i < amount; i++)
+            if (RectDistance(rect, zone.Rect) < MinZoneGap) return false;
+        }
+
+        return true;
+    }
+
+    private List<LootChest> GenerateChestsInZones()
+    {
+        var list = new List<LootChest>();
+
+        foreach (var zone in _buildings.Concat(_outposts))
+        {
+            var chestCount = _rng.Next(1, 4);
+            var itemsHighTier = zone.IsOutpost;
+            for (var i = 0; i < chestCount; i++)
             {
-                var p = RandomPointIn(o.Rect);
-                list.Add(new Pickup(p, RollLoot(true)));
+                var pos = RandomPointInZoneSafe(zone.Rect, 20f);
+                var lootCount = _rng.Next(1, 4);
+                var loot = new List<ItemStack>();
+                for (var l = 0; l < lootCount; l++) loot.Add(RollLoot(itemsHighTier));
+                list.Add(new LootChest(pos, loot));
             }
         }
 
@@ -848,13 +867,25 @@ public sealed class SciFiRogueGame : IDisposable
     private Vector2 RandomPointIn(Rectangle r)
         => new(_rng.Next((int)r.X + 18, (int)(r.X + r.Width - 18)), _rng.Next((int)r.Y + 18, (int)(r.Y + r.Height - 18)));
 
-    private Vector2 RandomOutdoorPoint()
+    private Vector2 RandomPointInZoneSafe(Rectangle zoneRect, float radius)
+    {
+        for (var i = 0; i < 100; i++)
+        {
+            var point = RandomPointIn(zoneRect);
+            if (!MovementUtils.CircleHitsObstacle(point, radius, _obstacles)) return point;
+        }
+
+        return new Vector2(zoneRect.X + zoneRect.Width / 2f, zoneRect.Y + zoneRect.Height / 2f);
+    }
+
+    private Vector2 RandomOutdoorPoint(float radius = 14f)
     {
         while (true)
         {
             var point = new Vector2(_rng.Next(100, World - 100), _rng.Next(100, World - 100));
             if (_buildings.Any(z => Raylib.CheckCollisionPointRec(point, z.Rect))) continue;
             if (_outposts.Any(z => Raylib.CheckCollisionPointRec(point, z.Rect))) continue;
+            if (MovementUtils.CircleHitsObstacle(point, radius, _obstacles)) continue;
             return point;
         }
     }
@@ -865,14 +896,23 @@ public sealed class SciFiRogueGame : IDisposable
 
         foreach (var zone in _buildings.Concat(_outposts))
         {
-            var count = zone.IsOutpost ? _rng.Next(5, 8) : _rng.Next(3, 6);
+            var count = zone.IsOutpost ? _rng.Next(6, 10) : _rng.Next(4, 7);
             for (var i = 0; i < count; i++)
             {
-                var w = zone.IsOutpost ? _rng.Next(60, 110) : _rng.Next(44, 84);
-                var h = zone.IsOutpost ? _rng.Next(60, 110) : _rng.Next(44, 84);
-                var x = _rng.Next((int)zone.Rect.X + 18, (int)(zone.Rect.X + zone.Rect.Width - w - 18));
-                var y = _rng.Next((int)zone.Rect.Y + 18, (int)(zone.Rect.Y + zone.Rect.Height - h - 18));
-                list.Add(new Obstacle(new Rectangle(x, y, w, h)));
+                var tries = 0;
+                while (tries++ < 60)
+                {
+                    var w = zone.IsOutpost ? _rng.Next(70, 128) : _rng.Next(52, 96);
+                    var h = zone.IsOutpost ? _rng.Next(70, 128) : _rng.Next(52, 96);
+                    var x = _rng.Next((int)zone.Rect.X + 18, (int)(zone.Rect.X + zone.Rect.Width - w - 18));
+                    var y = _rng.Next((int)zone.Rect.Y + 18, (int)(zone.Rect.Y + zone.Rect.Height - h - 18));
+                    var rect = new Rectangle(x, y, w, h);
+
+                    if (list.Any(o => RectDistance(rect, o.Rect) < 10f)) continue;
+
+                    list.Add(new Obstacle(rect));
+                    break;
+                }
             }
         }
 
@@ -888,15 +928,15 @@ public sealed class SciFiRogueGame : IDisposable
             var count = _rng.Next(2, 4);
             for (var i = 0; i < count; i++)
             {
-                var patrolA = RandomPointIn(b.Rect);
-                var patrolB = RandomPointIn(b.Rect);
+                var patrolA = RandomPointInZoneSafe(b.Rect, 14f);
+                var patrolB = RandomPointInZoneSafe(b.Rect, 14f);
                 list.Add(Enemy.CreatePatrol(patrolA, patrolB, false));
             }
 
             var strongCount = _rng.Next(1, 3);
             for (var i = 0; i < strongCount; i++)
             {
-                list.Add(Enemy.CreateStrong(RandomPointIn(b.Rect)));
+                list.Add(Enemy.CreateStrong(RandomPointInZoneSafe(b.Rect, 14f)));
             }
         }
 
@@ -905,12 +945,12 @@ public sealed class SciFiRogueGame : IDisposable
             var count = _rng.Next(5, 8);
             for (var i = 0; i < count; i++)
             {
-                var patrolA = RandomPointIn(o.Rect);
-                var patrolB = RandomPointIn(o.Rect);
+                var patrolA = RandomPointInZoneSafe(o.Rect, 14f);
+                var patrolB = RandomPointInZoneSafe(o.Rect, 14f);
                 list.Add(Enemy.CreatePatrol(patrolA, patrolB, true));
             }
             var strong = _rng.Next(3, 5);
-            for (var i = 0; i < strong; i++) list.Add(Enemy.CreateStrong(RandomPointIn(o.Rect)));
+            for (var i = 0; i < strong; i++) list.Add(Enemy.CreateStrong(RandomPointInZoneSafe(o.Rect, 14f)));
         }
 
         var outdoorPatrols = _rng.Next(12, 19);
@@ -919,6 +959,7 @@ public sealed class SciFiRogueGame : IDisposable
             var patrolA = RandomOutdoorPoint();
             var patrolB = patrolA + new Vector2(_rng.Next(-160, 161), _rng.Next(-160, 161));
             patrolB = Vector2.Clamp(patrolB, new Vector2(40f, 40f), new Vector2(World - 40f, World - 40f));
+            if (MovementUtils.CircleHitsObstacle(patrolB, 14f, _obstacles)) patrolB = patrolA;
             list.Add(Enemy.CreatePatrol(patrolA, patrolB, false));
         }
 
@@ -944,6 +985,13 @@ public sealed class SciFiRogueGame : IDisposable
             list.Add(new BossEnemy(center));
         }
         return list;
+    }
+
+    private static float RectDistance(Rectangle a, Rectangle b)
+    {
+        var dx = MathF.Max(0f, MathF.Max(b.X - (a.X + a.Width), a.X - (b.X + b.Width)));
+        var dy = MathF.Max(0f, MathF.Max(b.Y - (a.Y + a.Height), a.Y - (b.Y + b.Height)));
+        return MathF.Sqrt(dx * dx + dy * dy);
     }
 
     public void Dispose() => Raylib.CloseWindow();
@@ -1047,7 +1095,7 @@ public sealed class Player
         if (ActiveWeaponClass == WeaponClass.Ranged)
         {
             var bonus = GetRangedDamage();
-            projectiles.Add(new Projectile(Position + dir * 18f, dir, 520f, 1.15f, weapon.Color, false, bonus * 0.15f));
+            projectiles.Add(new Projectile(Position + dir * 18f, dir, 520f, 1.15f, weapon.Color, false, bonus));
             _attackCd = 0.22f;
         }
         else
@@ -1179,8 +1227,8 @@ public sealed class Enemy
             IsPatrol = true,
             _patrolA = a,
             _patrolB = b,
-            MaxHealth = outpost ? 130f : 100f,
-            Health = outpost ? 130f : 100f
+            MaxHealth = 100f,
+            Health = 100f
         };
         return e;
     }
@@ -1190,8 +1238,8 @@ public sealed class Enemy
         var e = new Enemy(pos)
         {
             IsStrong = true,
-            MaxHealth = 220f,
-            Health = 220f
+            MaxHealth = 300f,
+            Health = 300f
         };
         return e;
     }
@@ -1314,7 +1362,7 @@ public sealed class Enemy
         {
             var dir = playerPos - Position;
             if (dir != Vector2.Zero) dir = Vector2.Normalize(dir);
-            projectiles.Add(new Projectile(Position + dir * 16f, dir, 420f, 1.4f, Palette.C(255, 120, 120), true, 2f));
+            projectiles.Add(new Projectile(Position + dir * 16f, dir, 420f, 1.4f, Palette.C(255, 120, 120), true, 10f));
             _burstShotsLeft--;
             _burstShotCd = 0.13f;
         }
@@ -1383,8 +1431,8 @@ public sealed class Enemy
 public sealed class BossEnemy
 {
     public Vector2 Position;
-    public float MaxHealth = 900f;
-    public float Health = 900f;
+    public float MaxHealth = 2000f;
+    public float Health = 2000f;
     public bool Alive => Health > 0;
     public bool KillAwarded;
 
@@ -1430,7 +1478,7 @@ public sealed class BossEnemy
 
         if (_shootCd <= 0f)
         {
-            projectiles.Add(new Projectile(Position + dir * 28f, dir, 460f, 1.3f, Palette.C(255, 150, 120), true, 4f));
+            projectiles.Add(new Projectile(Position + dir * 28f, dir, 460f, 1.3f, Palette.C(255, 150, 120), true, 12f));
             _shootCd = 1.1f;
         }
 
@@ -1490,12 +1538,12 @@ public sealed class BossEnemy
     }
 }
 
-public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life, Color color, bool ownerEnemy, float damageBonus)
+public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life, Color color, bool ownerEnemy, float damage)
 {
     public Vector2 Position { get; private set; } = pos;
     public Color Color { get; } = color;
     public bool OwnerEnemy { get; } = ownerEnemy;
-    public float DamageBonus { get; } = damageBonus;
+    public float Damage { get; } = damage;
     private float _life = life;
     public bool Alive => _life > 0f;
 
@@ -1529,6 +1577,7 @@ public sealed class LootZone(Rectangle rect, bool isOutpost)
 {
     public Rectangle Rect { get; } = rect;
     public bool IsOutpost { get; } = isOutpost;
+    public Vector2 Center => new(Rect.X + Rect.Width / 2f, Rect.Y + Rect.Height / 2f);
 }
 
 public sealed class Obstacle(Rectangle rect)
@@ -1659,11 +1708,11 @@ public static class VisibilityUtils
         => new(rect.X - pad, rect.Y - pad, rect.Width + pad * 2f, rect.Height + pad * 2f);
 }
 
-public sealed class Pickup(Vector2 position, ItemStack item)
+public sealed class LootChest(Vector2 position, List<ItemStack> items)
 {
     public Vector2 Position { get; } = position;
-    public ItemStack Item { get; } = item;
-    public bool Picked { get; set; }
+    public List<ItemStack> Items { get; } = items;
+    public bool Opened { get; set; }
 }
 
 public sealed class Inventory

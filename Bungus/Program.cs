@@ -63,6 +63,8 @@ public sealed class SciFiRogueGame : IDisposable
     private ItemStack? _hovered;
     private bool _pendingUpgrade;
     private StatType _pendingStat;
+    private int? _openedChestIndex;
+    private bool _requestExit;
 
     public SciFiRogueGame()
     {
@@ -99,6 +101,7 @@ public sealed class SciFiRogueGame : IDisposable
         {
             var dt = Raylib.GetFrameTime();
             Update(dt);
+            if (_requestExit) break;
             Draw();
         }
     }
@@ -118,7 +121,7 @@ public sealed class SciFiRogueGame : IDisposable
     {
         if (Clicked(CenterRect(0, 250, 320, 62))) { StartRun(); _state = GameState.Playing; }
         if (Clicked(CenterRect(0, 330, 320, 62))) { }
-        if (Clicked(CenterRect(0, 410, 320, 62))) Raylib.CloseWindow();
+        if (Clicked(CenterRect(0, 410, 320, 62))) _requestExit = true;
     }
 
     private void UpdatePause()
@@ -136,7 +139,11 @@ public sealed class SciFiRogueGame : IDisposable
     private void UpdatePlaying(float dt)
     {
         if (Raylib.IsKeyPressed(KeyboardKey.Escape)) { _state = GameState.Paused; return; }
-        if (Raylib.IsKeyPressed(KeyboardKey.Tab)) _player.InventoryOpen = !_player.InventoryOpen;
+        if (Raylib.IsKeyPressed(KeyboardKey.Tab))
+        {
+            _player.InventoryOpen = !_player.InventoryOpen;
+            if (!_player.InventoryOpen) _openedChestIndex = null;
+        }
 
         _player.Update(dt, _obstacles, World, _dashAfterImages);
         if (Raylib.IsKeyPressed(KeyboardKey.Q)) _player.UseMedkit();
@@ -311,16 +318,30 @@ public sealed class SciFiRogueGame : IDisposable
 
     private void UpdateChests()
     {
-        foreach (var chest in _chests.Where(x => !x.Opened))
+        for (var i = 0; i < _chests.Count; i++)
         {
+            var chest = _chests[i];
             if (Vector2.Distance(chest.Position, _player.Position) > 28f) continue;
+            if (!Raylib.IsKeyPressed(KeyboardKey.F)) continue;
 
             chest.Opened = true;
-            foreach (var item in chest.Items)
-            {
-                if (item.Type == ItemType.Consumable) _player.Inventory.AddConsumable(item.ConsumableKind!.Value);
-                else _player.Inventory.Items.Add(item);
-            }
+            _openedChestIndex = i;
+            _player.InventoryOpen = true;
+            break;
+        }
+
+        if (_openedChestIndex is null) return;
+
+        var openedChest = _chests[_openedChestIndex.Value];
+        if (Vector2.Distance(openedChest.Position, _player.Position) > 120f)
+        {
+            _openedChestIndex = null;
+            return;
+        }
+
+        if (openedChest.Items.Count == 0)
+        {
+            _openedChestIndex = null;
         }
     }
 
@@ -375,34 +396,38 @@ public sealed class SciFiRogueGame : IDisposable
             new(new Rectangle(280, 166, 58, 58), SlotKind.Armor, null, _player.Armor, -1),
             new(new Rectangle(280, 234, 58, 58), SlotKind.RangedWeapon, null, _player.RangedWeapon, -1),
             new(new Rectangle(280, 298, 58, 58), SlotKind.MeleeWeapon, null, _player.MeleeWeapon, -1),
+            new(new Rectangle(280, 392, 58, 58), SlotKind.MedkitSlot, null, _player.Inventory.MedkitSlot, -1),
+            new(new Rectangle(344, 392, 58, 58), SlotKind.StimSlot, null, _player.Inventory.StimSlot, -1),
             new(new Rectangle(1174, 430, 58, 58), SlotKind.Trash, null, _player.Inventory.Trash, -1)
         };
 
-        for (var i = 0; i < _player.Inventory.Items.Count; i++)
+        for (var i = 0; i < _player.Inventory.BackpackSlots.Count; i++)
         {
-            var c = i % 12;
-            var r = i / 12;
-            list.Add(new UiSlot(new Rectangle(368 + c * 62, 166 + r * 62, 58, 58), SlotKind.Backpack, i, _player.Inventory.Items[i], i));
+            var c = i % 10;
+            var r = i / 10;
+            list.Add(new UiSlot(new Rectangle(430 + c * 62, 166 + r * 62, 58, 58), SlotKind.Backpack, i, _player.Inventory.BackpackSlots[i], i));
         }
 
-        list.Add(new UiSlot(new Rectangle(280, 332, 58, 58), SlotKind.MedkitStack, null, ItemStack.Consumable(ConsumableType.Medkit), -1));
-        list.Add(new UiSlot(new Rectangle(280, 398, 58, 58), SlotKind.StimStack, null, ItemStack.Consumable(ConsumableType.Stim), -1));
+        if (_openedChestIndex is not null)
+        {
+            var chest = _chests[_openedChestIndex.Value];
+            for (var i = 0; i < 5; i++)
+            {
+                var c = i % 5;
+                var r = i / 5;
+                var item = i < chest.Items.Count ? chest.Items[i] : null;
+                list.Add(new UiSlot(new Rectangle(20 + c * 62, 166 + r * 62, 58, 58), SlotKind.Chest, i, item, i));
+            }
+        }
 
         return list;
     }
 
     private void ApplyDrop(DragPayload drag, UiSlot target)
     {
-        if (drag.Item.Type == ItemType.Consumable) return;
-
         if (target.Kind == SlotKind.Trash)
         {
-            if (_player.Inventory.Trash is not null)
-            {
-                // previous in trash is deleted
-                _player.Inventory.Trash = null;
-            }
-
+            _player.Inventory.Trash = null;
             _player.Inventory.Trash = drag.Item;
             RemoveFromSource(drag);
             return;
@@ -413,7 +438,7 @@ public sealed class SciFiRogueGame : IDisposable
             var old = _player.Armor;
             _player.Armor = drag.Item;
             RemoveFromSource(drag);
-            if (old is not null) _player.Inventory.Items.Add(old);
+            if (old is not null) _player.Inventory.AddToBackpack(old);
             return;
         }
 
@@ -422,7 +447,7 @@ public sealed class SciFiRogueGame : IDisposable
             var old = _player.RangedWeapon;
             _player.RangedWeapon = drag.Item;
             RemoveFromSource(drag);
-            if (old is not null) _player.Inventory.Items.Add(old);
+            if (old is not null) _player.Inventory.AddToBackpack(old);
             return;
         }
 
@@ -431,22 +456,68 @@ public sealed class SciFiRogueGame : IDisposable
             var old = _player.MeleeWeapon;
             _player.MeleeWeapon = drag.Item;
             RemoveFromSource(drag);
-            if (old is not null) _player.Inventory.Items.Add(old);
+            if (old is not null) _player.Inventory.AddToBackpack(old);
+            return;
+        }
+
+        if (target.Kind == SlotKind.MedkitSlot && drag.Item.Type == ItemType.Consumable && drag.Item.ConsumableKind == ConsumableType.Medkit)
+        {
+            var old = _player.Inventory.MedkitSlot;
+            _player.Inventory.MedkitSlot = drag.Item;
+            RemoveFromSource(drag);
+            if (old is not null) _player.Inventory.AddToBackpack(old);
+            return;
+        }
+
+        if (target.Kind == SlotKind.StimSlot && drag.Item.Type == ItemType.Consumable && drag.Item.ConsumableKind == ConsumableType.Stim)
+        {
+            var old = _player.Inventory.StimSlot;
+            _player.Inventory.StimSlot = drag.Item;
+            RemoveFromSource(drag);
+            if (old is not null) _player.Inventory.AddToBackpack(old);
             return;
         }
 
         if (target.Kind == SlotKind.Backpack && drag.Kind == SlotKind.Backpack && drag.Index >= 0 && target.Index >= 0)
         {
-            (_player.Inventory.Items[drag.Index], _player.Inventory.Items[target.Index]) =
-                (_player.Inventory.Items[target.Index], _player.Inventory.Items[drag.Index]);
+            (_player.Inventory.BackpackSlots[drag.Index], _player.Inventory.BackpackSlots[target.Index]) =
+                (_player.Inventory.BackpackSlots[target.Index], _player.Inventory.BackpackSlots[drag.Index]);
+            return;
+        }
+
+        if (target.Kind == SlotKind.Backpack && target.Index >= 0)
+        {
+            if (_player.Inventory.BackpackSlots[target.Index] is null)
+            {
+                _player.Inventory.BackpackSlots[target.Index] = drag.Item;
+                RemoveFromSource(drag);
+            }
+            return;
+        }
+
+        if (target.Kind == SlotKind.Chest && _openedChestIndex is not null)
+        {
+            var chest = _chests[_openedChestIndex.Value];
+            if (drag.Kind == SlotKind.Chest && drag.Index >= 0 && target.Index >= 0 && drag.Index < chest.Items.Count && target.Index < chest.Items.Count)
+            {
+                (chest.Items[drag.Index], chest.Items[target.Index]) = (chest.Items[target.Index], chest.Items[drag.Index]);
+                return;
+            }
+
+            if (drag.Kind != SlotKind.Chest && chest.Items.Count < 5)
+            {
+                var insertAt = Math.Clamp(target.Index, 0, chest.Items.Count);
+                chest.Items.Insert(insertAt, drag.Item);
+                RemoveFromSource(drag);
+            }
         }
     }
 
     private void RemoveFromSource(DragPayload drag)
     {
-        if (drag.Kind == SlotKind.Backpack && drag.Index >= 0 && drag.Index < _player.Inventory.Items.Count)
+        if (drag.Kind == SlotKind.Backpack && drag.Index >= 0 && drag.Index < _player.Inventory.BackpackSlots.Count)
         {
-            _player.Inventory.Items.RemoveAt(drag.Index);
+            _player.Inventory.BackpackSlots[drag.Index] = null;
         }
         else if (drag.Kind == SlotKind.Armor)
         {
@@ -459,6 +530,18 @@ public sealed class SciFiRogueGame : IDisposable
         else if (drag.Kind == SlotKind.MeleeWeapon)
         {
             _player.MeleeWeapon = null;
+        }
+        else if (drag.Kind == SlotKind.MedkitSlot)
+        {
+            _player.Inventory.MedkitSlot = null;
+        }
+        else if (drag.Kind == SlotKind.StimSlot)
+        {
+            _player.Inventory.StimSlot = null;
+        }
+        else if (drag.Kind == SlotKind.Chest && _openedChestIndex is not null && drag.Index >= 0)
+        {
+            _chests[_openedChestIndex.Value].Items.RemoveAt(drag.Index);
         }
     }
 
@@ -520,6 +603,11 @@ public sealed class SciFiRogueGame : IDisposable
             Raylib.DrawRectangleRec(rect, chest.Opened ? Palette.C(65, 65, 65, 180) : Palette.C(122, 82, 38, 240));
             Raylib.DrawRectangleLinesEx(rect, 1.5f, chest.Opened ? Color.Gray : Color.Gold);
             Raylib.DrawLine((int)rect.X, (int)(rect.Y + rect.Height / 2), (int)(rect.X + rect.Width), (int)(rect.Y + rect.Height / 2), Color.Black);
+
+            if (Vector2.Distance(chest.Position, _player.Position) < 30f)
+            {
+                Raylib.DrawText("F", (int)rect.X + 10, (int)rect.Y - 18, 18, Color.Gold);
+            }
         }
 
         foreach (var ghost in _dashAfterImages) ghost.Draw();
@@ -563,14 +651,9 @@ public sealed class SciFiRogueGame : IDisposable
         Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), 116, Palette.C(0, 0, 0, 170));
         Raylib.DrawText($"HP {_player.Health:0}/{_player.MaxHealth:0} | Level {_player.Level} ({_player.Kills}/{_player.KillsTarget})", 20, 14, 24, Color.White);
 
-        Raylib.DrawText("Weapons:", 20, 46, 20, Color.LightGray);
-        Raylib.DrawText($"Ranged: {_player.RangedWeapon?.Name ?? "None"} {BuildWeaponDamageText(_player.RangedWeapon, WeaponClass.Ranged)}", 120, 46, 20, _player.RangedWeapon?.Color ?? Color.LightGray);
-        Raylib.DrawText($"Melee: {_player.MeleeWeapon?.Name ?? "None"} {BuildWeaponDamageText(_player.MeleeWeapon, WeaponClass.Melee)}", 120, 70, 20, _player.MeleeWeapon?.Color ?? Color.LightGray);
-
-        Raylib.DrawText("Armor:", 420, 46, 20, Color.LightGray);
-        Raylib.DrawText(_player.Armor?.Name ?? "None", 500, 46, 20, _player.Armor?.Color ?? Color.LightGray);
-
-        Raylib.DrawText($"Consumables: Q Medkit({_player.Inventory.Medkits}) R Stim({_player.Inventory.Stims})", 760, 20, 20, Color.White);
+        var activeWeapon = _player.ActiveWeaponClass == WeaponClass.Ranged ? _player.RangedWeapon : _player.MeleeWeapon;
+        Raylib.DrawText($"Current: {activeWeapon?.Name ?? "None"} {BuildWeaponDamageText(activeWeapon, _player.ActiveWeaponClass)}", 20, 48, 22, activeWeapon?.Color ?? Color.LightGray);
+        Raylib.DrawText($"Consumables: Q [{(_player.Inventory.MedkitSlot is null ? "-" : "Medkit")}]  R [{(_player.Inventory.StimSlot is null ? "-" : "Stim")}]", 20, 78, 20, Color.White);
         Raylib.DrawText("WASD move | LMB attack | E switch active weapon | TAB inventory | ESC menu", 20, Raylib.GetScreenHeight() - 28, 18, Color.Gray);
     }
 
@@ -580,7 +663,7 @@ public sealed class SciFiRogueGame : IDisposable
 
         Raylib.DrawRectangle(10, 124, 1240, 380, Palette.C(6, 10, 20, 230));
         Raylib.DrawRectangleLines(10, 124, 1240, 380, Color.SkyBlue);
-        Raylib.DrawText("Equipment left, inventory right (drag/drop). Trash is bottom-right.", 20, 132, 20, Color.White);
+        Raylib.DrawText(_openedChestIndex is null ? "Inventory (drag/drop)." : "Chest left, backpack right (drag/drop).", 20, 132, 20, Color.White);
 
         var slots = BuildSlots();
         foreach (var slot in slots)
@@ -591,14 +674,16 @@ public sealed class SciFiRogueGame : IDisposable
             {
                 Raylib.DrawText("TR", (int)slot.Rect.X + 16, (int)slot.Rect.Y + 18, 20, Color.Orange);
             }
+            if (slot.Kind == SlotKind.MedkitSlot) Raylib.DrawText("Q", (int)slot.Rect.X + 20, (int)slot.Rect.Y - 18, 16, Color.Green);
+            if (slot.Kind == SlotKind.StimSlot) Raylib.DrawText("R", (int)slot.Rect.X + 20, (int)slot.Rect.Y - 18, 16, Color.Yellow);
             if (slot.Item is not null)
             {
                 DrawItemIcon(slot.Item, new Rectangle(slot.Rect.X + 8, slot.Rect.Y + 8, 42, 42));
             }
         }
 
-        Raylib.DrawText($"Medkit x{_player.Inventory.Medkits}", 280, 392, 16, Color.Green);
-        Raylib.DrawText($"Stim x{_player.Inventory.Stims}", 280, 458, 16, Color.Yellow);
+        DrawBackpackGrid(new Vector2(430, 166), 10, 3);
+        if (_openedChestIndex is not null) DrawBackpackGrid(new Vector2(20, 166), 5, 1);
 
         Raylib.DrawText($"STR {_player.Str}", 20, 172, 20, Color.LightGray);
         Raylib.DrawText($"DEX {_player.Dex}", 20, 202, 20, Color.LightGray);
@@ -626,6 +711,18 @@ public sealed class SciFiRogueGame : IDisposable
         if (_hovered is not null)
         {
             DrawTooltip(_hovered, Raylib.GetMousePosition());
+        }
+    }
+
+    private static void DrawBackpackGrid(Vector2 origin, int cols, int rows)
+    {
+        for (var r = 0; r < rows; r++)
+        {
+            for (var c = 0; c < cols; c++)
+            {
+                var rect = new Rectangle(origin.X + c * 62, origin.Y + r * 62, 58, 58);
+                Raylib.DrawRectangleLinesEx(rect, 1f, Palette.C(70, 90, 130, 170));
+            }
         }
     }
 
@@ -830,7 +927,7 @@ public sealed class SciFiRogueGame : IDisposable
             for (var i = 0; i < chestCount; i++)
             {
                 var pos = RandomPointInZoneSafe(zone.Rect, 20f);
-                var lootCount = _rng.Next(1, 4);
+                var lootCount = _rng.Next(1, 6);
                 var loot = new List<ItemStack>();
                 for (var l = 0; l < lootCount; l++) loot.Add(RollLoot(itemsHighTier));
                 list.Add(new LootChest(pos, loot));
@@ -1038,9 +1135,6 @@ public sealed class Player
         RangedWeapon = ItemStack.Weapon(WeaponClass.Ranged, ArmorRarity.Common, new Random());
         MeleeWeapon = ItemStack.Weapon(WeaponClass.Melee, ArmorRarity.Common, new Random());
         Armor = ItemStack.Armor(ArmorRarity.Common, new Random());
-
-        Inventory.Medkits = 2;
-        Inventory.Stims = 2;
     }
 
     public static Player Create(Vector2 p) => new(p);
@@ -1134,15 +1228,15 @@ public sealed class Player
 
     public void UseMedkit()
     {
-        if (Inventory.Medkits <= 0 || Health >= MaxHp) return;
-        Inventory.Medkits--;
+        if (Inventory.MedkitSlot?.ConsumableKind != ConsumableType.Medkit || Health >= MaxHp) return;
+        Inventory.MedkitSlot = null;
         Health = MathF.Min(MaxHp, Health + 36f);
     }
 
     public void UseStim()
     {
-        if (Inventory.Stims <= 0) return;
-        Inventory.Stims--;
+        if (Inventory.StimSlot?.ConsumableKind != ConsumableType.Stim) return;
+        Inventory.StimSlot = null;
         _stim = 6f;
     }
 
@@ -1717,16 +1811,24 @@ public sealed class LootChest(Vector2 position, List<ItemStack> items)
 
 public sealed class Inventory
 {
-    public List<ItemStack> Items { get; } = [];
-    public int Medkits { get; set; }
-    public int Stims { get; set; }
+    public const int BackpackCapacity = 30;
+
+    public List<ItemStack?> BackpackSlots { get; } = Enumerable.Repeat<ItemStack?>(null, BackpackCapacity).ToList();
+    public ItemStack? MedkitSlot { get; set; }
+    public ItemStack? StimSlot { get; set; }
 
     public ItemStack? Trash { get; set; }
 
-    public void AddConsumable(ConsumableType type)
+    public bool AddToBackpack(ItemStack item)
     {
-        if (type == ConsumableType.Medkit) Medkits++;
-        if (type == ConsumableType.Stim) Stims++;
+        for (var i = 0; i < BackpackSlots.Count; i++)
+        {
+            if (BackpackSlots[i] is not null) continue;
+            BackpackSlots[i] = item;
+            return true;
+        }
+
+        return false;
     }
 }
 
@@ -1808,8 +1910,9 @@ public enum SlotKind
     Armor,
     Trash,
     Backpack,
-    MedkitStack,
-    StimStack
+    MedkitSlot,
+    StimSlot,
+    Chest
 }
 
 public sealed class UiSlot(Rectangle rect, SlotKind kind, int? index, ItemStack? item, int slotId)

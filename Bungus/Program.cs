@@ -37,7 +37,7 @@ public sealed class SciFiRogueGame : IDisposable
 {
     private const int W = 1280;
     private const int H = 720;
-    private const int World = 12000;
+    private const int World = 6000;
 
     private readonly Random _rng = new();
     private Camera2D _camera;
@@ -81,8 +81,8 @@ public sealed class SciFiRogueGame : IDisposable
         _explosions = [];
         _swings = [];
 
-        _buildings = GenerateZones(8, false);
-        _outposts = GenerateZones(5, true);
+        _buildings = GenerateZones(_rng.Next(14, 21), false);
+        _outposts = GenerateZones(_rng.Next(7, 11), true);
         _obstacles = GenerateObstacles();
 
         _pickups = GeneratePickupsInZones();
@@ -722,12 +722,17 @@ public sealed class SciFiRogueGame : IDisposable
     {
         var nearest = _buildings
             .Concat(_outposts)
-            .OrderBy(zone => Vector2.DistanceSquared(_player.Position, zone.Center))
+            .OrderBy(zone =>
+            {
+                var center = new Vector2(zone.Rect.X + zone.Rect.Width / 2f, zone.Rect.Y + zone.Rect.Height / 2f);
+                return Vector2.DistanceSquared(_player.Position, center);
+            })
             .FirstOrDefault();
 
         if (nearest is null) return;
 
-        var to = nearest.Center - _player.Position;
+        var nearestCenter = new Vector2(nearest.Rect.X + nearest.Rect.Width / 2f, nearest.Rect.Y + nearest.Rect.Height / 2f);
+        var to = nearestCenter - _player.Position;
         if (to.LengthSquared() < 0.01f) return;
 
         var dir = Vector2.Normalize(to);

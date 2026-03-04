@@ -77,12 +77,17 @@ public sealed class SciFiRogueGame : IDisposable
 
     private DragPayload? _drag;
     private ItemStack? _hovered;
+    private SlotKind _lastClickKind;
+    private int _lastClickIndex = -1;
+    private double _lastClickTime;
     private bool _pendingUpgrade;
     private StatType _pendingStat;
     private int? _openedChestIndex;
     private bool _requestExit;
     private readonly List<VisualTheme> _themes;
     private int _themeIndex;
+
+    private static readonly Rectangle TakeAllButtonRect = new(760, 266, 170, 34);
 
     public SciFiRogueGame()
     {
@@ -179,6 +184,7 @@ public sealed class SciFiRogueGame : IDisposable
         }
 
         _player.Update(dt, _obstacles, World, _dashAfterImages);
+        _player.UpdateCombat(dt, _projectiles);
         if (Raylib.IsKeyPressed(KeyboardKey.Q)) _player.UseMedkit();
         if (Raylib.IsKeyPressed(KeyboardKey.R)) _player.UseStim();
         if (Raylib.IsKeyPressed(KeyboardKey.E)) _player.SwitchActiveWeapon();
@@ -355,6 +361,13 @@ public sealed class SciFiRogueGame : IDisposable
             if (Vector2.Distance(chest.Position, _player.Position) > 28f) continue;
             if (!Raylib.IsKeyPressed(KeyboardKey.F)) continue;
 
+            if (_openedChestIndex == i)
+            {
+                _openedChestIndex = null;
+                _player.InventoryOpen = false;
+                break;
+            }
+
             chest.Opened = true;
             _openedChestIndex = i;
             _player.InventoryOpen = true;
@@ -367,12 +380,8 @@ public sealed class SciFiRogueGame : IDisposable
         if (Vector2.Distance(openedChest.Position, _player.Position) > 120f)
         {
             _openedChestIndex = null;
+            _player.InventoryOpen = false;
             return;
-        }
-
-        if (openedChest.Items.Count == 0)
-        {
-            _openedChestIndex = null;
         }
     }
 
@@ -391,11 +400,33 @@ public sealed class SciFiRogueGame : IDisposable
 
         if (Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
-            var from = slots.FirstOrDefault(s => s.Item is not null && Raylib.CheckCollisionPointRec(m, s.Rect));
+            var from = slots.FirstOrDefault(s => Raylib.CheckCollisionPointRec(m, s.Rect));
             if (from is not null)
             {
+                var now = Raylib.GetTime();
+                var isDoubleClick = from.Item is not null &&
+                                    from.Kind == _lastClickKind &&
+                                    from.Index == _lastClickIndex &&
+                                    now - _lastClickTime <= 0.3;
+
+                _lastClickKind = from.Kind;
+                _lastClickIndex = from.Index;
+                _lastClickTime = now;
+
+                if (isDoubleClick && from.Item is not null && HandleDoubleClick(from))
+                {
+                    _drag = null;
+                    return;
+                }
+
+                if (from.Item is null) return;
                 _drag = new DragPayload(from.Kind, from.Index, from.Item!);
             }
+        }
+
+        if (_openedChestIndex is not null && Clicked(TakeAllButtonRect))
+        {
+            MoveAllFromChestToBackpack();
         }
 
         if (Raylib.IsMouseButtonReleased(MouseButton.Left) && _drag is not null)
@@ -404,6 +435,73 @@ public sealed class SciFiRogueGame : IDisposable
             if (to is not null) ApplyDrop(_drag, to);
             _drag = null;
         }
+    }
+
+    private bool HandleDoubleClick(UiSlot slot)
+    {
+        if (slot.Kind == SlotKind.Chest && _openedChestIndex is not null)
+        {
+            return MoveChestItemToBackpack(slot.Index);
+        }
+
+        if (slot.Kind == SlotKind.Backpack)
+        {
+            return EquipFromBackpack(slot.Index);
+        }
+
+        return false;
+    }
+
+    private bool MoveChestItemToBackpack(int chestIndex)
+    {
+        if (_openedChestIndex is null || chestIndex < 0) return false;
+
+        var chest = _chests[_openedChestIndex.Value];
+        if (chestIndex >= chest.Items.Count) return false;
+
+        var item = chest.Items[chestIndex];
+        if (!_player.Inventory.AddToBackpack(item)) return false;
+
+        chest.Items.RemoveAt(chestIndex);
+        return true;
+    }
+
+    private void MoveAllFromChestToBackpack()
+    {
+        if (_openedChestIndex is null) return;
+
+        var chest = _chests[_openedChestIndex.Value];
+        for (var i = chest.Items.Count - 1; i >= 0; i--)
+        {
+            var item = chest.Items[i];
+            if (_player.Inventory.AddToBackpack(item)) chest.Items.RemoveAt(i);
+        }
+    }
+
+    private bool EquipFromBackpack(int backpackIndex)
+    {
+        if (backpackIndex < 0 || backpackIndex >= _player.Inventory.BackpackSlots.Count) return false;
+        if (_openedChestIndex is not null) return false;
+
+        var item = _player.Inventory.BackpackSlots[backpackIndex];
+        if (item is null) return false;
+
+        if (item.Type == ItemType.Armor)
+        {
+            (_player.Armor, _player.Inventory.BackpackSlots[backpackIndex]) = (item, _player.Armor);
+            return true;
+        }
+
+        if (item.Type != ItemType.Weapon || item.WeaponKind is null) return false;
+
+        if (item.WeaponKind == WeaponClass.Ranged)
+        {
+            (_player.RangedWeapon, _player.Inventory.BackpackSlots[backpackIndex]) = (item, _player.RangedWeapon);
+            return true;
+        }
+
+        (_player.MeleeWeapon, _player.Inventory.BackpackSlots[backpackIndex]) = (item, _player.MeleeWeapon);
+        return true;
     }
 
     private void UpdateLevelUi()
@@ -762,6 +860,7 @@ public sealed class SciFiRogueGame : IDisposable
             Raylib.DrawRectangleLines(730, 138, 350, 170, Color.SkyBlue);
             Raylib.DrawText("Chest", 740, 150, 24, Color.White);
             DrawBackpackGrid(new Vector2(760, 190), 5, 1);
+            DrawButton(TakeAllButtonRect, "Take all");
         }
 
         foreach (var slot in slots)
@@ -1197,6 +1296,11 @@ public sealed class Player
     private float _dodgeCd;
     private float _stim;
     private float _bleed;
+    private int _pulseQueuedShots;
+    private float _pulseShotCd;
+    private Vector2 _pulseDir;
+    private Color _pulseColor;
+    private float _pulseDamage;
 
     public Vector2 Position { get; private set; }
     public float Health { get; private set; }
@@ -1227,8 +1331,8 @@ public sealed class Player
         Position = p;
         Health = MaxHp;
 
-        RangedWeapon = ItemStack.Weapon(WeaponClass.Ranged, ArmorRarity.Common, new Random());
-        MeleeWeapon = ItemStack.Weapon(WeaponClass.Melee, ArmorRarity.Common, new Random());
+        RangedWeapon = ItemStack.StartingPistol();
+        MeleeWeapon = ItemStack.StartingMelee();
         Armor = ItemStack.Armor(ArmorRarity.Common, new Random());
     }
 
@@ -1286,12 +1390,12 @@ public sealed class Player
             var bonus = GetRangedDamage();
             if (weapon.Pattern == WeaponPattern.PulseRifle)
             {
-                for (var i = 0; i < 3; i++)
-                {
-                    var spread = (i - 1) * (MathF.PI / 120f);
-                    var shotDir = VisibilityUtils.Rotate(dir, spread);
-                    projectiles.Add(new Projectile(Position + shotDir * 18f, shotDir, 560f, 1.0f, weapon.Color, false, bonus * 0.72f));
-                }
+                FirePulseShot(projectiles, dir, weapon.Color, bonus * 0.36f);
+                _pulseQueuedShots = 2;
+                _pulseShotCd = 0.08f;
+                _pulseDir = dir;
+                _pulseColor = weapon.Color;
+                _pulseDamage = bonus * 0.36f;
                 _attackCd = 0.34f;
             }
             else
@@ -1314,6 +1418,24 @@ public sealed class Player
                 _attackCd = 0.32f;
             }
         }
+    }
+
+    public void UpdateCombat(float dt, List<Projectile> projectiles)
+    {
+        if (_pulseQueuedShots <= 0) return;
+
+        _pulseShotCd -= dt;
+        while (_pulseQueuedShots > 0 && _pulseShotCd <= 0f)
+        {
+            FirePulseShot(projectiles, _pulseDir, _pulseColor, _pulseDamage);
+            _pulseQueuedShots--;
+            _pulseShotCd += 0.08f;
+        }
+    }
+
+    private void FirePulseShot(List<Projectile> projectiles, Vector2 dir, Color color, float damage)
+    {
+        projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, 1.0f, color, false, damage));
     }
 
     public float GetMeleeDamage()
@@ -2069,6 +2191,16 @@ public sealed class ItemStack
         }
 
         return new ItemStack(ItemType.Weapon, name, description, rarity, Palette.Rarity(rarity), kind, pattern, null, 0f, p);
+    }
+
+    public static ItemStack StartingPistol()
+    {
+        return new ItemStack(ItemType.Weapon, "Rail Pistol", "Weapon. Drag to matching slot.", ArmorRarity.Common, Palette.Rarity(ArmorRarity.Common), WeaponClass.Ranged, WeaponPattern.Standard, null, 0f, 1.5f);
+    }
+
+    public static ItemStack StartingMelee()
+    {
+        return new ItemStack(ItemType.Weapon, "Plasma Blade", "Weapon. Drag to matching slot.", ArmorRarity.Common, Palette.Rarity(ArmorRarity.Common), WeaponClass.Melee, WeaponPattern.Standard, null, 0f, 1.2f);
     }
 
     public static ItemStack Consumable(ConsumableType t)

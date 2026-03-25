@@ -1,4 +1,5 @@
 ﻿using System.Numerics;
+using System.Text.Json;
 using Raylib_cs;
 
 namespace Bungus.Game;
@@ -12,7 +13,7 @@ public static class Program
     }
 }
 
-public enum GameState { MainMenu, Settings, Playing, Paused, Death }
+public enum GameState { MainMenu, MapSelect, Storage, Character, Settings, Playing, Paused, Death }
 public enum WeaponClass { Melee, Ranged }
 public enum ItemType { Weapon, Armor, Consumable }
 public enum ConsumableType { Medkit, Stim }
@@ -58,6 +59,10 @@ public sealed class SciFiRogueGame : IDisposable
     private const int World = 6000;
     private const float MinZoneGap = 300f;
     private const float CenterNoZoneRadius = 850f;
+    private const float PortalUnlockDelay = 120f;
+    private const float PortalLifetime = 300f;
+    private static readonly string SaveFilePath = Path.Combine(AppContext.BaseDirectory, "save", "profile.json");
+    private static readonly JsonSerializerOptions SaveJsonOptions = new() { WriteIndented = true };
 
     private readonly Random _rng = new();
     private Camera2D _camera;
@@ -92,6 +97,16 @@ public sealed class SciFiRogueGame : IDisposable
     private readonly List<VisualTheme> _themes;
     private int _themeIndex;
     private float _nextHexSpawnTimer;
+    private readonly MetaProfile _meta = new();
+    private readonly List<ExtractPortal> _extractPortals = [];
+    private string _selectedMapName = "Baselands";
+    private int _runScore;
+    private float _portalUnlockTimer;
+    private float _portalActiveTimer;
+    private string _noticeText = string.Empty;
+    private float _noticeTimer;
+    private string _deathHeader = "You Died";
+    private string _deathBody = "All carried items were lost.";
 
     private static readonly Rectangle TakeAllButtonRect = new(760, 266, 170, 34);
 
@@ -105,17 +120,26 @@ public sealed class SciFiRogueGame : IDisposable
 
         _camera = new Camera2D { Zoom = 1.08f, Rotation = 0f };
         _themes = BuildThemes();
-        StartRun();
+        LoadPersistentState();
     }
 
     private VisualTheme Theme => _themes[_themeIndex];
 
-    private void StartRun()
+    private void StartRun(string mapName)
     {
+        _selectedMapName = mapName;
         (_buildings, _outposts) = GenerateZones(_rng.Next(14, 21), _rng.Next(7, 11));
         _obstacles = GenerateObstacles();
         _chests = GenerateChestsInZones();
-        _player = Player.Create(GeneratePlayerSpawnPoint());
+        _player = Player.Create(
+            GeneratePlayerSpawnPoint(),
+            GetCommonHealthBonus(),
+            GetCommonDamageBonus(),
+            TakeMetaLoadoutItem(SlotKind.RangedWeapon),
+            TakeMetaLoadoutItem(SlotKind.MeleeWeapon),
+            TakeMetaLoadoutItem(SlotKind.Armor),
+            TakeMetaLoadoutItem(SlotKind.QuickSlotQ),
+            TakeMetaLoadoutItem(SlotKind.QuickSlotR));
         _projectiles = [];
         _explosions = [];
         _swings = [];
@@ -125,9 +149,19 @@ public sealed class SciFiRogueGame : IDisposable
         _miniBosses = GenerateMiniBosses();
         _destroyerBoss = GenerateDestroyerBoss();
         _nextHexSpawnTimer = NextHexSpawnDelay();
+        _extractPortals.Clear();
+        _runScore = 0;
+        _portalUnlockTimer = PortalUnlockDelay;
+        _portalActiveTimer = PortalLifetime;
+        _player.InventoryOpen = false;
+        _openedChestIndex = null;
+        _drag = null;
+        _hovered = null;
+        _pendingUpgrade = false;
 
         _camera.Offset = new Vector2(Raylib.GetScreenWidth() / 2f, Raylib.GetScreenHeight() / 2f);
         _camera.Target = _player.Position;
+        SavePersistentState();
     }
 
     public void Run()
@@ -146,26 +180,80 @@ public sealed class SciFiRogueGame : IDisposable
         switch (_state)
         {
             case GameState.MainMenu: UpdateMainMenu(); break;
+            case GameState.MapSelect: UpdateMapSelect(); break;
+            case GameState.Storage: UpdateStorage(); break;
+            case GameState.Character: UpdateCharacter(); break;
             case GameState.Settings: UpdateSettings(); break;
             case GameState.Playing: UpdatePlaying(dt); break;
             case GameState.Paused: UpdatePause(); break;
             case GameState.Death: UpdateDeath(); break;
         }
+
+        if (_noticeTimer > 0f)
+        {
+            _noticeTimer -= dt;
+            if (_noticeTimer <= 0f) _noticeText = string.Empty;
+        }
     }
 
     private void UpdateMainMenu()
     {
-        if (Clicked(CenterRect(0, 250, 320, 62))) { StartRun(); _state = GameState.Playing; }
-        if (Clicked(CenterRect(0, 330, 320, 62))) _state = GameState.Settings;
-        if (Clicked(CenterRect(0, 410, 320, 62))) _requestExit = true;
+        if (Clicked(MainMenuButtonRect(0))) { ClearUiInteraction(); _state = GameState.MapSelect; }
+        if (Clicked(MainMenuButtonRect(1))) { ClearUiInteraction(); _state = GameState.Storage; }
+        if (Clicked(MainMenuButtonRect(2))) { ClearUiInteraction(); _state = GameState.Character; }
+        if (Clicked(MainMenuButtonRect(3))) { ClearUiInteraction(); _state = GameState.Settings; }
+        if (Clicked(MainMenuButtonRect(4))) _requestExit = true;
     }
 
+    private void UpdateMapSelect()
+    {
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(new Rectangle(70, 620, 220, 52)))
+        {
+            ClearUiInteraction();
+            _state = GameState.MainMenu;
+            return;
+        }
+
+        var card = new Rectangle(340, 170, 600, 320);
+        var deploy = new Rectangle(340, 520, 280, 58);
+        if (Clicked(card) || Clicked(deploy))
+        {
+            ClearUiInteraction();
+            StartRun("Baselands");
+            _state = GameState.Playing;
+        }
+    }
+
+    private void UpdateStorage()
+    {
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(new Rectangle(70, 620, 220, 52)))
+        {
+            ClearUiInteraction();
+            _state = GameState.MainMenu;
+            return;
+        }
+
+        UpdateStorageUi();
+    }
+
+    private void UpdateCharacter()
+    {
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(new Rectangle(70, 620, 220, 52)))
+        {
+            ClearUiInteraction();
+            _state = GameState.MainMenu;
+        }
+    }
 
     private void UpdateSettings()
     {
         for (var i = 0; i < _themes.Count; i++)
         {
-            if (Clicked(CenterRect(0, 220 + i * 68, 360, 56))) _themeIndex = i;
+            if (Clicked(CenterRect(0, 220 + i * 68, 360, 56)))
+            {
+                _themeIndex = i;
+                SavePersistentState();
+            }
         }
 
         if (Clicked(CenterRect(0, 620, 280, 56)) || Raylib.IsKeyPressed(KeyboardKey.Escape)) _state = GameState.MainMenu;
@@ -174,13 +262,14 @@ public sealed class SciFiRogueGame : IDisposable
     private void UpdatePause()
     {
         if (Raylib.IsKeyPressed(KeyboardKey.Escape)) _state = GameState.Playing;
-        if (Clicked(CenterRect(0, 350, 320, 62))) _state = GameState.MainMenu;
+        if (Clicked(CenterRect(0, 320, 320, 62))) _state = GameState.Playing;
+        if (Clicked(CenterRect(0, 400, 320, 62))) FailRun("Run abandoned", "All carried items were lost.");
     }
 
     private void UpdateDeath()
     {
-        if (Clicked(CenterRect(0, 320, 320, 62))) { StartRun(); _state = GameState.Playing; }
-        if (Clicked(CenterRect(0, 400, 320, 62))) _state = GameState.MainMenu;
+        if (Clicked(CenterRect(0, 320, 320, 62))) { StartRun(_selectedMapName); _state = GameState.Playing; }
+        if (Clicked(CenterRect(0, 400, 320, 62))) { ClearUiInteraction(); _state = GameState.MainMenu; }
     }
 
     private void UpdatePlaying(float dt)
@@ -216,9 +305,11 @@ public sealed class SciFiRogueGame : IDisposable
         UpdateInventoryUi();
         UpdateLevelUi();
         if (_drag is null) _player.Inventory.AutoFillConsumableSlots();
+        UpdateExtraction(dt);
+        if (_state != GameState.Playing) return;
 
         _camera.Target = Vector2.Lerp(_camera.Target, _player.Position, 0.2f);
-        if (_player.Health <= 0) _state = GameState.Death;
+        if (_player.Health <= 0) FailRun("You Died", "All carried items were lost.");
     }
 
     private float NextHexSpawnDelay() => 20f + _rng.NextSingle() * 160f;
@@ -241,6 +332,7 @@ public sealed class SciFiRogueGame : IDisposable
             {
                 e.KillAwarded = true;
                 _player.RegisterKill();
+                AddRunScore(e.IsStrong ? 20 : 10);
             }
         }
 
@@ -275,6 +367,7 @@ public sealed class SciFiRogueGame : IDisposable
             {
                 h.KillAwarded = true;
                 _player.RegisterKill();
+                AddRunScore(25);
             }
         }
     }
@@ -288,6 +381,7 @@ public sealed class SciFiRogueGame : IDisposable
             {
                 turret.KillAwarded = true;
                 _player.RegisterKill();
+                AddRunScore(20);
             }
         }
     }
@@ -303,6 +397,7 @@ public sealed class SciFiRogueGame : IDisposable
                 _player.RegisterKill();
                 _player.RegisterKill();
                 _player.RegisterKill();
+                AddRunScore(100);
             }
         }
     }
@@ -320,6 +415,7 @@ public sealed class SciFiRogueGame : IDisposable
             _player.RegisterKill();
             _player.RegisterKill();
             _player.RegisterKill();
+            AddRunScore(1000);
             _chests.Add(new LootChest(_destroyerBoss.Position, [ItemStack.BossGrenadeLauncher()]));
         }
     }
@@ -664,6 +760,178 @@ public sealed class SciFiRogueGame : IDisposable
         return false;
     }
 
+    private void UpdateStorageUi()
+    {
+        _hovered = null;
+        var slots = BuildStorageSlots();
+        var mouse = Raylib.GetMousePosition();
+
+        foreach (var slot in slots)
+        {
+            if (Raylib.CheckCollisionPointRec(mouse, slot.Rect)) _hovered = slot.Item;
+        }
+
+        if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            var from = slots.FirstOrDefault(s => Raylib.CheckCollisionPointRec(mouse, s.Rect));
+            if (from is not null)
+            {
+                var now = Raylib.GetTime();
+                var isDoubleClick = from.Item is not null &&
+                                    from.Kind == _lastClickKind &&
+                                    from.Index == _lastClickIndex &&
+                                    now - _lastClickTime <= 0.3;
+
+                _lastClickKind = from.Kind;
+                _lastClickIndex = from.Index;
+                _lastClickTime = now;
+
+                if (isDoubleClick && from.Item is not null && HandleStorageDoubleClick(from))
+                {
+                    _drag = null;
+                    return;
+                }
+
+                if (from.Item is null) return;
+                _drag = new DragPayload(from.Kind, from.Index, from.Item);
+            }
+        }
+
+        if (Raylib.IsMouseButtonReleased(MouseButton.Left) && _drag is not null)
+        {
+            var to = slots.FirstOrDefault(s => Raylib.CheckCollisionPointRec(mouse, s.Rect));
+            if (to is not null) ApplyStorageDrop(_drag, to);
+            _drag = null;
+        }
+    }
+
+    private bool HandleStorageDoubleClick(UiSlot slot)
+    {
+        if (slot.Kind == SlotKind.Storage)
+        {
+            return EquipFromStorage(slot.Index);
+        }
+
+        if (IsMetaLoadoutSlot(slot.Kind))
+        {
+            return MoveLoadoutItemToStorage(slot.Kind);
+        }
+
+        return false;
+    }
+
+    private bool EquipFromStorage(int storageIndex)
+    {
+        if (storageIndex < 0 || storageIndex >= _meta.StorageSlots.Count) return false;
+
+        var item = _meta.StorageSlots[storageIndex];
+        if (item is null) return false;
+
+        var target = GetPreferredLoadoutSlot(item);
+        if (target is null) return false;
+
+        var old = GetMetaLoadoutItem(target.Value);
+        SetMetaLoadoutItem(target.Value, item);
+        _meta.StorageSlots[storageIndex] = old;
+        SavePersistentState();
+        return true;
+    }
+
+    private bool MoveLoadoutItemToStorage(SlotKind kind)
+    {
+        var item = GetMetaLoadoutItem(kind);
+        if (item is null) return false;
+        if (!_meta.AddToStorage(item)) return false;
+        SetMetaLoadoutItem(kind, null);
+        SavePersistentState();
+        return true;
+    }
+
+    private List<UiSlot> BuildStorageSlots()
+    {
+        var list = new List<UiSlot>();
+
+        for (var i = 0; i < _meta.StorageSlots.Count; i++)
+        {
+            var c = i % 10;
+            var r = i / 10;
+            list.Add(new UiSlot(new Rectangle(414 + c * 48, 174 + r * 46, 42, 42), SlotKind.Storage, i, _meta.StorageSlots[i], i));
+        }
+
+        list.AddRange(
+        [
+            new UiSlot(new Rectangle(238, 226, 58, 58), SlotKind.Armor, -1, _meta.Armor, -1),
+            new UiSlot(new Rectangle(238, 294, 58, 58), SlotKind.RangedWeapon, -1, _meta.RangedWeapon, -1),
+            new UiSlot(new Rectangle(238, 362, 58, 58), SlotKind.MeleeWeapon, -1, _meta.MeleeWeapon, -1),
+            new UiSlot(new Rectangle(206, 454, 58, 58), SlotKind.QuickSlotQ, -1, _meta.QuickSlotQ, -1),
+            new UiSlot(new Rectangle(272, 454, 58, 58), SlotKind.QuickSlotR, -1, _meta.QuickSlotR, -1),
+            new UiSlot(new Rectangle(130, 536, 58, 58), SlotKind.Trash, -1, _meta.Trash, -1)
+        ]);
+
+        return list;
+    }
+
+    private void ApplyStorageDrop(DragPayload drag, UiSlot target)
+    {
+        if (drag.Kind == target.Kind && drag.Index == target.Index) return;
+
+        if (target.Kind == SlotKind.Trash)
+        {
+            _meta.Trash = drag.Item;
+            ReplaceStorageSourceWith(drag, null);
+            SavePersistentState();
+            return;
+        }
+
+        if (target.Kind == SlotKind.Storage)
+        {
+            var old = _meta.StorageSlots[target.Index];
+            if (!CanReplaceStorageSource(drag, old)) return;
+
+            _meta.StorageSlots[target.Index] = drag.Item;
+            ReplaceStorageSourceWith(drag, old);
+            SavePersistentState();
+            return;
+        }
+
+        if (!IsMetaLoadoutSlot(target.Kind) || !CanPlaceIntoSlot(target.Kind, drag.Item)) return;
+
+        var existing = GetMetaLoadoutItem(target.Kind);
+        if (!CanReplaceStorageSource(drag, existing)) return;
+
+        SetMetaLoadoutItem(target.Kind, drag.Item);
+        ReplaceStorageSourceWith(drag, existing);
+        SavePersistentState();
+    }
+
+    private bool CanReplaceStorageSource(DragPayload drag, ItemStack? replacement)
+    {
+        if (replacement is null) return true;
+        if (drag.Kind == SlotKind.Storage) return true;
+        if (IsMetaLoadoutSlot(drag.Kind) && CanPlaceIntoSlot(drag.Kind, replacement)) return true;
+        return _meta.HasFreeStorageSlot();
+    }
+
+    private void ReplaceStorageSourceWith(DragPayload drag, ItemStack? replacement)
+    {
+        if (drag.Kind == SlotKind.Storage)
+        {
+            _meta.StorageSlots[drag.Index] = replacement;
+            return;
+        }
+
+        if (!IsMetaLoadoutSlot(drag.Kind)) return;
+
+        if (replacement is null || CanPlaceIntoSlot(drag.Kind, replacement))
+        {
+            SetMetaLoadoutItem(drag.Kind, replacement);
+            return;
+        }
+
+        SetMetaLoadoutItem(drag.Kind, null);
+        _meta.AddToStorage(replacement);
+    }
+
     private bool MoveChestItemToBackpack(int chestIndex)
     {
         if (_openedChestIndex is null || chestIndex < 0) return false;
@@ -917,6 +1185,15 @@ public sealed class SciFiRogueGame : IDisposable
             case GameState.MainMenu:
                 DrawMainMenu();
                 break;
+            case GameState.MapSelect:
+                DrawMapSelect();
+                break;
+            case GameState.Storage:
+                DrawStorage();
+                break;
+            case GameState.Character:
+                DrawCharacter();
+                break;
             case GameState.Settings:
                 DrawSettings();
                 break;
@@ -935,6 +1212,8 @@ public sealed class SciFiRogueGame : IDisposable
                 DrawDeath();
                 break;
         }
+
+        DrawNotice();
 
         Raylib.EndDrawing();
     }
@@ -974,6 +1253,8 @@ public sealed class SciFiRogueGame : IDisposable
                 Raylib.DrawText("F", (int)rect.X + 10, (int)rect.Y - 18, 18, Color.Gold);
             }
         }
+
+        foreach (var portal in _extractPortals) portal.Draw((float)Raylib.GetTime());
 
         foreach (var ghost in _dashAfterImages) ghost.Draw();
 
@@ -1031,6 +1312,8 @@ public sealed class SciFiRogueGame : IDisposable
         var activeWeapon = _player.ActiveWeaponClass == WeaponClass.Ranged ? _player.RangedWeapon : _player.MeleeWeapon;
         Raylib.DrawText($"Current: {activeWeapon?.Name ?? "None"} {BuildWeaponDamageText(activeWeapon, _player.ActiveWeaponClass)}", 20, 48, 22, activeWeapon?.Color ?? Color.LightGray);
         Raylib.DrawText($"Consumables: Q [{(_player.Inventory.QuickSlotQ?.Name ?? "-")}]  R [{(_player.Inventory.QuickSlotR?.Name ?? "-")}]", 20, 78, 20, Color.White);
+        Raylib.DrawText($"Run score {_runScore}", 20, 108, 20, Color.Gold);
+        DrawExtractionHud();
         Raylib.DrawText("WASD move | LMB attack | E switch active weapon | TAB inventory | ESC menu", 20, Raylib.GetScreenHeight() - 28, 18, Color.Gray);
         DrawZoneArrows();
     }
@@ -1159,10 +1442,111 @@ public sealed class SciFiRogueGame : IDisposable
 
     private void DrawMainMenu()
     {
-        DrawTitle("BUNGUS", 120, 80);
-        DrawButton(CenterRect(0, 250, 320, 62), "Play");
-        DrawButton(CenterRect(0, 330, 320, 62), "Settings");
-        DrawButton(CenterRect(0, 410, 320, 62), "Exit");
+        DrawTitle("BUNGUS", 72, 84);
+        Raylib.DrawText("alpha 0.1.0", 86, 150, 24, Palette.C(150, 185, 220));
+
+        var heroPanel = new Rectangle(340, 150, 720, 300);
+        Raylib.DrawRectangleRec(heroPanel, Palette.C(8, 16, 28, 220));
+        Raylib.DrawRectangleLinesEx(heroPanel, 2f, Palette.C(110, 170, 230));
+        Raylib.DrawText("Baselands Deployment Program", 382, 188, 34, Color.White);
+        Raylib.DrawText("Prepare your loadout, dive into the wastes and extract before the portals collapse.", 382, 236, 24, Color.LightGray);
+        Raylib.DrawText($"General level {_meta.Level}", 382, 300, 28, Color.Gold);
+        Raylib.DrawText($"Progress {_meta.Score}/{GetMetaScoreRequired(_meta.Level)}", 382, 338, 24, Color.White);
+        Raylib.DrawText($"+{GetCommonHealthBonus():0} max HP on landing", 382, 382, 22, Palette.C(140, 220, 160));
+        Raylib.DrawText($"+{GetCommonDamageBonus():0} base damage on landing", 382, 412, 22, Palette.C(255, 210, 120));
+
+        DrawButton(MainMenuButtonRect(0), "Play");
+        DrawButton(MainMenuButtonRect(1), "Storage");
+        DrawButton(MainMenuButtonRect(2), "Character");
+        DrawButton(MainMenuButtonRect(3), "Settings");
+        DrawButton(MainMenuButtonRect(4), "Exit");
+    }
+
+    private void DrawMapSelect()
+    {
+        DrawTitle("Select Map", 64, 66);
+        Raylib.DrawText("Choose your landing zone", 72, 118, 26, Color.LightGray);
+
+        var card = new Rectangle(340, 170, 600, 320);
+        var hover = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), card);
+        Raylib.DrawRectangleRec(card, hover ? Palette.C(22, 40, 62) : Palette.C(14, 24, 40));
+        Raylib.DrawRectangleLinesEx(card, 2f, Palette.C(116, 180, 235));
+
+        var sky = new Rectangle(card.X + 24, card.Y + 24, card.Width - 48, 120);
+        Raylib.DrawRectangleRec(sky, Palette.C(34, 58, 86));
+        Raylib.DrawCircleGradient((int)(sky.X + sky.Width - 90), (int)(sky.Y + 48), 42, Palette.C(250, 214, 120), Palette.C(250, 214, 120, 30));
+        Raylib.DrawRectangle((int)card.X + 40, (int)card.Y + 220, 160, 54, Palette.C(60, 96, 126));
+        Raylib.DrawRectangle((int)card.X + 240, (int)card.Y + 196, 122, 78, Palette.C(112, 74, 58));
+        Raylib.DrawRectangle((int)card.X + 408, (int)card.Y + 182, 180, 92, Palette.C(138, 84, 64));
+        Raylib.DrawCircle((int)card.X + 178, (int)card.Y + 248, 16, Palette.C(80, 170, 255));
+        Raylib.DrawCircle((int)card.X + 498, (int)card.Y + 238, 24, Palette.C(220, 92, 82));
+        Raylib.DrawLine((int)card.X + 54, (int)card.Y + 246, (int)card.X + 560, (int)card.Y + 246, Palette.C(210, 190, 160));
+
+        Raylib.DrawText("Baselands", 378, 184, 34, Color.White);
+        Raylib.DrawText("Open wasteland, scattered cities, hostile outposts and one central destroyer.", 378, 432, 20, Color.LightGray);
+        Raylib.DrawText("Extraction portals open after 2:00 and remain active for 5:00.", 378, 458, 20, Palette.C(126, 210, 255));
+
+        DrawButton(new Rectangle(340, 520, 280, 58), "Deploy");
+        DrawButton(new Rectangle(70, 620, 220, 52), "Back");
+    }
+
+    private void DrawStorage()
+    {
+        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(8, 12, 20));
+        DrawTitle("Storage", 48, 56);
+        Raylib.DrawText("Equip items here before deployment. Extracted loot returns to this stash.", 70, 106, 24, Color.LightGray);
+        Raylib.DrawText($"Capacity {GetStoredItemCount()}/{MetaProfile.StorageCapacity}", 70, 138, 22, Color.White);
+
+        Raylib.DrawRectangle(52, 170, 300, 380, Palette.C(10, 18, 30, 220));
+        Raylib.DrawRectangleLinesEx(new Rectangle(52, 170, 300, 380), 2f, Palette.C(108, 170, 228));
+        Raylib.DrawText("Loadout", 72, 184, 24, Color.White);
+        Raylib.DrawText("Armor", 72, 236, 18, Color.LightGray);
+        Raylib.DrawText("Ranged", 72, 304, 18, Color.LightGray);
+        Raylib.DrawText("Melee", 72, 372, 18, Color.LightGray);
+        Raylib.DrawText("Consumables", 72, 440, 18, Color.LightGray);
+
+        Raylib.DrawRectangle(392, 116, 510, 530, Palette.C(10, 18, 30, 220));
+        Raylib.DrawRectangleLinesEx(new Rectangle(392, 116, 510, 530), 2f, Palette.C(108, 170, 228));
+        Raylib.DrawText("Stash", 414, 132, 24, Color.White);
+        DrawStorageGrid(new Vector2(414, 174), 10, 10);
+
+        DrawButton(new Rectangle(70, 620, 220, 52), "Back");
+
+        var slots = BuildStorageSlots();
+        foreach (var slot in slots)
+        {
+            Raylib.DrawRectangleRec(slot.Rect, Palette.C(22, 28, 42, 255));
+            Raylib.DrawRectangleLinesEx(slot.Rect, 1f, slot.Kind == SlotKind.Trash ? Color.Orange : Color.SkyBlue);
+            if (slot.Kind == SlotKind.Trash) Raylib.DrawText("TR", (int)slot.Rect.X + 14, (int)slot.Rect.Y + 14, 18, Color.Orange);
+            if (slot.Kind == SlotKind.QuickSlotQ) Raylib.DrawText("Q", (int)slot.Rect.X + 15, (int)slot.Rect.Y - 18, 16, Color.Green);
+            if (slot.Kind == SlotKind.QuickSlotR) Raylib.DrawText("R", (int)slot.Rect.X + 15, (int)slot.Rect.Y - 18, 16, Color.Yellow);
+            if (slot.Item is not null) DrawItemIcon(slot.Item, new Rectangle(slot.Rect.X + 6, slot.Rect.Y + 6, slot.Rect.Width - 12, slot.Rect.Height - 12));
+        }
+
+        if (_drag is not null)
+        {
+            var m = Raylib.GetMousePosition();
+            DrawItemIcon(_drag.Item, new Rectangle(m.X + 8, m.Y + 8, 32, 32));
+        }
+
+        if (_hovered is not null) DrawTooltip(_hovered, Raylib.GetMousePosition());
+    }
+
+    private void DrawCharacter()
+    {
+        DrawTitle("Character", 56, 60);
+        Raylib.DrawText("Common landing stats", 74, 126, 28, Color.LightGray);
+
+        var panel = new Rectangle(70, 170, 520, 320);
+        Raylib.DrawRectangleRec(panel, Palette.C(10, 18, 30, 220));
+        Raylib.DrawRectangleLinesEx(panel, 2f, Palette.C(108, 170, 228));
+        Raylib.DrawText($"General level: {_meta.Level}", 96, 208, 28, Color.Gold);
+        Raylib.DrawText($"Next level: {_meta.Score}/{GetMetaScoreRequired(_meta.Level)}", 96, 250, 24, Color.White);
+        Raylib.DrawText($"Common HP bonus: +{GetCommonHealthBonus():0}", 96, 310, 24, Palette.C(140, 220, 160));
+        Raylib.DrawText($"Common damage bonus: +{GetCommonDamageBonus():0}", 96, 350, 24, Palette.C(255, 210, 120));
+        Raylib.DrawText("Temporary run stat points do not carry over after extraction or death.", 96, 406, 22, Color.LightGray);
+
+        DrawButton(new Rectangle(70, 620, 220, 52), "Back");
     }
 
     private void DrawSettings()
@@ -1182,15 +1566,28 @@ public sealed class SciFiRogueGame : IDisposable
     {
         Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(0, 0, 0, 175));
         DrawTitle("Paused", 170, 64);
-        DrawButton(CenterRect(0, 350, 320, 62), "Back to menu");
+        DrawButton(CenterRect(0, 320, 320, 62), "Resume");
+        DrawButton(CenterRect(0, 400, 320, 62), "Abandon run");
     }
 
     private void DrawDeath()
     {
         Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(0, 0, 0, 180));
-        DrawTitle("You Died", 170, 72);
-        DrawButton(CenterRect(0, 320, 320, 62), "Restart");
+        DrawTitle(_deathHeader, 150, 68);
+        Raylib.DrawText(_deathBody, (Raylib.GetScreenWidth() - Raylib.MeasureText(_deathBody, 24)) / 2, 250, 24, Color.LightGray);
+        DrawButton(CenterRect(0, 320, 320, 62), "Deploy again");
         DrawButton(CenterRect(0, 400, 320, 62), "Main menu");
+    }
+
+    private void DrawNotice()
+    {
+        if (string.IsNullOrWhiteSpace(_noticeText)) return;
+
+        var width = Math.Max(360, Raylib.MeasureText(_noticeText, 20) + 36);
+        var rect = new Rectangle(Raylib.GetScreenWidth() - width - 30, 26, width, 46);
+        Raylib.DrawRectangleRec(rect, Palette.C(12, 22, 36, 220));
+        Raylib.DrawRectangleLinesEx(rect, 2f, Palette.C(110, 185, 240));
+        Raylib.DrawText(_noticeText, (int)rect.X + 18, (int)rect.Y + 12, 20, Color.White);
     }
 
     private static void DrawTitle(string text, int y, int size)
@@ -1208,8 +1605,166 @@ public sealed class SciFiRogueGame : IDisposable
         Raylib.DrawText(text, (int)(rect.X + rect.Width / 2 - Raylib.MeasureText(text, fs) / 2f), (int)(rect.Y + rect.Height / 2 - fs / 2f), fs, Color.White);
     }
 
+    private static void DrawStorageGrid(Vector2 origin, int cols, int rows)
+    {
+        for (var r = 0; r < rows; r++)
+        {
+            for (var c = 0; c < cols; c++)
+            {
+                var rect = new Rectangle(origin.X + c * 48, origin.Y + r * 46, 42, 42);
+                Raylib.DrawRectangleLinesEx(rect, 1f, Palette.C(70, 90, 130, 170));
+            }
+        }
+    }
+
+    private void DrawExtractionHud()
+    {
+        var timerText = _extractPortals.Count == 0
+            ? $"Portals in {FormatTime(_portalUnlockTimer)}"
+            : $"Portals active {FormatTime(_portalActiveTimer)}";
+
+        var color = _extractPortals.Count == 0 ? Color.LightGray : Palette.C(110, 215, 255);
+        Raylib.DrawText(timerText, 20, 138, 22, color);
+        Raylib.DrawText($"Map {_selectedMapName}", 20, 168, 20, Palette.C(165, 195, 220));
+    }
+
+    private Rectangle MainMenuButtonRect(int index)
+        => new(70, Raylib.GetScreenHeight() - 344 + index * 60, 220, 48);
+
     private static Rectangle CenterRect(int offsetX, int y, int w, int h) => new((Raylib.GetScreenWidth() - w) / 2f + offsetX, y, w, h);
     private static bool Clicked(Rectangle rect) => Raylib.IsMouseButtonPressed(MouseButton.Left) && Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), rect);
+
+    private float GetCommonHealthBonus() => _meta.Level * 10f;
+
+    private float GetCommonDamageBonus() => _meta.Level * 2f;
+
+    private static int GetMetaScoreRequired(int level)
+    {
+        if (level <= 1) return 3000;
+        if (level == 2) return 5000;
+        return 5000 + (level - 2) * 1500;
+    }
+
+    private void AddRunScore(int amount) => _runScore += amount;
+
+    private void AddMetaScore(int amount)
+    {
+        _meta.Score += amount;
+        while (_meta.Score >= GetMetaScoreRequired(_meta.Level))
+        {
+            _meta.Score -= GetMetaScoreRequired(_meta.Level);
+            _meta.Level++;
+        }
+
+        SavePersistentState();
+    }
+
+    private void UpdateExtraction(float dt)
+    {
+        if (_extractPortals.Count == 0)
+        {
+            _portalUnlockTimer -= dt;
+            if (_portalUnlockTimer <= 0f)
+            {
+                SpawnExtractionPortals();
+                _portalActiveTimer = PortalLifetime;
+                ShowNotice("Portals are open.");
+            }
+
+            return;
+        }
+
+        _portalActiveTimer -= dt;
+        if (_portalActiveTimer <= 0f)
+        {
+            FailRun("Extraction failed", "The portals collapsed and all carried items were lost.");
+            return;
+        }
+
+        if (_extractPortals.Any(portal => Vector2.Distance(portal.Position, _player.Position) <= portal.InteractionRadius))
+        {
+            CompleteExtraction();
+        }
+    }
+
+    private void SpawnExtractionPortals()
+    {
+        _extractPortals.Clear();
+        var first = RandomOutdoorPoint(24f);
+        var second = first;
+        for (var i = 0; i < 120; i++)
+        {
+            second = RandomOutdoorPoint(24f);
+            if (Vector2.Distance(first, second) >= 2200f) break;
+        }
+
+        _extractPortals.Add(new ExtractPortal(first, _rng.NextSingle() * MathF.Tau));
+        _extractPortals.Add(new ExtractPortal(second, _rng.NextSingle() * MathF.Tau));
+    }
+
+    private void CompleteExtraction()
+    {
+        var stored = 0;
+        var lostForCapacity = 0;
+        foreach (var item in CollectExtractedItems())
+        {
+            if (item.IsStarter) continue;
+            if (_meta.AddToStorage(item)) stored++;
+            else lostForCapacity++;
+        }
+
+        AddMetaScore(_runScore);
+        SavePersistentState();
+        ClearUiInteraction();
+        _extractPortals.Clear();
+        _state = GameState.Storage;
+        ShowNotice(lostForCapacity > 0
+            ? $"Extracted: {stored} items stored, {lostForCapacity} lost. Score +{_runScore}."
+            : $"Extracted successfully. Score +{_runScore}.");
+    }
+
+    private IEnumerable<ItemStack> CollectExtractedItems()
+    {
+        if (_player.Armor is not null) yield return _player.Armor;
+        if (_player.RangedWeapon is not null) yield return _player.RangedWeapon;
+        if (_player.MeleeWeapon is not null) yield return _player.MeleeWeapon;
+        if (_player.Inventory.QuickSlotQ is not null) yield return _player.Inventory.QuickSlotQ;
+        if (_player.Inventory.QuickSlotR is not null) yield return _player.Inventory.QuickSlotR;
+
+        foreach (var item in _player.Inventory.BackpackSlots)
+        {
+            if (item is not null) yield return item;
+        }
+    }
+
+    private void FailRun(string header, string body)
+    {
+        _extractPortals.Clear();
+        ClearUiInteraction();
+        _deathHeader = header;
+        _deathBody = body;
+        _state = GameState.Death;
+    }
+
+    private void ClearUiInteraction()
+    {
+        _drag = null;
+        _hovered = null;
+        _openedChestIndex = null;
+        _pendingUpgrade = false;
+    }
+
+    private void ShowNotice(string text)
+    {
+        _noticeText = text;
+        _noticeTimer = 5f;
+    }
+
+    private static string FormatTime(float timeLeft)
+    {
+        var total = Math.Max(0, (int)MathF.Ceiling(timeLeft));
+        return $"{total / 60:00}:{total % 60:00}";
+    }
 
     private void DrawZoneArrows()
     {
@@ -1218,6 +1773,10 @@ public sealed class SciFiRogueGame : IDisposable
         if (_destroyerBoss is not null && _destroyerBoss.Alive)
         {
             DrawScreenPointArrow(_destroyerBoss.Position, Palette.C(230, 45, 45), "D");
+        }
+        foreach (var portal in _extractPortals)
+        {
+            DrawScreenPointArrow(portal.Position, Palette.C(90, 210, 255), "P");
         }
     }
 
@@ -1263,6 +1822,57 @@ public sealed class SciFiRogueGame : IDisposable
         Raylib.DrawRectangleLines(x, y, 420, 72, Color.SkyBlue);
         Raylib.DrawText(hit.Header, x + 8, y + 8, 18, Color.White);
         Raylib.DrawText(hit.Body, x + 8, y + 34, 16, Color.LightGray);
+    }
+
+    private int GetStoredItemCount() => _meta.StorageSlots.Count(item => item is not null);
+
+    private ItemStack? TakeMetaLoadoutItem(SlotKind kind)
+    {
+        var item = GetMetaLoadoutItem(kind);
+        SetMetaLoadoutItem(kind, null);
+        return item;
+    }
+
+    private static bool IsMetaLoadoutSlot(SlotKind kind)
+        => kind is SlotKind.Armor or SlotKind.RangedWeapon or SlotKind.MeleeWeapon or SlotKind.QuickSlotQ or SlotKind.QuickSlotR;
+
+    private static bool CanPlaceIntoSlot(SlotKind kind, ItemStack item)
+        => kind switch
+        {
+            SlotKind.Armor => item.Type == ItemType.Armor,
+            SlotKind.RangedWeapon => item.Type == ItemType.Weapon && item.WeaponKind == WeaponClass.Ranged,
+            SlotKind.MeleeWeapon => item.Type == ItemType.Weapon && item.WeaponKind == WeaponClass.Melee,
+            SlotKind.QuickSlotQ => item.Type == ItemType.Consumable,
+            SlotKind.QuickSlotR => item.Type == ItemType.Consumable,
+            _ => false
+        };
+
+    private ItemStack? GetMetaLoadoutItem(SlotKind kind) => kind switch
+    {
+        SlotKind.Armor => _meta.Armor,
+        SlotKind.RangedWeapon => _meta.RangedWeapon,
+        SlotKind.MeleeWeapon => _meta.MeleeWeapon,
+        SlotKind.QuickSlotQ => _meta.QuickSlotQ,
+        SlotKind.QuickSlotR => _meta.QuickSlotR,
+        _ => null
+    };
+
+    private void SetMetaLoadoutItem(SlotKind kind, ItemStack? item)
+    {
+        if (kind == SlotKind.Armor) _meta.Armor = item;
+        if (kind == SlotKind.RangedWeapon) _meta.RangedWeapon = item;
+        if (kind == SlotKind.MeleeWeapon) _meta.MeleeWeapon = item;
+        if (kind == SlotKind.QuickSlotQ) _meta.QuickSlotQ = item;
+        if (kind == SlotKind.QuickSlotR) _meta.QuickSlotR = item;
+    }
+
+    private SlotKind? GetPreferredLoadoutSlot(ItemStack item)
+    {
+        if (item.Type == ItemType.Armor) return SlotKind.Armor;
+        if (item.Type == ItemType.Weapon && item.WeaponKind == WeaponClass.Ranged) return SlotKind.RangedWeapon;
+        if (item.Type == ItemType.Weapon && item.WeaponKind == WeaponClass.Melee) return SlotKind.MeleeWeapon;
+        if (item.Type == ItemType.Consumable) return _meta.QuickSlotQ is null ? SlotKind.QuickSlotQ : SlotKind.QuickSlotR;
+        return null;
     }
 
     private string BuildWeaponDamageText(ItemStack? weapon, WeaponClass kind)
@@ -1566,7 +2176,101 @@ public sealed class SciFiRogueGame : IDisposable
         return MathF.Sqrt(dx * dx + dy * dy);
     }
 
-    public void Dispose() => Raylib.CloseWindow();
+    private void LoadPersistentState()
+    {
+        try
+        {
+            if (!File.Exists(SaveFilePath))
+            {
+                SavePersistentState();
+                return;
+            }
+
+            var json = File.ReadAllText(SaveFilePath);
+            var data = JsonSerializer.Deserialize<PersistentStateData>(json);
+            if (data is null)
+            {
+                SavePersistentState();
+                return;
+            }
+
+            _themeIndex = Math.Clamp(data.ThemeIndex, 0, Math.Max(0, _themes.Count - 1));
+            _selectedMapName = string.IsNullOrWhiteSpace(data.SelectedMapName) ? "Baselands" : data.SelectedMapName;
+            ApplyMetaSaveData(data.Meta);
+        }
+        catch
+        {
+            _themeIndex = 0;
+            _selectedMapName = "Baselands";
+            ApplyMetaSaveData(null);
+            SavePersistentState();
+        }
+    }
+
+    private void SavePersistentState()
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(SaveFilePath);
+            if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+
+            var data = new PersistentStateData
+            {
+                ThemeIndex = _themeIndex,
+                SelectedMapName = _selectedMapName,
+                Meta = BuildMetaSaveData()
+            };
+
+            var json = JsonSerializer.Serialize(data, SaveJsonOptions);
+            File.WriteAllText(SaveFilePath, json);
+        }
+        catch
+        {
+            // Saving failure should not break the session.
+        }
+    }
+
+    private MetaProfileSaveData BuildMetaSaveData()
+    {
+        return new MetaProfileSaveData
+        {
+            Level = _meta.Level,
+            Score = _meta.Score,
+            StorageSlots = _meta.StorageSlots.Select(ItemStack.ToSaveData).ToList(),
+            Armor = ItemStack.ToSaveData(_meta.Armor),
+            RangedWeapon = ItemStack.ToSaveData(_meta.RangedWeapon),
+            MeleeWeapon = ItemStack.ToSaveData(_meta.MeleeWeapon),
+            QuickSlotQ = ItemStack.ToSaveData(_meta.QuickSlotQ),
+            QuickSlotR = ItemStack.ToSaveData(_meta.QuickSlotR),
+            Trash = ItemStack.ToSaveData(_meta.Trash)
+        };
+    }
+
+    private void ApplyMetaSaveData(MetaProfileSaveData? data)
+    {
+        _meta.Level = Math.Max(1, data?.Level ?? 1);
+        _meta.Score = Math.Max(0, data?.Score ?? 0);
+        _meta.StorageSlots.Clear();
+
+        var savedSlots = data?.StorageSlots ?? [];
+        for (var i = 0; i < MetaProfile.StorageCapacity; i++)
+        {
+            _meta.StorageSlots.Add(i < savedSlots.Count ? ItemStack.FromSaveData(savedSlots[i]) : null);
+        }
+
+        _meta.Armor = ItemStack.FromSaveData(data?.Armor);
+        _meta.RangedWeapon = ItemStack.FromSaveData(data?.RangedWeapon);
+        _meta.MeleeWeapon = ItemStack.FromSaveData(data?.MeleeWeapon);
+        _meta.QuickSlotQ = ItemStack.FromSaveData(data?.QuickSlotQ);
+        _meta.QuickSlotR = ItemStack.FromSaveData(data?.QuickSlotR);
+        _meta.Trash = ItemStack.FromSaveData(data?.Trash);
+    }
+
+    public void Dispose()
+    {
+        SavePersistentState();
+        Raylib.CloseWindow();
+    }
 }
 
 public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life, Color color, bool ownerEnemy, float damage, ProjectileKind kind = ProjectileKind.Bullet, float explosionRadius = 0f, float explosionDamage = 0f, float drawRadius = 4f)
@@ -1780,6 +2484,96 @@ public sealed class LootChest(Vector2 position, List<ItemStack> items)
     public bool Opened { get; set; }
 }
 
+public sealed class MetaProfile
+{
+    public const int StorageCapacity = 100;
+
+    public int Level { get; set; } = 1;
+    public int Score { get; set; }
+
+    public List<ItemStack?> StorageSlots { get; } = Enumerable.Repeat<ItemStack?>(null, StorageCapacity).ToList();
+    public ItemStack? Armor { get; set; }
+    public ItemStack? RangedWeapon { get; set; }
+    public ItemStack? MeleeWeapon { get; set; }
+    public ItemStack? QuickSlotQ { get; set; }
+    public ItemStack? QuickSlotR { get; set; }
+    public ItemStack? Trash { get; set; }
+
+    public bool AddToStorage(ItemStack item)
+    {
+        for (var i = 0; i < StorageSlots.Count; i++)
+        {
+            if (StorageSlots[i] is not null) continue;
+            StorageSlots[i] = item;
+            return true;
+        }
+
+        return false;
+    }
+
+    public bool HasFreeStorageSlot() => StorageSlots.Any(item => item is null);
+}
+
+public sealed class PersistentStateData
+{
+    public int ThemeIndex { get; set; }
+    public string SelectedMapName { get; set; } = "Baselands";
+    public MetaProfileSaveData Meta { get; set; } = new();
+}
+
+public sealed class MetaProfileSaveData
+{
+    public int Level { get; set; } = 1;
+    public int Score { get; set; }
+    public List<ItemStackSaveData?> StorageSlots { get; set; } = [];
+    public ItemStackSaveData? Armor { get; set; }
+    public ItemStackSaveData? RangedWeapon { get; set; }
+    public ItemStackSaveData? MeleeWeapon { get; set; }
+    public ItemStackSaveData? QuickSlotQ { get; set; }
+    public ItemStackSaveData? QuickSlotR { get; set; }
+    public ItemStackSaveData? Trash { get; set; }
+}
+
+public sealed class ItemStackSaveData
+{
+    public ItemType Type { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public ArmorRarity Rarity { get; set; }
+    public byte ColorR { get; set; }
+    public byte ColorG { get; set; }
+    public byte ColorB { get; set; }
+    public byte ColorA { get; set; } = 255;
+    public WeaponClass? WeaponKind { get; set; }
+    public WeaponPattern Pattern { get; set; }
+    public ConsumableType? ConsumableKind { get; set; }
+    public bool IsStarter { get; set; }
+    public float Defense { get; set; }
+    public float PowerBonus { get; set; }
+}
+
+public sealed class ExtractPortal(Vector2 position, float seed)
+{
+    public Vector2 Position { get; } = position;
+    public float Seed { get; } = seed;
+    public float InteractionRadius { get; } = 34f;
+
+    public void Draw(float time)
+    {
+        Raylib.DrawEllipse((int)Position.X, (int)Position.Y, 28f, 42f, Palette.C(60, 150, 255, 110));
+        Raylib.DrawEllipseLines((int)Position.X, (int)Position.Y, 30f, 44f, Palette.C(120, 220, 255));
+
+        for (var i = 0; i < 4; i++)
+        {
+            var speed = 0.6f + i * 0.32f;
+            var angle = Seed + time * speed + i * MathF.PI * 0.5f;
+            var offset = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * (8f + i * 3f);
+            var size = 8f - i;
+            Raylib.DrawPoly(Position + offset, 4, size, time * 100f * speed, Palette.C(150 - i * 12, 220 - i * 10, 255));
+        }
+    }
+}
+
 public sealed class Inventory
 {
     public const int BackpackCapacity = 30;
@@ -1854,11 +2648,12 @@ public sealed class ItemStack
     public WeaponClass? WeaponKind { get; }
     public WeaponPattern Pattern { get; }
     public ConsumableType? ConsumableKind { get; }
+    public bool IsStarter { get; }
 
     public float Defense { get; }
     public float PowerBonus { get; }
 
-    private ItemStack(ItemType type, string name, string description, ArmorRarity rarity, Color color, WeaponClass? weaponClass, WeaponPattern pattern, ConsumableType? consumableType, float defense, float powerBonus)
+    private ItemStack(ItemType type, string name, string description, ArmorRarity rarity, Color color, WeaponClass? weaponClass, WeaponPattern pattern, ConsumableType? consumableType, float defense, float powerBonus, bool isStarter)
     {
         Type = type;
         Name = name;
@@ -1868,8 +2663,50 @@ public sealed class ItemStack
         WeaponKind = weaponClass;
         Pattern = pattern;
         ConsumableKind = consumableType;
+        IsStarter = isStarter;
         Defense = defense;
         PowerBonus = powerBonus;
+    }
+
+    public static ItemStackSaveData? ToSaveData(ItemStack? item)
+    {
+        if (item is null) return null;
+
+        return new ItemStackSaveData
+        {
+            Type = item.Type,
+            Name = item.Name,
+            Description = item.Description,
+            Rarity = item.Rarity,
+            ColorR = item.Color.R,
+            ColorG = item.Color.G,
+            ColorB = item.Color.B,
+            ColorA = item.Color.A,
+            WeaponKind = item.WeaponKind,
+            Pattern = item.Pattern,
+            ConsumableKind = item.ConsumableKind,
+            IsStarter = item.IsStarter,
+            Defense = item.Defense,
+            PowerBonus = item.PowerBonus
+        };
+    }
+
+    public static ItemStack? FromSaveData(ItemStackSaveData? data)
+    {
+        if (data is null) return null;
+
+        return new ItemStack(
+            data.Type,
+            data.Name,
+            data.Description,
+            data.Rarity,
+            new Color(data.ColorR, data.ColorG, data.ColorB, data.ColorA),
+            data.WeaponKind,
+            data.Pattern,
+            data.ConsumableKind,
+            data.Defense,
+            data.PowerBonus,
+            data.IsStarter);
     }
 
     public static ItemStack Armor(ArmorRarity rarity, Random rng)
@@ -1892,7 +2729,7 @@ public sealed class ItemStack
             _ => "Crimson Bastion"
         };
 
-        return new ItemStack(ItemType.Armor, name, "Armor. Drag into armor slot.", rarity, Palette.Rarity(rarity), null, WeaponPattern.Standard, null, baseDef + rng.NextSingle() * 4f, 0f);
+        return new ItemStack(ItemType.Armor, name, "Armor. Drag into armor slot.", rarity, Palette.Rarity(rarity), null, WeaponPattern.Standard, null, baseDef + rng.NextSingle() * 4f, 0f, false);
     }
 
     public static ItemStack Weapon(WeaponClass kind, ArmorRarity rarity, Random rng)
@@ -1933,17 +2770,17 @@ public sealed class ItemStack
             description = "Weapon. Drag to matching slot.";
         }
 
-        return new ItemStack(ItemType.Weapon, name, description, rarity, Palette.Rarity(rarity), kind, pattern, null, 0f, p);
+        return new ItemStack(ItemType.Weapon, name, description, rarity, Palette.Rarity(rarity), kind, pattern, null, 0f, p, false);
     }
 
     public static ItemStack StartingPistol()
     {
-        return new ItemStack(ItemType.Weapon, "Rail Pistol", "Weapon. Drag to matching slot.", ArmorRarity.Common, Palette.Rarity(ArmorRarity.Common), WeaponClass.Ranged, WeaponPattern.Standard, null, 0f, 1.5f);
+        return new ItemStack(ItemType.Weapon, "Rail Pistol", "Base sidearm.", ArmorRarity.Common, Palette.Rarity(ArmorRarity.Common), WeaponClass.Ranged, WeaponPattern.Standard, null, 0f, 1.5f, true);
     }
 
     public static ItemStack StartingMelee()
     {
-        return new ItemStack(ItemType.Weapon, "Plasma Blade", "Weapon. Drag to matching slot.", ArmorRarity.Common, Palette.Rarity(ArmorRarity.Common), WeaponClass.Melee, WeaponPattern.Standard, null, 0f, 1.2f);
+        return new ItemStack(ItemType.Weapon, "Plasma Blade", "Base melee weapon.", ArmorRarity.Common, Palette.Rarity(ArmorRarity.Common), WeaponClass.Melee, WeaponPattern.Standard, null, 0f, 1.2f, true);
     }
 
     public static ItemStack BossGrenadeLauncher()
@@ -1958,14 +2795,15 @@ public sealed class ItemStack
             WeaponPattern.GrenadeLauncher,
             null,
             0f,
-            0f);
+            0f,
+            false);
     }
 
     public static ItemStack Consumable(ConsumableType t)
     {
         return t == ConsumableType.Medkit
-            ? new ItemStack(ItemType.Consumable, "Medkit", "Restore HP. Hotkey Q/R.", ArmorRarity.Common, Palette.C(130, 210, 120), null, WeaponPattern.Standard, t, 0f, 0f)
-            : new ItemStack(ItemType.Consumable, "Stim", "Move speed boost. Hotkey Q/R.", ArmorRarity.Common, Palette.C(220, 220, 120), null, WeaponPattern.Standard, t, 0f, 0f);
+            ? new ItemStack(ItemType.Consumable, "Medkit", "Restore HP. Hotkey Q/R.", ArmorRarity.Common, Palette.C(130, 210, 120), null, WeaponPattern.Standard, t, 0f, 0f, false)
+            : new ItemStack(ItemType.Consumable, "Stim", "Move speed boost. Hotkey Q/R.", ArmorRarity.Common, Palette.C(220, 220, 120), null, WeaponPattern.Standard, t, 0f, 0f, false);
     }
 }
 
@@ -1975,6 +2813,7 @@ public enum SlotKind
     MeleeWeapon,
     Armor,
     Trash,
+    Storage,
     Backpack,
     QuickSlotQ,
     QuickSlotR,

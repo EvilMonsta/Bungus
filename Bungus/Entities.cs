@@ -8,6 +8,8 @@ public sealed class Player
     private const int BaseStrength = 6;
 
     private float _baseMaxHealth = 120f;
+    private readonly float _globalMaxHealthBonus;
+    private readonly float _globalDamageBonus;
     private float _attackCd;
     private float _dodgeCd;
     private float _stim;
@@ -20,7 +22,7 @@ public sealed class Player
 
     public Vector2 Position { get; private set; }
     public float Health { get; private set; }
-    public float MaxHealth => _baseMaxHealth + MathF.Max(0, Str - BaseStrength) * 5f;
+    public float MaxHealth => _baseMaxHealth + _globalMaxHealthBonus + MathF.Max(0, Str - BaseStrength) * 5f;
 
     public bool InventoryOpen { get; set; }
 
@@ -42,17 +44,22 @@ public sealed class Player
 
     public WeaponClass ActiveWeaponClass { get; private set; } = WeaponClass.Ranged;
 
-    private Player(Vector2 p)
+    private Player(Vector2 p, float globalMaxHealthBonus, float globalDamageBonus, ItemStack? rangedWeapon, ItemStack? meleeWeapon, ItemStack? armor, ItemStack? quickSlotQ, ItemStack? quickSlotR)
     {
         Position = p;
-        Health = MaxHealth;
+        _globalMaxHealthBonus = globalMaxHealthBonus;
+        _globalDamageBonus = globalDamageBonus;
 
-        RangedWeapon = ItemStack.StartingPistol();
-        MeleeWeapon = ItemStack.StartingMelee();
-        Armor = ItemStack.Armor(ArmorRarity.Common, new Random());
+        RangedWeapon = rangedWeapon ?? ItemStack.StartingPistol();
+        MeleeWeapon = meleeWeapon ?? ItemStack.StartingMelee();
+        Armor = armor;
+        Inventory.QuickSlotQ = quickSlotQ;
+        Inventory.QuickSlotR = quickSlotR;
+        Health = MaxHealth;
     }
 
-    public static Player Create(Vector2 p) => new(p);
+    public static Player Create(Vector2 p, float globalMaxHealthBonus, float globalDamageBonus, ItemStack? rangedWeapon, ItemStack? meleeWeapon, ItemStack? armor, ItemStack? quickSlotQ, ItemStack? quickSlotR)
+        => new(p, globalMaxHealthBonus, globalDamageBonus, rangedWeapon, meleeWeapon, armor, quickSlotQ, quickSlotR);
 
     public void Update(float dt, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages)
     {
@@ -173,13 +180,13 @@ public sealed class Player
     public float GetMeleeDamage()
     {
         var power = MeleeWeapon?.PowerBonus ?? 0f;
-        return (12f + GetMeleeStatBonusRaw() + power) * 0.7f;
+        return (12f + _globalDamageBonus + GetMeleeStatBonusRaw() + power) * 0.7f;
     }
 
     public float GetRangedDamage()
     {
         var power = RangedWeapon?.PowerBonus ?? 0f;
-        return (9f + GetRangedStatBonusRaw() + power) * 1.3f;
+        return (9f + _globalDamageBonus + GetRangedStatBonusRaw() + power) * 1.3f;
     }
 
     public float GetWeaponDamage(ItemStack weapon)

@@ -16,9 +16,10 @@ public enum GameState { MainMenu, Settings, Playing, Paused, Death }
 public enum WeaponClass { Melee, Ranged }
 public enum ItemType { Weapon, Armor, Consumable }
 public enum ConsumableType { Medkit, Stim }
-public enum ArmorRarity { Common, Rare, Epic, Legendary }
+public enum ArmorRarity { Common, Rare, Epic, Legendary, Red }
 public enum StatType { Strength, Dexterity, Speed, Gunsmith }
-public enum WeaponPattern { Standard, PulseRifle, EnergySpear }
+public enum WeaponPattern { Standard, PulseRifle, EnergySpear, GrenadeLauncher }
+public enum ProjectileKind { Bullet, Grenade }
 
 public static class Palette
 {
@@ -30,6 +31,7 @@ public static class Palette
         ArmorRarity.Rare => Color.SkyBlue,
         ArmorRarity.Epic => C(191, 120, 255),
         ArmorRarity.Legendary => Color.Gold,
+        ArmorRarity.Red => C(230, 45, 45),
         _ => Color.White
     };
 }
@@ -64,7 +66,10 @@ public sealed class SciFiRogueGame : IDisposable
     private Player _player = null!;
 
     private List<Enemy> _enemies = [];
-    private List<BossEnemy> _bosses = [];
+    private List<HexEnemy> _hexEnemies = [];
+    private List<TurretEnemy> _turrets = [];
+    private List<MiniBossEnemySquare> _miniBosses = [];
+    private BossEnemyDestroyer? _destroyerBoss;
     private List<Projectile> _projectiles = [];
     private List<Explosion> _explosions = [];
     private List<SwingArc> _swings = [];
@@ -86,6 +91,7 @@ public sealed class SciFiRogueGame : IDisposable
     private bool _requestExit;
     private readonly List<VisualTheme> _themes;
     private int _themeIndex;
+    private float _nextHexSpawnTimer;
 
     private static readonly Rectangle TakeAllButtonRect = new(760, 266, 170, 34);
 
@@ -106,16 +112,19 @@ public sealed class SciFiRogueGame : IDisposable
 
     private void StartRun()
     {
-        _player = Player.Create(new Vector2(World / 2f, World / 2f));
-        _projectiles = [];
-        _explosions = [];
-        _swings = [];
-
         (_buildings, _outposts) = GenerateZones(_rng.Next(14, 21), _rng.Next(7, 11));
         _obstacles = GenerateObstacles();
         _chests = GenerateChestsInZones();
+        _player = Player.Create(GeneratePlayerSpawnPoint());
+        _projectiles = [];
+        _explosions = [];
+        _swings = [];
         _enemies = GenerateEnemies();
-        _bosses = GenerateBosses();
+        _hexEnemies = [];
+        _turrets = GenerateTurrets();
+        _miniBosses = GenerateMiniBosses();
+        _destroyerBoss = GenerateDestroyerBoss();
+        _nextHexSpawnTimer = NextHexSpawnDelay();
 
         _camera.Offset = new Vector2(Raylib.GetScreenWidth() / 2f, Raylib.GetScreenHeight() / 2f);
         _camera.Target = _player.Position;
@@ -185,8 +194,8 @@ public sealed class SciFiRogueGame : IDisposable
 
         _player.Update(dt, _obstacles, World, _dashAfterImages);
         _player.UpdateCombat(dt, _projectiles);
-        if (Raylib.IsKeyPressed(KeyboardKey.Q)) _player.UseMedkit();
-        if (Raylib.IsKeyPressed(KeyboardKey.R)) _player.UseStim();
+        if (Raylib.IsKeyPressed(KeyboardKey.Q)) _player.UseQuickSlotQ();
+        if (Raylib.IsKeyPressed(KeyboardKey.R)) _player.UseQuickSlotR();
         if (Raylib.IsKeyPressed(KeyboardKey.E)) _player.SwitchActiveWeapon();
 
         var mouseWorld = Raylib.GetScreenToWorld2D(Raylib.GetMousePosition(), _camera);
@@ -196,17 +205,23 @@ public sealed class SciFiRogueGame : IDisposable
         }
 
         UpdateEnemies(dt);
-        UpdateBosses(dt);
+        UpdateHexEnemies(dt);
+        UpdateTurrets(dt);
+        UpdateMiniBosses(dt);
+        UpdateDestroyerBoss(dt);
         UpdateProjectiles(dt);
         UpdateSwings(dt);
         UpdateEffects(dt);
         UpdateChests();
         UpdateInventoryUi();
         UpdateLevelUi();
+        if (_drag is null) _player.Inventory.AutoFillConsumableSlots();
 
         _camera.Target = Vector2.Lerp(_camera.Target, _player.Position, 0.2f);
         if (_player.Health <= 0) _state = GameState.Death;
     }
+
+    private float NextHexSpawnDelay() => 20f + _rng.NextSingle() * 160f;
 
     private void UpdateEnemies(float dt)
     {
@@ -238,11 +253,48 @@ public sealed class SciFiRogueGame : IDisposable
                 if (other.CanSeePoint(src.Position, _obstacles)) other.ForceAggro(src.Position);
             }
         }
+
+        _nextHexSpawnTimer -= dt;
+        if (_nextHexSpawnTimer <= 0f)
+        {
+            var packSize = _rng.Next(1, 6);
+            for (var i = 0; i < packSize; i++)
+            {
+                _hexEnemies.Add(HexEnemy.Create(RandomMapPointSafe(16f), _rng));
+            }
+            _nextHexSpawnTimer = NextHexSpawnDelay();
+        }
     }
 
-    private void UpdateBosses(float dt)
+    private void UpdateHexEnemies(float dt)
     {
-        foreach (var b in _bosses)
+        foreach (var h in _hexEnemies)
+        {
+            h.Update(dt, _player.Position, _projectiles, _obstacles, World);
+            if (!h.Alive && !h.KillAwarded)
+            {
+                h.KillAwarded = true;
+                _player.RegisterKill();
+            }
+        }
+    }
+
+    private void UpdateTurrets(float dt)
+    {
+        foreach (var turret in _turrets)
+        {
+            turret.Update(dt, _player.Position, _projectiles, _obstacles);
+            if (!turret.Alive && !turret.KillAwarded)
+            {
+                turret.KillAwarded = true;
+                _player.RegisterKill();
+            }
+        }
+    }
+
+    private void UpdateMiniBosses(float dt)
+    {
+        foreach (var b in _miniBosses)
         {
             b.Update(dt, _player.Position, _projectiles, _player, _obstacles, World, _dashAfterImages);
             if (!b.Alive && !b.KillAwarded)
@@ -255,6 +307,23 @@ public sealed class SciFiRogueGame : IDisposable
         }
     }
 
+    private void UpdateDestroyerBoss(float dt)
+    {
+        if (_destroyerBoss is null) return;
+
+        _destroyerBoss.Update(dt, _player.Position, _projectiles, _player, _obstacles, World, _dashAfterImages);
+        if (!_destroyerBoss.Alive && !_destroyerBoss.KillAwarded)
+        {
+            _destroyerBoss.KillAwarded = true;
+            _player.RegisterKill();
+            _player.RegisterKill();
+            _player.RegisterKill();
+            _player.RegisterKill();
+            _player.RegisterKill();
+            _chests.Add(new LootChest(_destroyerBoss.Position, [ItemStack.BossGrenadeLauncher()]));
+        }
+    }
+
     private void UpdateProjectiles(float dt)
     {
         for (var i = _projectiles.Count - 1; i >= 0; i--)
@@ -262,7 +331,34 @@ public sealed class SciFiRogueGame : IDisposable
             var p = _projectiles[i];
             p.Update(dt);
 
-            if (p.Position.X < 0 || p.Position.Y < 0 || p.Position.X > World || p.Position.Y > World || MovementUtils.CircleHitsObstacle(p.Position, 3f, _obstacles))
+            var hitWorldBounds = p.Position.X < 0 || p.Position.Y < 0 || p.Position.X > World || p.Position.Y > World;
+            var hitObstacle = MovementUtils.CircleHitsObstacle(p.Position, p.DrawRadius, _obstacles);
+
+            if (p.Kind == ProjectileKind.Grenade)
+            {
+                var directHit = false;
+                var hitTarget = false;
+
+                if (p.OwnerEnemy)
+                {
+                    hitTarget = Vector2.Distance(p.Position, _player.Position) < 16f;
+                }
+                else
+                {
+                    directHit = TryApplyPlayerSegmentDamage(p.PreviousPosition, p.Position, p.DrawRadius, p.Damage);
+                    hitTarget = directHit || HasEnemyInRadius(p.Position, 22f);
+                }
+
+                if (hitWorldBounds || hitObstacle || hitTarget || !p.Alive)
+                {
+                    ExplodeProjectile(p);
+                    _projectiles.RemoveAt(i);
+                }
+
+                continue;
+            }
+
+            if (hitWorldBounds || hitObstacle)
             {
                 _projectiles.RemoveAt(i);
                 continue;
@@ -280,27 +376,119 @@ public sealed class SciFiRogueGame : IDisposable
                 continue;
             }
 
-            Enemy? enemyHit = _enemies.FirstOrDefault(e => e.Alive && Vector2.Distance(e.Position, p.Position) < 15f);
-            if (enemyHit is not null)
+            if (TryApplyPlayerSegmentDamage(p.PreviousPosition, p.Position, p.DrawRadius, p.Damage))
             {
-                enemyHit.Damage(p.Damage);
-                enemyHit.ForceAggro(_player.Position);
-                enemyHit.JustHitByPlayer = true;
-                _explosions.Add(new Explosion(p.Position, 34f, p.Color));
-                _projectiles.RemoveAt(i);
-                continue;
-            }
-
-            BossEnemy? bossHit = _bosses.FirstOrDefault(b => b.Alive && Vector2.Distance(b.Position, p.Position) < 30f);
-            if (bossHit is not null)
-            {
-                bossHit.Damage(p.Damage);
                 _explosions.Add(new Explosion(p.Position, 34f, p.Color));
                 _projectiles.RemoveAt(i);
                 continue;
             }
 
             if (!p.Alive) _projectiles.RemoveAt(i);
+        }
+    }
+
+    private bool HasEnemyInRadius(Vector2 position, float radius)
+    {
+        if (_enemies.Any(e => e.Alive && Vector2.Distance(e.Position, position) < radius)) return true;
+        if (_hexEnemies.Any(h => h.Alive && Vector2.Distance(h.Position, position) < radius)) return true;
+        if (_turrets.Any(t => t.Alive && Vector2.Distance(t.Position, position) < radius + 6f)) return true;
+        if (_miniBosses.Any(b => b.Alive && Vector2.Distance(b.Position, position) < radius + 14f)) return true;
+        return _destroyerBoss is not null
+            && _destroyerBoss.Alive
+            && _destroyerBoss.IntersectsAnyHitZone(position, radius);
+    }
+
+    private bool TryApplyPlayerSegmentDamage(Vector2 from, Vector2 to, float radius, float damage)
+    {
+        var enemyHit = _enemies
+            .Where(e => e.Alive && DistanceToSegment(e.Position, from, to) <= radius + 11f)
+            .OrderBy(e => DistanceToSegment(e.Position, from, to))
+            .FirstOrDefault();
+        if (enemyHit is not null)
+        {
+            enemyHit.Damage(damage);
+            enemyHit.ForceAggro(_player.Position);
+            enemyHit.JustHitByPlayer = true;
+            return true;
+        }
+
+        var hexHit = _hexEnemies
+            .Where(h => h.Alive && DistanceToSegment(h.Position, from, to) <= radius + 15f)
+            .OrderBy(h => DistanceToSegment(h.Position, from, to))
+            .FirstOrDefault();
+        if (hexHit is not null)
+        {
+            hexHit.Damage(damage);
+            return true;
+        }
+
+        var turretHit = _turrets
+            .Where(t => t.Alive && DistanceToSegment(t.Position, from, to) <= radius + 18f)
+            .OrderBy(t => DistanceToSegment(t.Position, from, to))
+            .FirstOrDefault();
+        if (turretHit is not null)
+        {
+            turretHit.Damage(damage);
+            return true;
+        }
+
+        var miniBossHit = _miniBosses
+            .Where(b => b.Alive && DistanceToSegment(b.Position, from, to) <= radius + 26f)
+            .OrderBy(b => DistanceToSegment(b.Position, from, to))
+            .FirstOrDefault();
+        if (miniBossHit is not null)
+        {
+            miniBossHit.Damage(damage);
+            return true;
+        }
+
+        if (_destroyerBoss is not null && _destroyerBoss.Alive && _destroyerBoss.TryApplySegmentDamage(from, to, radius, damage))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private void ExplodeProjectile(Projectile projectile)
+    {
+        _explosions.Add(new Explosion(projectile.Position, projectile.ExplosionRadius, projectile.Color));
+
+        if (projectile.OwnerEnemy)
+        {
+            if (Vector2.Distance(projectile.Position, _player.Position) <= projectile.ExplosionRadius)
+            {
+                _player.TakeDamage(projectile.ExplosionDamage);
+            }
+
+            return;
+        }
+
+        foreach (var enemy in _enemies.Where(e => e.Alive && Vector2.Distance(e.Position, projectile.Position) <= projectile.ExplosionRadius))
+        {
+            enemy.Damage(projectile.ExplosionDamage);
+            enemy.ForceAggro(_player.Position);
+            enemy.JustHitByPlayer = true;
+        }
+
+        foreach (var hex in _hexEnemies.Where(h => h.Alive && Vector2.Distance(h.Position, projectile.Position) <= projectile.ExplosionRadius))
+        {
+            hex.Damage(projectile.ExplosionDamage);
+        }
+
+        foreach (var turret in _turrets.Where(t => t.Alive && Vector2.Distance(t.Position, projectile.Position) <= projectile.ExplosionRadius))
+        {
+            turret.Damage(projectile.ExplosionDamage);
+        }
+
+        foreach (var miniBoss in _miniBosses.Where(b => b.Alive && Vector2.Distance(b.Position, projectile.Position) <= projectile.ExplosionRadius))
+        {
+            miniBoss.Damage(projectile.ExplosionDamage);
+        }
+
+        if (_destroyerBoss is not null && _destroyerBoss.Alive)
+        {
+            _destroyerBoss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, projectile.ExplosionDamage);
         }
     }
 
@@ -327,12 +515,36 @@ public sealed class SciFiRogueGame : IDisposable
                 e.JustHitByPlayer = true;
             }
 
-            foreach (var b in _bosses.Where(x => x.Alive))
+            foreach (var h in _hexEnemies.Where(x => x.Alive))
+            {
+                var hit = s.IsLine
+                    ? DistanceToSegment(h.Position, s.LineStart, s.LineEnd) < 16f
+                    : IsInArc(h.Position, s, 10f);
+                if (hit) h.Damage(_player.GetMeleeDamage());
+            }
+
+            foreach (var t in _turrets.Where(x => x.Alive))
+            {
+                var hit = s.IsLine
+                    ? DistanceToSegment(t.Position, s.LineStart, s.LineEnd) < 20f
+                    : IsInArc(t.Position, s, 14f);
+                if (hit) t.Damage(_player.GetMeleeDamage());
+            }
+
+            foreach (var b in _miniBosses.Where(x => x.Alive))
             {
                 var hit = s.IsLine
                     ? DistanceToSegment(b.Position, s.LineStart, s.LineEnd) < 28f
                     : IsInArc(b.Position, s, 24f);
                 if (hit) b.Damage(_player.GetMeleeDamage() * 0.75f);
+            }
+
+            if (_destroyerBoss is not null && _destroyerBoss.Alive)
+            {
+                var hit = s.IsLine
+                    ? DistanceToSegment(_destroyerBoss.Position, s.LineStart, s.LineEnd) < 54f
+                    : IsInArc(_destroyerBoss.Position, s, 50f);
+                if (hit) _destroyerBoss.Damage(_player.GetMeleeDamage() * 0.75f);
             }
         }
     }
@@ -537,8 +749,8 @@ public sealed class SciFiRogueGame : IDisposable
                 new UiSlot(new Rectangle(560, 118, 58, 58), SlotKind.Armor, null, _player.Armor, -1),
                 new UiSlot(new Rectangle(560, 186, 58, 58), SlotKind.RangedWeapon, null, _player.RangedWeapon, -1),
                 new UiSlot(new Rectangle(560, 250, 58, 58), SlotKind.MeleeWeapon, null, _player.MeleeWeapon, -1),
-                new UiSlot(new Rectangle(560, 348, 58, 58), SlotKind.MedkitSlot, null, _player.Inventory.MedkitSlot, -1),
-                new UiSlot(new Rectangle(624, 348, 58, 58), SlotKind.StimSlot, null, _player.Inventory.StimSlot, -1),
+                new UiSlot(new Rectangle(560, 348, 58, 58), SlotKind.QuickSlotQ, null, _player.Inventory.QuickSlotQ, -1),
+                new UiSlot(new Rectangle(624, 348, 58, 58), SlotKind.QuickSlotR, null, _player.Inventory.QuickSlotR, -1),
                 new UiSlot(new Rectangle(1160, 470, 58, 58), SlotKind.Trash, null, _player.Inventory.Trash, -1)
             ]);
         }
@@ -593,19 +805,19 @@ public sealed class SciFiRogueGame : IDisposable
             return;
         }
 
-        if (target.Kind == SlotKind.MedkitSlot && drag.Item.Type == ItemType.Consumable && drag.Item.ConsumableKind == ConsumableType.Medkit)
+        if (target.Kind == SlotKind.QuickSlotQ && drag.Item.Type == ItemType.Consumable)
         {
-            var old = _player.Inventory.MedkitSlot;
-            _player.Inventory.MedkitSlot = drag.Item;
+            var old = _player.Inventory.QuickSlotQ;
+            _player.Inventory.QuickSlotQ = drag.Item;
             RemoveFromSource(drag);
             if (old is not null) _player.Inventory.AddToBackpack(old);
             return;
         }
 
-        if (target.Kind == SlotKind.StimSlot && drag.Item.Type == ItemType.Consumable && drag.Item.ConsumableKind == ConsumableType.Stim)
+        if (target.Kind == SlotKind.QuickSlotR && drag.Item.Type == ItemType.Consumable)
         {
-            var old = _player.Inventory.StimSlot;
-            _player.Inventory.StimSlot = drag.Item;
+            var old = _player.Inventory.QuickSlotR;
+            _player.Inventory.QuickSlotR = drag.Item;
             RemoveFromSource(drag);
             if (old is not null) _player.Inventory.AddToBackpack(old);
             return;
@@ -664,13 +876,13 @@ public sealed class SciFiRogueGame : IDisposable
         {
             _player.MeleeWeapon = null;
         }
-        else if (drag.Kind == SlotKind.MedkitSlot)
+        else if (drag.Kind == SlotKind.QuickSlotQ)
         {
-            _player.Inventory.MedkitSlot = null;
+            _player.Inventory.QuickSlotQ = null;
         }
-        else if (drag.Kind == SlotKind.StimSlot)
+        else if (drag.Kind == SlotKind.QuickSlotR)
         {
-            _player.Inventory.StimSlot = null;
+            _player.Inventory.QuickSlotR = null;
         }
         else if (drag.Kind == SlotKind.Chest && _openedChestIndex is not null && drag.Index >= 0)
         {
@@ -766,13 +978,20 @@ public sealed class SciFiRogueGame : IDisposable
         foreach (var ghost in _dashAfterImages) ghost.Draw();
 
         foreach (var e in _enemies) e.DrawSight();
-        foreach (var b in _bosses) b.DrawSight();
+        foreach (var h in _hexEnemies) h.DrawSight();
+        foreach (var t in _turrets) t.DrawSight();
+        foreach (var b in _miniBosses) b.DrawSight();
+        _destroyerBoss?.DrawSight();
         foreach (var e in _enemies) e.Draw(Theme);
-        foreach (var b in _bosses) b.Draw(Theme);
+        foreach (var h in _hexEnemies) h.Draw();
+        foreach (var t in _turrets) t.Draw();
+        foreach (var b in _miniBosses) b.Draw(Theme);
+        _destroyerBoss?.Draw();
+        foreach (var t in _turrets) t.DrawAimLine();
 
         foreach (var p in _projectiles)
         {
-            Raylib.DrawCircleV(p.Position, 4f, p.Color);
+            Raylib.DrawCircleV(p.Position, p.DrawRadius, p.Color);
         }
 
         foreach (var ex in _explosions)
@@ -802,7 +1021,6 @@ public sealed class SciFiRogueGame : IDisposable
 
         Raylib.DrawRectangleLinesEx(new Rectangle(0, 0, World, World), 6f, Palette.C(120, 160, 220));
         Raylib.DrawCircleV(_player.Position, 16f, Theme.Player);
-        DrawZoneArrows();
         Raylib.EndMode2D();
     }
 
@@ -812,8 +1030,9 @@ public sealed class SciFiRogueGame : IDisposable
 
         var activeWeapon = _player.ActiveWeaponClass == WeaponClass.Ranged ? _player.RangedWeapon : _player.MeleeWeapon;
         Raylib.DrawText($"Current: {activeWeapon?.Name ?? "None"} {BuildWeaponDamageText(activeWeapon, _player.ActiveWeaponClass)}", 20, 48, 22, activeWeapon?.Color ?? Color.LightGray);
-        Raylib.DrawText($"Consumables: Q [{(_player.Inventory.MedkitSlot is null ? "-" : "Medkit")}]  R [{(_player.Inventory.StimSlot is null ? "-" : "Stim")}]", 20, 78, 20, Color.White);
+        Raylib.DrawText($"Consumables: Q [{(_player.Inventory.QuickSlotQ?.Name ?? "-")}]  R [{(_player.Inventory.QuickSlotR?.Name ?? "-")}]", 20, 78, 20, Color.White);
         Raylib.DrawText("WASD move | LMB attack | E switch active weapon | TAB inventory | ESC menu", 20, Raylib.GetScreenHeight() - 28, 18, Color.Gray);
+        DrawZoneArrows();
     }
 
     private void DrawInventory()
@@ -868,8 +1087,8 @@ public sealed class SciFiRogueGame : IDisposable
             Raylib.DrawRectangleRec(slot.Rect, Palette.C(22, 28, 42, 255));
             Raylib.DrawRectangleLinesEx(slot.Rect, 1f, Color.SkyBlue);
             if (slot.Kind == SlotKind.Trash) Raylib.DrawText("TR", (int)slot.Rect.X + 16, (int)slot.Rect.Y + 18, 20, Color.Orange);
-            if (slot.Kind == SlotKind.MedkitSlot) Raylib.DrawText("Q", (int)slot.Rect.X + 20, (int)slot.Rect.Y - 18, 16, Color.Green);
-            if (slot.Kind == SlotKind.StimSlot) Raylib.DrawText("R", (int)slot.Rect.X + 20, (int)slot.Rect.Y - 18, 16, Color.Yellow);
+            if (slot.Kind == SlotKind.QuickSlotQ) Raylib.DrawText("Q", (int)slot.Rect.X + 20, (int)slot.Rect.Y - 18, 16, Color.Green);
+            if (slot.Kind == SlotKind.QuickSlotR) Raylib.DrawText("R", (int)slot.Rect.X + 20, (int)slot.Rect.Y - 18, 16, Color.Yellow);
             if (slot.Item is not null) DrawItemIcon(slot.Item, new Rectangle(slot.Rect.X + 8, slot.Rect.Y + 8, 42, 42));
         }
 
@@ -994,25 +1213,34 @@ public sealed class SciFiRogueGame : IDisposable
 
     private void DrawZoneArrows()
     {
-        DrawZoneArrow(_buildings, Palette.C(80, 170, 255));
-        DrawZoneArrow(_outposts, Palette.C(245, 90, 90));
+        DrawScreenZoneArrow(_buildings, Palette.C(80, 170, 255), "B");
+        DrawScreenZoneArrow(_outposts, Palette.C(245, 90, 90), "O");
+        if (_destroyerBoss is not null && _destroyerBoss.Alive)
+        {
+            DrawScreenPointArrow(_destroyerBoss.Position, Palette.C(230, 45, 45), "D");
+        }
     }
 
-    private void DrawZoneArrow(List<LootZone> zones, Color color)
+    private void DrawScreenZoneArrow(List<LootZone> zones, Color color, string marker)
     {
-        var nearest = zones
-            .OrderBy(zone => Vector2.DistanceSquared(_player.Position, zone.Center))
-            .FirstOrDefault();
+        var nearest = zones.OrderBy(zone => Vector2.DistanceSquared(_player.Position, zone.Center)).FirstOrDefault();
         if (nearest is null) return;
+        DrawScreenPointArrow(nearest.Center, color, marker);
+    }
 
-        var to = nearest.Center - _player.Position;
+    private void DrawScreenPointArrow(Vector2 target, Color color, string marker)
+    {
+        var to = target - _player.Position;
         if (to.LengthSquared() < 0.01f) return;
 
         var dir = Vector2.Normalize(to);
+        var center = new Vector2(Raylib.GetScreenWidth() / 2f, Raylib.GetScreenHeight() / 2f);
+        var tip = center + dir * 82f;
         var normal = new Vector2(-dir.Y, dir.X);
-        var tip = _player.Position + dir * 46f;
-        var backCenter = _player.Position + dir * 28f;
-        Raylib.DrawTriangle(tip, backCenter + normal * 9f, backCenter - normal * 9f, color);
+        var backCenter = center + dir * 54f;
+
+        Raylib.DrawTriangle(tip, backCenter + normal * 11f, backCenter - normal * 11f, color);
+        Raylib.DrawText(marker, (int)backCenter.X - 5, (int)backCenter.Y - 8, 16, Color.White);
     }
 
     private void DrawStatTooltip()
@@ -1020,7 +1248,7 @@ public sealed class SciFiRogueGame : IDisposable
         var mouse = Raylib.GetMousePosition();
         var hints = new (Rectangle Rect, string Header, string Body)[]
         {
-            (new Rectangle(54, 176, 180, 24), "STR", "Увеличивает урон ближнего боя."),
+            (new Rectangle(54, 176, 180, 24), "STR", "Увеличивает урон ближнего боя и максимум здоровья на 5."),
             (new Rectangle(54, 206, 180, 24), "DEX", "Усиливает ближний урон, снижает входящий урон и шанс негативных эффектов."),
             (new Rectangle(54, 236, 180, 24), "SPD", "Увеличивает скорость передвижения и рывка."),
             (new Rectangle(54, 266, 180, 24), "GUN", "Увеличивает бонусный урон дальнего оружия.")
@@ -1041,13 +1269,12 @@ public sealed class SciFiRogueGame : IDisposable
     {
         if (weapon is null) return string.Empty;
 
+        var total = _player.GetWeaponDamage(weapon);
+        if (weapon.Pattern == WeaponPattern.GrenadeLauncher) return $"blast {total:0} / direct {total * 1.6f:0}";
+
         var bonus = kind == WeaponClass.Ranged
             ? _player.GetRangedStatBonus()
             : _player.GetMeleeStatBonus();
-
-        var total = kind == WeaponClass.Ranged
-            ? _player.GetRangedDamage()
-            : _player.GetMeleeDamage();
 
         return $"dmg {total:0}(+{bonus:0})";
     }
@@ -1110,7 +1337,7 @@ public sealed class SciFiRogueGame : IDisposable
                 var pos = RandomPointInZoneSafe(zone.Rect, 20f);
                 var lootCount = _rng.Next(1, 6);
                 var loot = new List<ItemStack>();
-                for (var l = 0; l < lootCount; l++) loot.Add(RollLoot(itemsHighTier));
+                for (var l = 0; l < lootCount; l++) loot.Add(RollLoot(itemsHighTier, zone.IsOutpost));
                 list.Add(new LootChest(pos, loot));
             }
         }
@@ -1118,22 +1345,29 @@ public sealed class SciFiRogueGame : IDisposable
         return list;
     }
 
-    private ItemStack RollLoot(bool highTier)
+    private ItemStack RollLoot(bool highTier, bool isOutpost)
     {
         var r = _rng.NextSingle();
         if (r < 0.35f) return ItemStack.Consumable(_rng.NextSingle() < 0.5f ? ConsumableType.Medkit : ConsumableType.Stim);
-        if (r < 0.70f) return ItemStack.Armor(RollRarity(highTier), _rng);
-        return ItemStack.Weapon(_rng.NextSingle() < 0.5f ? WeaponClass.Ranged : WeaponClass.Melee, RollRarity(highTier), _rng);
+        if (r < 0.70f) return ItemStack.Armor(RollRarity(highTier, isOutpost), _rng);
+        return ItemStack.Weapon(_rng.NextSingle() < 0.5f ? WeaponClass.Ranged : WeaponClass.Melee, RollRarity(highTier, isOutpost), _rng);
     }
 
-    private ArmorRarity RollRarity(bool highTier)
+    private ArmorRarity RollRarity(bool highTier, bool isOutpost)
     {
         var r = _rng.NextSingle();
         if (!highTier)
         {
             if (r < 0.55f) return ArmorRarity.Common;
-            if (r < 0.82f) return ArmorRarity.Rare;
-            if (r < 0.96f) return ArmorRarity.Epic;
+            if (r < 0.84f) return ArmorRarity.Rare;
+            if (r < 0.98f) return ArmorRarity.Epic;
+            return ArmorRarity.Legendary;
+        }
+
+        if (!isOutpost)
+        {
+            if (r < 0.24f) return ArmorRarity.Rare;
+            if (r < 0.84f) return ArmorRarity.Epic;
             return ArmorRarity.Legendary;
         }
 
@@ -1154,6 +1388,19 @@ public sealed class SciFiRogueGame : IDisposable
         }
 
         return new Vector2(zoneRect.X + zoneRect.Width / 2f, zoneRect.Y + zoneRect.Height / 2f);
+    }
+
+
+    private Vector2 RandomMapPointSafe(float radius)
+    {
+        for (var i = 0; i < 200; i++)
+        {
+            var point = new Vector2(_rng.Next(50, World - 50), _rng.Next(50, World - 50));
+            if (MovementUtils.CircleHitsObstacle(point, radius, _obstacles)) continue;
+            return point;
+        }
+
+        return new Vector2(World / 2f, World / 2f);
     }
 
     private Vector2 RandomOutdoorPoint(float radius = 14f)
@@ -1254,16 +1501,50 @@ public sealed class SciFiRogueGame : IDisposable
         return list;
     }
 
-    private List<BossEnemy> GenerateBosses()
+
+    private List<TurretEnemy> GenerateTurrets()
     {
-        var list = new List<BossEnemy>();
+        var list = new List<TurretEnemy>();
+        foreach (var outpost in _outposts)
+        {
+            var count = _rng.Next(1, 3);
+            for (var i = 0; i < count; i++)
+            {
+                list.Add(new TurretEnemy(RandomPointInZoneSafe(outpost.Rect, 18f), _rng.NextSingle() * MathF.Tau));
+            }
+        }
+
+        return list;
+    }
+
+    private Vector2 GeneratePlayerSpawnPoint()
+    {
+        for (var i = 0; i < 200; i++)
+        {
+            var point = RandomOutdoorPoint(16f);
+            if (Vector2.Distance(point, new Vector2(World / 2f, World / 2f)) >= CenterNoZoneRadius + 250f)
+            {
+                return point;
+            }
+        }
+
+        return new Vector2(World / 2f, CenterNoZoneRadius + 250f);
+    }
+
+    private List<MiniBossEnemySquare> GenerateMiniBosses()
+    {
+        var list = new List<MiniBossEnemySquare>();
         foreach (var o in _outposts)
         {
             var center = new Vector2(o.Rect.X + o.Rect.Width / 2f, o.Rect.Y + o.Rect.Height / 2f);
-            list.Add(new BossEnemy(center));
+            list.Add(new MiniBossEnemySquare(center));
         }
+
         return list;
     }
+
+    private BossEnemyDestroyer GenerateDestroyerBoss()
+        => new(new Vector2(World / 2f, World / 2f));
 
 
     private static List<VisualTheme> BuildThemes()
@@ -1288,604 +1569,23 @@ public sealed class SciFiRogueGame : IDisposable
     public void Dispose() => Raylib.CloseWindow();
 }
 
-public sealed class Player
-{
-    private const float MaxHp = 120f;
-
-    private float _attackCd;
-    private float _dodgeCd;
-    private float _stim;
-    private float _bleed;
-    private int _pulseQueuedShots;
-    private float _pulseShotCd;
-    private Vector2 _pulseDir;
-    private Color _pulseColor;
-    private float _pulseDamage;
-
-    public Vector2 Position { get; private set; }
-    public float Health { get; private set; }
-    public float MaxHealth => MaxHp;
-
-    public bool InventoryOpen { get; set; }
-
-    public int Str { get; private set; } = 6;
-    public int Dex { get; private set; } = 8;
-    public int Spd { get; private set; } = 7;
-    public int Guns { get; private set; } = 7;
-
-    public int Level { get; private set; } = 1;
-    public int Kills { get; private set; }
-    public int KillsTarget => Level * 10;
-    public int StatPoints { get; private set; }
-
-    public Inventory Inventory { get; } = new();
-
-    public ItemStack? RangedWeapon { get; set; }
-    public ItemStack? MeleeWeapon { get; set; }
-    public ItemStack? Armor { get; set; }
-
-    public WeaponClass ActiveWeaponClass { get; private set; } = WeaponClass.Ranged;
-
-    private Player(Vector2 p)
-    {
-        Position = p;
-        Health = MaxHp;
-
-        RangedWeapon = ItemStack.StartingPistol();
-        MeleeWeapon = ItemStack.StartingMelee();
-        Armor = ItemStack.Armor(ArmorRarity.Common, new Random());
-    }
-
-    public static Player Create(Vector2 p) => new(p);
-
-    public void Update(float dt, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages)
-    {
-        _attackCd -= dt;
-        _dodgeCd -= dt;
-        _stim -= dt;
-
-        if (_bleed > 0)
-        {
-            _bleed -= dt;
-            Health = MathF.Max(0f, Health - 2.4f * dt);
-        }
-
-        var d = Vector2.Zero;
-        if (Raylib.IsKeyDown(KeyboardKey.W)) d.Y -= 1;
-        if (Raylib.IsKeyDown(KeyboardKey.S)) d.Y += 1;
-        if (Raylib.IsKeyDown(KeyboardKey.A)) d.X -= 1;
-        if (Raylib.IsKeyDown(KeyboardKey.D)) d.X += 1;
-
-        if (Raylib.IsKeyPressed(KeyboardKey.Space) && _dodgeCd <= 0f)
-        {
-            var dir = d == Vector2.Zero ? new Vector2(1f, 0f) : Vector2.Normalize(d);
-            var dist = 150f + Spd * 8f;
-            Position = MovementUtils.MoveWithCollisions(Position, dir * dist, 16f, obstacles, worldSize);
-            DashAfterImage.Spawn(afterImages, Position, dir, dist, Palette.C(120, 200, 255), false);
-            _dodgeCd = 1.1f;
-        }
-
-        if (d != Vector2.Zero)
-        {
-            var speed = 210f + Spd * 6f;
-            if (_stim > 0) speed *= 1.25f;
-            var delta = Vector2.Normalize(d) * speed * dt;
-            Position = MovementUtils.MoveWithCollisions(Position, delta, 16f, obstacles, worldSize);
-        }
-    }
-
-    public void Attack(Vector2 target, List<Projectile> projectiles, List<SwingArc> swings)
-    {
-        if (_attackCd > 0f) return;
-
-        var weapon = ActiveWeaponClass == WeaponClass.Ranged ? RangedWeapon : MeleeWeapon;
-        if (weapon is null) return;
-
-        var dir = target - Position;
-        if (dir == Vector2.Zero) dir = new Vector2(1f, 0f);
-        dir = Vector2.Normalize(dir);
-
-        if (ActiveWeaponClass == WeaponClass.Ranged)
-        {
-            var bonus = GetRangedDamage();
-            if (weapon.Pattern == WeaponPattern.PulseRifle)
-            {
-                FirePulseShot(projectiles, dir, weapon.Color, bonus * 0.36f);
-                _pulseQueuedShots = 2;
-                _pulseShotCd = 0.08f;
-                _pulseDir = dir;
-                _pulseColor = weapon.Color;
-                _pulseDamage = bonus * 0.36f;
-                _attackCd = 0.34f;
-            }
-            else
-            {
-                projectiles.Add(new Projectile(Position + dir * 18f, dir, 520f, 1.15f, weapon.Color, false, bonus));
-                _attackCd = 0.22f;
-            }
-        }
-        else
-        {
-            var angle = MathF.Atan2(dir.Y, dir.X);
-            if (weapon.Pattern == WeaponPattern.EnergySpear)
-            {
-                swings.Add(SwingArc.Line(Position + dir * 24f, Position + dir * 125f, 0.14f, weapon.Color));
-                _attackCd = 0.35f;
-            }
-            else
-            {
-                swings.Add(SwingArc.Arc(Position, 78f, angle - 0.64f, angle + 0.64f, 0.14f, weapon.Color));
-                _attackCd = 0.32f;
-            }
-        }
-    }
-
-    public void UpdateCombat(float dt, List<Projectile> projectiles)
-    {
-        if (_pulseQueuedShots <= 0) return;
-
-        _pulseShotCd -= dt;
-        while (_pulseQueuedShots > 0 && _pulseShotCd <= 0f)
-        {
-            FirePulseShot(projectiles, _pulseDir, _pulseColor, _pulseDamage);
-            _pulseQueuedShots--;
-            _pulseShotCd += 0.08f;
-        }
-    }
-
-    private void FirePulseShot(List<Projectile> projectiles, Vector2 dir, Color color, float damage)
-    {
-        projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, 1.0f, color, false, damage));
-    }
-
-    public float GetMeleeDamage()
-    {
-        var power = MeleeWeapon?.PowerBonus ?? 0f;
-        return (12f + GetMeleeStatBonusRaw() + power) * 0.7f;
-    }
-
-    public float GetRangedDamage()
-    {
-        var power = RangedWeapon?.PowerBonus ?? 0f;
-        return (9f + GetRangedStatBonusRaw() + power) * 1.3f;
-    }
-
-    public float GetMeleeStatBonus() => GetMeleeStatBonusRaw() * 0.7f;
-    public float GetRangedStatBonus() => GetRangedStatBonusRaw() * 1.3f;
-
-    private float GetMeleeStatBonusRaw() => Str * 2.2f + Dex * 0.6f;
-    private float GetRangedStatBonusRaw() => Guns * 2.4f;
-
-    public float GetStatusEffectChance(float baseChance)
-    {
-        var reduction = Math.Clamp(Dex * 0.02f, 0f, 0.6f);
-        return baseChance * (1f - reduction);
-    }
-
-    public void SwitchActiveWeapon() => ActiveWeaponClass = ActiveWeaponClass == WeaponClass.Ranged ? WeaponClass.Melee : WeaponClass.Ranged;
-
-    public void UseMedkit()
-    {
-        if (Inventory.MedkitSlot?.ConsumableKind != ConsumableType.Medkit || Health >= MaxHp) return;
-        Inventory.MedkitSlot = null;
-        Health = MathF.Min(MaxHp, Health + 36f);
-    }
-
-    public void UseStim()
-    {
-        if (Inventory.StimSlot?.ConsumableKind != ConsumableType.Stim) return;
-        Inventory.StimSlot = null;
-        _stim = 6f;
-    }
-
-    public void ApplyBleed(float duration) => _bleed = MathF.Max(_bleed, duration);
-    public void TickEffects(float dt) { }
-
-    public void TakeDamage(float value)
-    {
-        var armor = Armor?.Defense ?? 0f;
-        var reduced = MathF.Max(1f, value - armor * 0.75f - Dex * 0.12f);
-        Health = MathF.Max(0f, Health - reduced);
-    }
-
-    public void RegisterKill()
-    {
-        Kills++;
-        if (Kills < KillsTarget) return;
-        Kills = 0;
-        Level++;
-        StatPoints++;
-    }
-
-    public void ApplyPoint(StatType stat)
-    {
-        if (StatPoints <= 0) return;
-        StatPoints--;
-
-        if (stat == StatType.Strength) Str++;
-        if (stat == StatType.Dexterity) Dex++;
-        if (stat == StatType.Speed) Spd++;
-        if (stat == StatType.Gunsmith) Guns++;
-    }
-}
-
-public sealed class Enemy
-{
-    public Vector2 Position;
-    public float MaxHealth;
-    public float Health;
-    public bool IsStrong;
-    public bool IsPatrol;
-    public bool Alive => Health > 0f;
-
-    public bool KillAwarded;
-    public bool JustHitByPlayer;
-
-    private Vector2 _facing;
-    private float _attackCd;
-
-    private Vector2 _patrolA;
-    private Vector2 _patrolB;
-    private bool _toB = true;
-
-    private bool _alert;
-    private Vector2 _target;
-
-    private float _sweepPhase;
-    private float _sweepDir = 1f;
-
-    private float _burstCd;
-    private float _patrolTurnTimer;
-    private bool _patrolTurning;
-    private int _burstShotsLeft;
-    private float _burstShotCd;
-
-    private float _deathAnim = 0.45f;
-
-    private const float BaseView = 290f;
-    private const float StrongView = 360f;
-    private const float FovHalf = MathF.PI / 3f; // 120 total
-
-    private Enemy(Vector2 pos)
-    {
-        Position = pos;
-        _facing = new Vector2(1f, 0f);
-    }
-
-    public static Enemy CreatePatrol(Vector2 a, Vector2 b, bool outpost)
-    {
-        var e = new Enemy(a)
-        {
-            IsPatrol = true,
-            _patrolA = a,
-            _patrolB = b,
-            MaxHealth = 100f,
-            Health = 100f
-        };
-        return e;
-    }
-
-    public static Enemy CreateStrong(Vector2 pos)
-    {
-        var e = new Enemy(pos)
-        {
-            IsStrong = true,
-            MaxHealth = 300f,
-            Health = 300f
-        };
-        return e;
-    }
-
-    public void UpdateVisionSweep(float dt)
-    {
-        if (!Alive) { _deathAnim -= dt; return; }
-
-        // sweep left-right
-        _sweepPhase += dt * 1.2f * _sweepDir;
-        if (_sweepPhase > 1f) { _sweepPhase = 1f; _sweepDir = -1f; }
-        if (_sweepPhase < -1f) { _sweepPhase = -1f; _sweepDir = 1f; }
-
-        var baseAngle = MathF.Atan2(_facing.Y, _facing.X);
-        var sweepOffset = _sweepPhase * (MathF.PI * 0.18f);
-        var a = baseAngle + sweepOffset;
-        _facing = Vector2.Normalize(new Vector2(MathF.Cos(a), MathF.Sin(a)));
-    }
-
-    public void UpdateAwareness(Vector2 playerPos, float dt, List<Obstacle> obstacles)
-    {
-        if (!Alive) return;
-
-        if (CanSeePoint(playerPos, obstacles))
-        {
-            _alert = true;
-            _target = playerPos;
-        }
-        else if (_alert && Vector2.Distance(Position, playerPos) > GetViewDistance() * 1.8f)
-        {
-            _alert = false;
-        }
-    }
-
-    public bool CanSeePoint(Vector2 point, List<Obstacle> obstacles)
-    {
-        var to = point - Position;
-        var dist = to.Length();
-        if (dist > GetViewDistance() || dist < 0.01f) return false;
-
-        var dir = Vector2.Normalize(to);
-        var angle = MathF.Acos(Math.Clamp(Vector2.Dot(_facing, dir), -1f, 1f));
-        return angle <= FovHalf && VisibilityUtils.HasLineOfSight(Position, point, obstacles);
-    }
-
-    public void ForceAggro(Vector2 target)
-    {
-        _alert = true;
-        _target = target;
-    }
-
-    public void UpdateMovement(float dt, Vector2 playerPos, List<Obstacle> obstacles, int worldSize)
-    {
-        _attackCd -= dt;
-
-        if (!Alive) return;
-
-        if (_alert)
-        {
-            var to = _target - Position;
-            if (to.LengthSquared() > 16f)
-            {
-                var dir = Vector2.Normalize(to);
-                _facing = dir;
-                Position = MovementUtils.MoveWithCollisions(Position, dir * (IsStrong ? 95f : 118f) * dt, 14f, obstacles, worldSize);
-            }
-
-            if (IsStrong)
-            {
-                _burstCd -= dt;
-                _burstShotCd -= dt;
-            }
-
-            return;
-        }
-
-        if (IsPatrol)
-        {
-            if (_patrolTurning)
-            {
-                _patrolTurnTimer -= dt;
-                var turned = VisibilityUtils.Rotate(_facing, MathF.PI * dt / 2f);
-                if (turned != Vector2.Zero) _facing = Vector2.Normalize(turned);
-                if (_patrolTurnTimer <= 0f)
-                {
-                    _patrolTurning = false;
-                    _toB = !_toB;
-                }
-                return;
-            }
-
-            var target = _toB ? _patrolB : _patrolA;
-            var to = target - Position;
-            if (to.Length() < 8f)
-            {
-                _patrolTurning = true;
-                _patrolTurnTimer = 2f;
-            }
-            else
-            {
-                var dir = Vector2.Normalize(to);
-                _facing = dir;
-                Position = MovementUtils.MoveWithCollisions(Position, dir * 86f * dt, 14f, obstacles, worldSize);
-            }
-        }
-    }
-
-    public void TryShootBurst(Vector2 playerPos, List<Projectile> projectiles)
-    {
-        if (!Alive || !IsStrong || !_alert) return;
-
-        if (_burstCd <= 0f && _burstShotsLeft <= 0)
-        {
-            _burstShotsLeft = 3;
-            _burstShotCd = 0f;
-            _burstCd = 2.8f;
-        }
-
-        if (_burstShotsLeft > 0 && _burstShotCd <= 0f)
-        {
-            var dir = playerPos - Position;
-            if (dir != Vector2.Zero) dir = Vector2.Normalize(dir);
-            projectiles.Add(new Projectile(Position + dir * 16f, dir, 420f, 1.4f, Palette.C(255, 120, 120), true, 10f));
-            _burstShotsLeft--;
-            _burstShotCd = 0.13f;
-        }
-    }
-
-    public bool TryMeleeHit(Player player)
-    {
-        if (!Alive || _attackCd > 0f || Vector2.Distance(Position, player.Position) > 24f) return false;
-        _attackCd = IsStrong ? 1.3f : 0.9f;
-        player.TakeDamage(IsStrong ? 18f : 10f);
-        return true;
-    }
-
-    public float GetViewDistance() => IsStrong ? StrongView : BaseView;
-
-    public void Damage(float amount)
-    {
-        if (!Alive) return;
-        Health = MathF.Max(0f, Health - amount);
-    }
-
-    public void Draw(VisualTheme theme)
-    {
-        if (Alive)
-        {
-            if (IsStrong)
-            {
-                var p1 = Position + new Vector2(0, -16);
-                var p2 = Position + new Vector2(-14, 14);
-                var p3 = Position + new Vector2(14, 14);
-                Raylib.DrawTriangle(p1, p2, p3, theme.EnemyStrong);
-                Raylib.DrawTriangleLines(p1, p2, p3, Color.Maroon);
-            }
-            else
-            {
-                Raylib.DrawCircleV(Position, 14f, theme.Enemy);
-                Raylib.DrawCircleLines((int)Position.X, (int)Position.Y, 16f, Color.Maroon);
-            }
-
-            var hp = Health / MaxHealth;
-            var bar = new Rectangle(Position.X - 22, Position.Y - 26, 44, 5);
-            Raylib.DrawRectangleRec(bar, Palette.C(20, 20, 20, 220));
-            Raylib.DrawRectangle((int)bar.X, (int)bar.Y, (int)(bar.Width * hp), (int)bar.Height, Color.Green);
-        }
-        else if (_deathAnim > 0)
-        {
-            var fade = (byte)(255 * (_deathAnim / 0.45f));
-            Raylib.DrawCircle((int)Position.X, (int)Position.Y, 18f * (1f - _deathAnim / 0.45f), Palette.C(255, 90, 60, fade));
-        }
-    }
-
-    public void DrawSight()
-    {
-        if (!Alive) return;
-
-        var c = Palette.C(120, 140, 160, 26);
-        VisibilityUtils.DrawDashedCircle(Position, GetViewDistance(), 28, c);
-
-        var left = VisibilityUtils.Rotate(_facing, -FovHalf);
-        var right = VisibilityUtils.Rotate(_facing, FovHalf);
-        VisibilityUtils.DrawDashedLine(Position, Position + left * GetViewDistance(), 22, c);
-        VisibilityUtils.DrawDashedLine(Position, Position + right * GetViewDistance(), 22, c);
-    }
-}
-
-public sealed class BossEnemy
-{
-    public Vector2 Position;
-    public float MaxHealth = 2000f;
-    public float Health = 2000f;
-    public bool Alive => Health > 0;
-    public bool KillAwarded;
-
-    private float _ramCd = 4f;
-    private float _shootCd = 1.2f;
-    private float _slamCd = 3.5f;
-    private float _slamVisual;
-    private bool _alert;
-    private Vector2 _facing = new(1f, 0f);
-
-    private const float ViewDistance = 460f;
-    private const float FovHalf = MathF.PI / 3f;
-
-    public BossEnemy(Vector2 pos) { Position = pos; }
-
-    public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, Player player, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages)
-    {
-        if (!Alive) return;
-
-        _ramCd -= dt;
-        _shootCd -= dt;
-        _slamCd -= dt;
-        _slamVisual -= dt;
-
-        var toPlayer = playerPos - Position;
-        if (toPlayer != Vector2.Zero) _facing = Vector2.Normalize(toPlayer);
-
-        if (CanSeePoint(playerPos, obstacles)) _alert = true;
-        else if (_alert && Vector2.Distance(Position, playerPos) > ViewDistance * 1.6f) _alert = false;
-
-        if (!_alert || toPlayer == Vector2.Zero) return;
-
-        var dir = Vector2.Normalize(toPlayer);
-        Position = MovementUtils.MoveWithCollisions(Position, dir * 42f * dt, 28f, obstacles, worldSize);
-
-        if (_ramCd <= 0f)
-        {
-            Position = MovementUtils.MoveWithCollisions(Position, dir * 120f, 28f, obstacles, worldSize);
-            DashAfterImage.Spawn(afterImages, Position, dir, 120f, Palette.C(230, 100, 100), true);
-            _ramCd = 4f;
-            if (Vector2.Distance(Position, playerPos) < 56f) player.TakeDamage(24f);
-        }
-
-        if (_shootCd <= 0f)
-        {
-            for (var i = 0; i < 10; i++)
-            {
-                var spread = ((Random.Shared.NextSingle() * 10f) - 5f) * (MathF.PI / 180f);
-                var shotDir = VisibilityUtils.Rotate(dir, spread);
-                projectiles.Add(new Projectile(Position + shotDir * 28f, shotDir, 500f, 1.35f, Palette.C(255, 150, 120), true, 16f));
-            }
-            _shootCd = 1.5f;
-        }
-
-        if (_slamCd <= 0f)
-        {
-            _slamVisual = 0.7f;
-            _slamCd = 3.6f;
-            if (Vector2.Distance(Position, playerPos) < 120f) player.TakeDamage(20f);
-        }
-    }
-
-    private bool CanSeePoint(Vector2 point, List<Obstacle> obstacles)
-    {
-        var to = point - Position;
-        var dist = to.Length();
-        if (dist > ViewDistance || dist < 0.01f) return false;
-
-        var dir = Vector2.Normalize(to);
-        var angle = MathF.Acos(Math.Clamp(Vector2.Dot(_facing, dir), -1f, 1f));
-        return angle <= FovHalf && VisibilityUtils.HasLineOfSight(Position, point, obstacles);
-    }
-
-    public void Damage(float amount)
-    {
-        if (!Alive) return;
-        Health = MathF.Max(0f, Health - amount);
-    }
-
-    public void DrawSight()
-    {
-        if (!Alive) return;
-
-        var c = Palette.C(255, 130, 110, 24);
-        VisibilityUtils.DrawDashedCircle(Position, ViewDistance, 32, c);
-        VisibilityUtils.DrawDashedLine(Position, Position + VisibilityUtils.Rotate(_facing, -FovHalf) * ViewDistance, 24, c);
-        VisibilityUtils.DrawDashedLine(Position, Position + VisibilityUtils.Rotate(_facing, FovHalf) * ViewDistance, 24, c);
-    }
-
-    public void Draw(VisualTheme theme)
-    {
-        if (!Alive) return;
-
-        var size = 42;
-        Raylib.DrawRectangle((int)Position.X - size / 2, (int)Position.Y - size / 2, size, size, theme.Boss);
-        Raylib.DrawRectangleLines((int)Position.X - size / 2, (int)Position.Y - size / 2, size, size, Color.Maroon);
-
-        if (_slamVisual > 0)
-        {
-            var alpha = (byte)(120 * (_slamVisual / 0.7f));
-            Raylib.DrawCircle((int)Position.X, (int)Position.Y, 120f, Palette.C(255, 100, 100, alpha));
-        }
-
-        var hp = Health / MaxHealth;
-        var bar = new Rectangle(Position.X - 36, Position.Y - 34, 72, 6);
-        Raylib.DrawRectangleRec(bar, Palette.C(20, 20, 20, 220));
-        Raylib.DrawRectangle((int)bar.X, (int)bar.Y, (int)(bar.Width * hp), (int)bar.Height, Color.Green);
-    }
-}
-
-public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life, Color color, bool ownerEnemy, float damage)
+public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life, Color color, bool ownerEnemy, float damage, ProjectileKind kind = ProjectileKind.Bullet, float explosionRadius = 0f, float explosionDamage = 0f, float drawRadius = 4f)
 {
     public Vector2 Position { get; private set; } = pos;
+    public Vector2 PreviousPosition { get; private set; } = pos;
     public Color Color { get; } = color;
     public bool OwnerEnemy { get; } = ownerEnemy;
     public float Damage { get; } = damage;
+    public ProjectileKind Kind { get; } = kind;
+    public float ExplosionRadius { get; } = explosionRadius;
+    public float ExplosionDamage { get; } = explosionDamage;
+    public float DrawRadius { get; } = drawRadius;
     private float _life = life;
     public bool Alive => _life > 0f;
 
     public void Update(float dt)
     {
+        PreviousPosition = Position;
         Position += dir * speed * dt;
         _life -= dt;
     }
@@ -2085,13 +1785,15 @@ public sealed class Inventory
     public const int BackpackCapacity = 30;
 
     public List<ItemStack?> BackpackSlots { get; } = Enumerable.Repeat<ItemStack?>(null, BackpackCapacity).ToList();
-    public ItemStack? MedkitSlot { get; set; }
-    public ItemStack? StimSlot { get; set; }
+    public ItemStack? QuickSlotQ { get; set; }
+    public ItemStack? QuickSlotR { get; set; }
 
     public ItemStack? Trash { get; set; }
 
     public bool AddToBackpack(ItemStack item)
     {
+        if (TryPlaceIntoConsumableSlot(item)) return true;
+
         for (var i = 0; i < BackpackSlots.Count; i++)
         {
             if (BackpackSlots[i] is not null) continue;
@@ -2100,6 +1802,44 @@ public sealed class Inventory
         }
 
         return false;
+    }
+
+    public void AutoFillConsumableSlots()
+    {
+        if (QuickSlotQ is null) QuickSlotQ = TakeFirstConsumableFromBackpack();
+        if (QuickSlotR is null) QuickSlotR = TakeFirstConsumableFromBackpack();
+    }
+
+    private bool TryPlaceIntoConsumableSlot(ItemStack item)
+    {
+        if (item.Type != ItemType.Consumable) return false;
+
+        if (QuickSlotQ is null)
+        {
+            QuickSlotQ = item;
+            return true;
+        }
+
+        if (QuickSlotR is null)
+        {
+            QuickSlotR = item;
+            return true;
+        }
+
+        return false;
+    }
+
+    private ItemStack? TakeFirstConsumableFromBackpack()
+    {
+        for (var i = 0; i < BackpackSlots.Count; i++)
+        {
+            var item = BackpackSlots[i];
+            if (item?.Type != ItemType.Consumable) continue;
+            BackpackSlots[i] = null;
+            return item;
+        }
+
+        return null;
     }
 }
 
@@ -2139,7 +1879,8 @@ public sealed class ItemStack
             ArmorRarity.Common => 10f,
             ArmorRarity.Rare => 14f,
             ArmorRarity.Epic => 19f,
-            _ => 25f
+            ArmorRarity.Legendary => 25f,
+            _ => 33f
         };
 
         var name = rarity switch
@@ -2147,7 +1888,8 @@ public sealed class ItemStack
             ArmorRarity.Common => "Scrap Vest",
             ArmorRarity.Rare => "Titan Weave",
             ArmorRarity.Epic => "Aegis Fiber",
-            _ => "Nova Bulwark"
+            ArmorRarity.Legendary => "Nova Bulwark",
+            _ => "Crimson Bastion"
         };
 
         return new ItemStack(ItemType.Armor, name, "Armor. Drag into armor slot.", rarity, Palette.Rarity(rarity), null, WeaponPattern.Standard, null, baseDef + rng.NextSingle() * 4f, 0f);
@@ -2160,7 +1902,8 @@ public sealed class ItemStack
             ArmorRarity.Common => 0f,
             ArmorRarity.Rare => 3f,
             ArmorRarity.Epic => 6f,
-            _ => 10f
+            ArmorRarity.Legendary => 10f,
+            _ => 16f
         };
 
         p += rng.NextSingle() * 2f;
@@ -2203,11 +1946,26 @@ public sealed class ItemStack
         return new ItemStack(ItemType.Weapon, "Plasma Blade", "Weapon. Drag to matching slot.", ArmorRarity.Common, Palette.Rarity(ArmorRarity.Common), WeaponClass.Melee, WeaponPattern.Standard, null, 0f, 1.2f);
     }
 
+    public static ItemStack BossGrenadeLauncher()
+    {
+        return new ItemStack(
+            ItemType.Weapon,
+            "Destroyer Grenade Launcher",
+            "Boss weapon. Explosive shell deals 250 blast damage and +60% on direct hit.",
+            ArmorRarity.Red,
+            Palette.Rarity(ArmorRarity.Red),
+            WeaponClass.Ranged,
+            WeaponPattern.GrenadeLauncher,
+            null,
+            0f,
+            0f);
+    }
+
     public static ItemStack Consumable(ConsumableType t)
     {
         return t == ConsumableType.Medkit
-            ? new ItemStack(ItemType.Consumable, "Medkit", "Restore HP. Hotkey Q.", ArmorRarity.Common, Palette.C(130, 210, 120), null, WeaponPattern.Standard, t, 0f, 0f)
-            : new ItemStack(ItemType.Consumable, "Stim", "Move speed boost. Hotkey R.", ArmorRarity.Common, Palette.C(220, 220, 120), null, WeaponPattern.Standard, t, 0f, 0f);
+            ? new ItemStack(ItemType.Consumable, "Medkit", "Restore HP. Hotkey Q/R.", ArmorRarity.Common, Palette.C(130, 210, 120), null, WeaponPattern.Standard, t, 0f, 0f)
+            : new ItemStack(ItemType.Consumable, "Stim", "Move speed boost. Hotkey Q/R.", ArmorRarity.Common, Palette.C(220, 220, 120), null, WeaponPattern.Standard, t, 0f, 0f);
     }
 }
 
@@ -2218,8 +1976,8 @@ public enum SlotKind
     Armor,
     Trash,
     Backpack,
-    MedkitSlot,
-    StimSlot,
+    QuickSlotQ,
+    QuickSlotR,
     Chest
 }
 
@@ -2238,3 +1996,4 @@ public sealed class DragPayload(SlotKind kind, int index, ItemStack item)
     public int Index { get; } = index;
     public ItemStack Item { get; } = item;
 }
+

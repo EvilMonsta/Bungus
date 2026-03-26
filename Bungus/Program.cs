@@ -1,5 +1,7 @@
 ﻿using System.Numerics;
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using Raylib_cs;
 
 namespace Bungus.Game;
@@ -21,6 +23,7 @@ public enum ArmorRarity { Common, Rare, Epic, Legendary, Red }
 public enum StatType { Strength, Dexterity, Speed, Gunsmith }
 public enum WeaponPattern { Standard, PulseRifle, EnergySpear, GrenadeLauncher }
 public enum ProjectileKind { Bullet, Grenade }
+public enum DisplayMode { Windowed, Fullscreen }
 
 public static class Palette
 {
@@ -61,6 +64,7 @@ public sealed class SciFiRogueGame : IDisposable
     private const float CenterNoZoneRadius = 850f;
     private const float PortalUnlockDelay = 120f;
     private const float PortalLifetime = 300f;
+    private const int ProtectedSaveVersion = 2;
     private static readonly string SaveFilePath = Path.Combine(AppContext.BaseDirectory, "save", "profile.json");
     private static readonly JsonSerializerOptions SaveJsonOptions = new() { WriteIndented = true };
 
@@ -96,6 +100,7 @@ public sealed class SciFiRogueGame : IDisposable
     private bool _requestExit;
     private readonly List<VisualTheme> _themes;
     private int _themeIndex;
+    private DisplayMode _displayMode;
     private float _nextHexSpawnTimer;
     private readonly MetaProfile _meta = new();
     private readonly List<ExtractPortal> _extractPortals = [];
@@ -116,7 +121,6 @@ public sealed class SciFiRogueGame : IDisposable
         Raylib.InitWindow(W, H, "Bungus");
         Raylib.SetTargetFPS(60);
         Raylib.SetExitKey(KeyboardKey.Null);
-        Raylib.ToggleFullscreen();
 
         _camera = new Camera2D { Zoom = 1.08f, Rotation = 0f };
         _themes = BuildThemes();
@@ -247,9 +251,12 @@ public sealed class SciFiRogueGame : IDisposable
 
     private void UpdateSettings()
     {
+        if (Clicked(CenterRect(0, 156, 360, 56))) SetDisplayMode(DisplayMode.Windowed);
+        if (Clicked(CenterRect(0, 220, 360, 56))) SetDisplayMode(DisplayMode.Fullscreen);
+
         for (var i = 0; i < _themes.Count; i++)
         {
-            if (Clicked(CenterRect(0, 220 + i * 68, 360, 56)))
+            if (Clicked(CenterRect(0, 330 + i * 56, 360, 48)))
             {
                 _themeIndex = i;
                 SavePersistentState();
@@ -706,6 +713,16 @@ public sealed class SciFiRogueGame : IDisposable
             if (Raylib.CheckCollisionPointRec(m, s.Rect)) _hovered = s.Item;
         }
 
+        if (Raylib.IsMouseButtonPressed(MouseButton.Right))
+        {
+            var from = slots.FirstOrDefault(s => Raylib.CheckCollisionPointRec(m, s.Rect));
+            if (from is not null && TryMoveInventorySlotToTrash(from))
+            {
+                _drag = null;
+                return;
+            }
+        }
+
         if (Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
             var from = slots.FirstOrDefault(s => Raylib.CheckCollisionPointRec(m, s.Rect));
@@ -745,6 +762,16 @@ public sealed class SciFiRogueGame : IDisposable
         }
     }
 
+    private bool TryMoveInventorySlotToTrash(UiSlot slot)
+    {
+        if (slot.Item is null) return false;
+        if (slot.Kind is SlotKind.Trash or SlotKind.Chest) return false;
+
+        _player.Inventory.Trash = slot.Item;
+        RemoveFromSource(new DragPayload(slot.Kind, slot.Index, slot.Item));
+        return true;
+    }
+
     private bool HandleDoubleClick(UiSlot slot)
     {
         if (slot.Kind == SlotKind.Chest && _openedChestIndex is not null)
@@ -769,6 +796,16 @@ public sealed class SciFiRogueGame : IDisposable
         foreach (var slot in slots)
         {
             if (Raylib.CheckCollisionPointRec(mouse, slot.Rect)) _hovered = slot.Item;
+        }
+
+        if (Raylib.IsMouseButtonPressed(MouseButton.Right))
+        {
+            var from = slots.FirstOrDefault(s => Raylib.CheckCollisionPointRec(mouse, s.Rect));
+            if (from is not null && TryMoveStorageSlotToTrash(from))
+            {
+                _drag = null;
+                return;
+            }
         }
 
         if (Raylib.IsMouseButtonPressed(MouseButton.Left))
@@ -803,6 +840,18 @@ public sealed class SciFiRogueGame : IDisposable
             if (to is not null) ApplyStorageDrop(_drag, to);
             _drag = null;
         }
+    }
+
+    private bool TryMoveStorageSlotToTrash(UiSlot slot)
+    {
+        if (slot.Item is null) return false;
+        if (slot.Kind == SlotKind.Trash) return false;
+        if (slot.Kind != SlotKind.Storage && !IsMetaLoadoutSlot(slot.Kind)) return false;
+
+        _meta.Trash = slot.Item;
+        ReplaceStorageSourceWith(new DragPayload(slot.Kind, slot.Index, slot.Item), null);
+        SavePersistentState();
+        return true;
     }
 
     private bool HandleStorageDoubleClick(UiSlot slot)
@@ -865,7 +914,7 @@ public sealed class SciFiRogueGame : IDisposable
             new UiSlot(new Rectangle(238, 362, 58, 58), SlotKind.MeleeWeapon, -1, _meta.MeleeWeapon, -1),
             new UiSlot(new Rectangle(206, 454, 58, 58), SlotKind.QuickSlotQ, -1, _meta.QuickSlotQ, -1),
             new UiSlot(new Rectangle(272, 454, 58, 58), SlotKind.QuickSlotR, -1, _meta.QuickSlotR, -1),
-            new UiSlot(new Rectangle(130, 536, 58, 58), SlotKind.Trash, -1, _meta.Trash, -1)
+            new UiSlot(new Rectangle(1088, 252, 58, 58), SlotKind.Trash, -1, _meta.Trash, -1)
         ]);
 
         return list;
@@ -1310,7 +1359,7 @@ public sealed class SciFiRogueGame : IDisposable
         Raylib.DrawText($"HP {_player.Health:0}/{_player.MaxHealth:0} | Level {_player.Level} ({_player.Kills}/{_player.KillsTarget})", 20, 14, 24, Color.White);
 
         var activeWeapon = _player.ActiveWeaponClass == WeaponClass.Ranged ? _player.RangedWeapon : _player.MeleeWeapon;
-        Raylib.DrawText($"Current: {activeWeapon?.Name ?? "None"} {BuildWeaponDamageText(activeWeapon, _player.ActiveWeaponClass)}", 20, 48, 22, activeWeapon?.Color ?? Color.LightGray);
+        Raylib.DrawText($"Current: {activeWeapon?.Name ?? "None"} {BuildWeaponDamageText(_player, activeWeapon, _player.ActiveWeaponClass)}", 20, 48, 22, activeWeapon?.Color ?? Color.LightGray);
         Raylib.DrawText($"Consumables: Q [{(_player.Inventory.QuickSlotQ?.Name ?? "-")}]  R [{(_player.Inventory.QuickSlotR?.Name ?? "-")}]", 20, 78, 20, Color.White);
         Raylib.DrawText($"Run score {_runScore}", 20, 108, 20, Color.Gold);
         DrawExtractionHud();
@@ -1442,18 +1491,8 @@ public sealed class SciFiRogueGame : IDisposable
 
     private void DrawMainMenu()
     {
-        DrawTitle("BUNGUS", 72, 84);
-        Raylib.DrawText("alpha 0.1.0", 86, 150, 24, Palette.C(150, 185, 220));
-
-        var heroPanel = new Rectangle(340, 150, 720, 300);
-        Raylib.DrawRectangleRec(heroPanel, Palette.C(8, 16, 28, 220));
-        Raylib.DrawRectangleLinesEx(heroPanel, 2f, Palette.C(110, 170, 230));
-        Raylib.DrawText("Baselands Deployment Program", 382, 188, 34, Color.White);
-        Raylib.DrawText("Prepare your loadout, dive into the wastes and extract before the portals collapse.", 382, 236, 24, Color.LightGray);
-        Raylib.DrawText($"General level {_meta.Level}", 382, 300, 28, Color.Gold);
-        Raylib.DrawText($"Progress {_meta.Score}/{GetMetaScoreRequired(_meta.Level)}", 382, 338, 24, Color.White);
-        Raylib.DrawText($"+{GetCommonHealthBonus():0} max HP on landing", 382, 382, 22, Palette.C(140, 220, 160));
-        Raylib.DrawText($"+{GetCommonDamageBonus():0} base damage on landing", 382, 412, 22, Palette.C(255, 210, 120));
+        Raylib.DrawText("a0.1.1", 86, 150, 24, Palette.C(150, 185, 220));
+        DrawMetaProgressHeader();
 
         DrawButton(MainMenuButtonRect(0), "Play");
         DrawButton(MainMenuButtonRect(1), "Storage");
@@ -1483,8 +1522,6 @@ public sealed class SciFiRogueGame : IDisposable
         Raylib.DrawLine((int)card.X + 54, (int)card.Y + 246, (int)card.X + 560, (int)card.Y + 246, Palette.C(210, 190, 160));
 
         Raylib.DrawText("Baselands", 378, 184, 34, Color.White);
-        Raylib.DrawText("Open wasteland, scattered cities, hostile outposts and one central destroyer.", 378, 432, 20, Color.LightGray);
-        Raylib.DrawText("Extraction portals open after 2:00 and remain active for 5:00.", 378, 458, 20, Palette.C(126, 210, 255));
 
         DrawButton(new Rectangle(340, 520, 280, 58), "Deploy");
         DrawButton(new Rectangle(70, 620, 220, 52), "Back");
@@ -1510,6 +1547,13 @@ public sealed class SciFiRogueGame : IDisposable
         Raylib.DrawText("Stash", 414, 132, 24, Color.White);
         DrawStorageGrid(new Vector2(414, 174), 10, 10);
 
+        var trashPanel = new Rectangle(1028, 170, 180, 220);
+        Raylib.DrawRectangleRec(trashPanel, Palette.C(10, 18, 30, 220));
+        Raylib.DrawRectangleLinesEx(trashPanel, 2f, Palette.C(108, 170, 228));
+        Raylib.DrawText("Trash", 1080, 194, 24, Color.White);
+        Raylib.DrawText("Right click sends", 1052, 338, 20, Color.LightGray);
+        Raylib.DrawText("items here", 1080, 364, 20, Color.LightGray);
+
         DrawButton(new Rectangle(70, 620, 220, 52), "Back");
 
         var slots = BuildStorageSlots();
@@ -1534,29 +1578,58 @@ public sealed class SciFiRogueGame : IDisposable
 
     private void DrawCharacter()
     {
+        var previewPlayer = CreateLandingPreviewPlayer();
+        var rangedDamage = BuildWeaponDamageText(previewPlayer, previewPlayer.RangedWeapon, WeaponClass.Ranged);
+        var meleeDamage = BuildWeaponDamageText(previewPlayer, previewPlayer.MeleeWeapon, WeaponClass.Melee);
+
         DrawTitle("Character", 56, 60);
         Raylib.DrawText("Common landing stats", 74, 126, 28, Color.LightGray);
 
-        var panel = new Rectangle(70, 170, 520, 320);
+        var panel = new Rectangle(70, 170, 640, 320);
         Raylib.DrawRectangleRec(panel, Palette.C(10, 18, 30, 220));
         Raylib.DrawRectangleLinesEx(panel, 2f, Palette.C(108, 170, 228));
         Raylib.DrawText($"General level: {_meta.Level}", 96, 208, 28, Color.Gold);
         Raylib.DrawText($"Next level: {_meta.Score}/{GetMetaScoreRequired(_meta.Level)}", 96, 250, 24, Color.White);
-        Raylib.DrawText($"Common HP bonus: +{GetCommonHealthBonus():0}", 96, 310, 24, Palette.C(140, 220, 160));
-        Raylib.DrawText($"Common damage bonus: +{GetCommonDamageBonus():0}", 96, 350, 24, Palette.C(255, 210, 120));
-        Raylib.DrawText("Temporary run stat points do not carry over after extraction or death.", 96, 406, 22, Color.LightGray);
+        Raylib.DrawText($"Landing HP: {previewPlayer.MaxHealth:0}", 96, 310, 24, Palette.C(140, 220, 160));
+        Raylib.DrawText($"Ranged damage: {rangedDamage}", 96, 350, 24, Palette.C(255, 210, 120));
+        Raylib.DrawText($"Melee damage: {meleeDamage}", 96, 390, 24, Palette.C(255, 180, 120));
 
         DrawButton(new Rectangle(70, 620, 220, 52), "Back");
+    }
+
+    private void DrawMetaProgressHeader()
+    {
+        var square = new Rectangle(24, 24, 78, 78);
+        var bar = new Rectangle(square.X + square.Width, square.Y, Raylib.GetScreenWidth() - (square.X + square.Width) - 24, square.Height);
+        var progressInset = 6f;
+        var required = GetMetaScoreRequired(_meta.Level);
+        var progress = required <= 0 ? 0f : Math.Clamp(_meta.Score / (float)required, 0f, 1f);
+
+        Raylib.DrawRectangleRec(square, Palette.C(18, 32, 52, 235));
+        Raylib.DrawRectangleLinesEx(square, 2f, Palette.C(108, 170, 228));
+        Raylib.DrawText($"{_meta.Level}", (int)(square.X + square.Width / 2f - Raylib.MeasureText($"{_meta.Level}", 36) / 2f), (int)(square.Y + 20), 36, Color.Gold);
+
+        Raylib.DrawRectangleRec(bar, Palette.C(14, 24, 40, 235));
+        var fill = new Rectangle(bar.X + progressInset, bar.Y + progressInset, Math.Max(0, (bar.Width - progressInset * 2f) * progress), bar.Height - progressInset * 2f);
+        Raylib.DrawRectangleRec(fill, Palette.C(72, 126, 196));
+        Raylib.DrawRectangleLinesEx(bar, 2f, Palette.C(108, 170, 228));
+
+        var progressText = $"{_meta.Score}/{required}";
+        Raylib.DrawText(progressText, (int)(bar.X + bar.Width / 2f - Raylib.MeasureText(progressText, 28) / 2f), (int)(bar.Y + bar.Height / 2f - 14), 28, Color.White);
     }
 
     private void DrawSettings()
     {
         DrawTitle("Settings", 100, 66);
-        Raylib.DrawText("Choose theme", (Raylib.GetScreenWidth() - Raylib.MeasureText("Choose theme", 28)) / 2, 170, 28, Color.LightGray);
+        Raylib.DrawText("Video", (Raylib.GetScreenWidth() - Raylib.MeasureText("Video", 28)) / 2, 118, 28, Color.LightGray);
+        DrawButton(CenterRect(0, 156, 360, 56), _displayMode == DisplayMode.Windowed ? "> Windowed <" : "Windowed");
+        DrawButton(CenterRect(0, 220, 360, 56), _displayMode == DisplayMode.Fullscreen ? "> Fullscreen <" : "Fullscreen");
+
+        Raylib.DrawText("Choose theme", (Raylib.GetScreenWidth() - Raylib.MeasureText("Choose theme", 28)) / 2, 290, 28, Color.LightGray);
         for (var i = 0; i < _themes.Count; i++)
         {
             var name = i == _themeIndex ? $"> {_themes[i].Name} <" : _themes[i].Name;
-            DrawButton(CenterRect(0, 220 + i * 68, 360, 56), name);
+            DrawButton(CenterRect(0, 330 + i * 56, 360, 48), name);
         }
 
         DrawButton(CenterRect(0, 620, 280, 56), "Back");
@@ -1634,15 +1707,56 @@ public sealed class SciFiRogueGame : IDisposable
     private static Rectangle CenterRect(int offsetX, int y, int w, int h) => new((Raylib.GetScreenWidth() - w) / 2f + offsetX, y, w, h);
     private static bool Clicked(Rectangle rect) => Raylib.IsMouseButtonPressed(MouseButton.Left) && Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), rect);
 
-    private float GetCommonHealthBonus() => _meta.Level * 10f;
+    private float GetCommonHealthBonus() => _meta.Level * 3f;
 
-    private float GetCommonDamageBonus() => _meta.Level * 2f;
+    private float GetCommonDamageBonus() => _meta.Level / 2;
 
     private static int GetMetaScoreRequired(int level)
     {
         if (level <= 1) return 3000;
         if (level == 2) return 5000;
         return 5000 + (level - 2) * 1500;
+    }
+
+    private void SetDisplayMode(DisplayMode mode)
+    {
+        if (_displayMode == mode) return;
+        _displayMode = mode;
+        ApplyDisplayMode();
+        SavePersistentState();
+    }
+
+    private void ApplyDisplayMode()
+    {
+        var fullscreen = Raylib.IsWindowFullscreen();
+        if (_displayMode == DisplayMode.Fullscreen)
+        {
+            if (fullscreen) return;
+
+            var monitor = Raylib.GetCurrentMonitor();
+            Raylib.SetWindowSize(Raylib.GetMonitorWidth(monitor), Raylib.GetMonitorHeight(monitor));
+            Raylib.ToggleFullscreen();
+            return;
+        }
+
+        if (!fullscreen)
+        {
+            Raylib.SetWindowSize(W, H);
+            CenterWindow();
+            return;
+        }
+
+        Raylib.ToggleFullscreen();
+        Raylib.SetWindowSize(W, H);
+        CenterWindow();
+    }
+
+    private static void CenterWindow()
+    {
+        var monitor = Raylib.GetCurrentMonitor();
+        var x = (Raylib.GetMonitorWidth(monitor) - W) / 2;
+        var y = (Raylib.GetMonitorHeight(monitor) - H) / 2;
+        Raylib.SetWindowPosition(Math.Max(0, x), Math.Max(0, y));
     }
 
     private void AddRunScore(int amount) => _runScore += amount;
@@ -1774,10 +1888,6 @@ public sealed class SciFiRogueGame : IDisposable
         {
             DrawScreenPointArrow(_destroyerBoss.Position, Palette.C(230, 45, 45), "D");
         }
-        foreach (var portal in _extractPortals)
-        {
-            DrawScreenPointArrow(portal.Position, Palette.C(90, 210, 255), "P");
-        }
     }
 
     private void DrawScreenZoneArrow(List<LootZone> zones, Color color, string marker)
@@ -1875,16 +1985,27 @@ public sealed class SciFiRogueGame : IDisposable
         return null;
     }
 
-    private string BuildWeaponDamageText(ItemStack? weapon, WeaponClass kind)
+    private Player CreateLandingPreviewPlayer()
+        => Player.Create(
+            Vector2.Zero,
+            GetCommonHealthBonus(),
+            GetCommonDamageBonus(),
+            _meta.RangedWeapon,
+            _meta.MeleeWeapon,
+            _meta.Armor,
+            _meta.QuickSlotQ,
+            _meta.QuickSlotR);
+
+    private static string BuildWeaponDamageText(Player player, ItemStack? weapon, WeaponClass kind)
     {
         if (weapon is null) return string.Empty;
 
-        var total = _player.GetWeaponDamage(weapon);
+        var total = player.GetWeaponDamage(weapon);
         if (weapon.Pattern == WeaponPattern.GrenadeLauncher) return $"blast {total:0} / direct {total * 1.6f:0}";
 
         var bonus = kind == WeaponClass.Ranged
-            ? _player.GetRangedStatBonus()
-            : _player.GetMeleeStatBonus();
+            ? player.GetRangedStatBonus()
+            : player.GetMeleeStatBonus();
 
         return $"dmg {total:0}(+{bonus:0})";
     }
@@ -1995,6 +2116,16 @@ public sealed class SciFiRogueGame : IDisposable
         {
             var point = RandomPointIn(zoneRect);
             if (!MovementUtils.CircleHitsObstacle(point, radius, _obstacles)) return point;
+        }
+
+        var step = Math.Max(18f, radius);
+        for (var y = zoneRect.Y + radius; y <= zoneRect.Y + zoneRect.Height - radius; y += step)
+        {
+            for (var x = zoneRect.X + radius; x <= zoneRect.X + zoneRect.Width - radius; x += step)
+            {
+                var point = new Vector2(x, y);
+                if (!MovementUtils.CircleHitsObstacle(point, radius, _obstacles)) return point;
+            }
         }
 
         return new Vector2(zoneRect.X + zoneRect.Width / 2f, zoneRect.Y + zoneRect.Height / 2f);
@@ -2146,8 +2277,7 @@ public sealed class SciFiRogueGame : IDisposable
         var list = new List<MiniBossEnemySquare>();
         foreach (var o in _outposts)
         {
-            var center = new Vector2(o.Rect.X + o.Rect.Width / 2f, o.Rect.Y + o.Rect.Height / 2f);
-            list.Add(new MiniBossEnemySquare(center));
+            list.Add(new MiniBossEnemySquare(RandomPointInZoneSafe(o.Rect, 28f)));
         }
 
         return list;
@@ -2187,22 +2317,28 @@ public sealed class SciFiRogueGame : IDisposable
             }
 
             var json = File.ReadAllText(SaveFilePath);
-            var data = JsonSerializer.Deserialize<PersistentStateData>(json);
+            var data = DeserializePersistentStateFile(json, out var migratedLegacySave);
             if (data is null)
             {
+                ShowNotice("Save tampering detected. Profile was reset.");
                 SavePersistentState();
                 return;
             }
 
             _themeIndex = Math.Clamp(data.ThemeIndex, 0, Math.Max(0, _themes.Count - 1));
+            _displayMode = Enum.IsDefined(data.DisplayMode) ? data.DisplayMode : DisplayMode.Windowed;
             _selectedMapName = string.IsNullOrWhiteSpace(data.SelectedMapName) ? "Baselands" : data.SelectedMapName;
             ApplyMetaSaveData(data.Meta);
+            ApplyDisplayMode();
+            if (migratedLegacySave) SavePersistentState();
         }
         catch
         {
             _themeIndex = 0;
+            _displayMode = DisplayMode.Windowed;
             _selectedMapName = "Baselands";
             ApplyMetaSaveData(null);
+            ApplyDisplayMode();
             SavePersistentState();
         }
     }
@@ -2217,17 +2353,111 @@ public sealed class SciFiRogueGame : IDisposable
             var data = new PersistentStateData
             {
                 ThemeIndex = _themeIndex,
+                DisplayMode = _displayMode,
                 SelectedMapName = _selectedMapName,
                 Meta = BuildMetaSaveData()
             };
 
-            var json = JsonSerializer.Serialize(data, SaveJsonOptions);
-            File.WriteAllText(SaveFilePath, json);
+            var protectedSave = ProtectSavePayload(JsonSerializer.Serialize(data, SaveJsonOptions));
+
+            File.WriteAllText(SaveFilePath, JsonSerializer.Serialize(protectedSave, SaveJsonOptions));
         }
         catch
         {
             // Saving failure should not break the session.
         }
+    }
+
+    private static PersistentStateData? DeserializePersistentStateFile(string json, out bool migratedLegacySave)
+    {
+        migratedLegacySave = false;
+
+        try
+        {
+            var protectedSave = JsonSerializer.Deserialize<ProtectedSaveFile>(json);
+            if (!string.IsNullOrWhiteSpace(protectedSave?.ProtectedPayload))
+            {
+                var payloadJson = UnprotectSavePayload(protectedSave);
+                return JsonSerializer.Deserialize<PersistentStateData>(payloadJson);
+            }
+        }
+        catch (CryptographicException)
+        {
+            return null;
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+
+        try
+        {
+            var legacy = JsonSerializer.Deserialize<PersistentStateData>(json);
+            if (legacy is null) return null;
+
+            migratedLegacySave = true;
+            return legacy;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static ProtectedSaveFile ProtectSavePayload(string json)
+    {
+        var plainBytes = Encoding.UTF8.GetBytes(json);
+
+        using var aes = Aes.Create();
+        aes.Key = DeriveSaveKeyBytes("enc");
+        aes.GenerateIV();
+
+        using var encryptor = aes.CreateEncryptor();
+        var cipherBytes = encryptor.TransformFinalBlock(plainBytes, 0, plainBytes.Length);
+        var signatureBytes = ComputeSaveSignature(aes.IV, cipherBytes);
+
+        return new ProtectedSaveFile
+        {
+            Version = ProtectedSaveVersion,
+            Iv = Convert.ToBase64String(aes.IV),
+            ProtectedPayload = Convert.ToBase64String(cipherBytes),
+            Signature = Convert.ToBase64String(signatureBytes)
+        };
+    }
+
+    private static string UnprotectSavePayload(ProtectedSaveFile protectedSave)
+    {
+        var ivBytes = Convert.FromBase64String(protectedSave.Iv);
+        var cipherBytes = Convert.FromBase64String(protectedSave.ProtectedPayload);
+        var signatureBytes = Convert.FromBase64String(protectedSave.Signature);
+        var expectedSignature = ComputeSaveSignature(ivBytes, cipherBytes);
+
+        if (!CryptographicOperations.FixedTimeEquals(signatureBytes, expectedSignature))
+        {
+            throw new CryptographicException("Save signature mismatch.");
+        }
+
+        using var aes = Aes.Create();
+        aes.Key = DeriveSaveKeyBytes("enc");
+        aes.IV = ivBytes;
+
+        using var decryptor = aes.CreateDecryptor();
+        var plainBytes = decryptor.TransformFinalBlock(cipherBytes, 0, cipherBytes.Length);
+        return Encoding.UTF8.GetString(plainBytes);
+    }
+
+    private static byte[] DeriveSaveKeyBytes(string purpose)
+    {
+        var source = $"{Environment.UserName}|{Environment.MachineName}|{AppContext.BaseDirectory}|{purpose}|Bungus.Profile.Save.v2";
+        return SHA256.HashData(Encoding.UTF8.GetBytes(source));
+    }
+
+    private static byte[] ComputeSaveSignature(byte[] ivBytes, byte[] cipherBytes)
+    {
+        using var hmac = new HMACSHA256(DeriveSaveKeyBytes("mac"));
+        hmac.TransformBlock(ivBytes, 0, ivBytes.Length, null, 0);
+        hmac.TransformFinalBlock(cipherBytes, 0, cipherBytes.Length);
+        return hmac.Hash ?? [];
     }
 
     private MetaProfileSaveData BuildMetaSaveData()
@@ -2517,8 +2747,17 @@ public sealed class MetaProfile
 public sealed class PersistentStateData
 {
     public int ThemeIndex { get; set; }
+    public DisplayMode DisplayMode { get; set; } = DisplayMode.Windowed;
     public string SelectedMapName { get; set; } = "Baselands";
     public MetaProfileSaveData Meta { get; set; } = new();
+}
+
+public sealed class ProtectedSaveFile
+{
+    public int Version { get; set; } = 1;
+    public string Iv { get; set; } = string.Empty;
+    public string ProtectedPayload { get; set; } = string.Empty;
+    public string Signature { get; set; } = string.Empty;
 }
 
 public sealed class MetaProfileSaveData

@@ -944,10 +944,11 @@ public sealed class BossEnemyDestroyer
     private int _burstShotsLeft;
     private float _burstShotCd;
     private bool _alert;
+    private bool _phaseTwoShieldReset;
 
     private const float ViewDistance = 980f;
     private const float PhaseOneSpeed = 58f;
-    private const float PhaseTwoSpeed = 170f;
+    private const float PhaseTwoSpeed = 212.5f;
     private const float DesiredDistance = 270f;
     private const float DashDistance = 130f;
     private const float SideDashDistance = DashDistance * 0.5f;
@@ -979,6 +980,12 @@ public sealed class BossEnemyDestroyer
         var distance = toPlayer.Length();
         var dir = Vector2.Normalize(toPlayer);
         _facing = dir;
+
+        if (PhaseTwo && !_phaseTwoShieldReset)
+        {
+            RestoreShieldNodes();
+            _phaseTwoShieldReset = true;
+        }
 
         if (VisibilityUtils.HasLineOfSight(Position, playerPos, obstacles) && distance <= ViewDistance) _alert = true;
         else if (_alert && distance > ViewDistance * 1.35f) _alert = false;
@@ -1070,7 +1077,7 @@ public sealed class BossEnemyDestroyer
     private void FireBurst(List<Projectile> projectiles, Vector2 dir)
     {
         var burstAngles = PhaseTwo
-            ? new[] { -0.11f, 0f, 0.11f }
+            ? new[] { -0.2f, -0.1f, 0f, 0.1f, 0.2f }
             : new[] { -0.11f, 0.11f };
 
         foreach (var offset in burstAngles)
@@ -1197,7 +1204,7 @@ public sealed class BossEnemyDestroyer
         if (PhaseTwo) DrawDiamond(Position, mainSize, Palette.C(165, 36, 36), Color.Maroon);
         else DrawSquare(Position, mainSize, Palette.C(120, 20, 20), Color.Maroon);
 
-        if (!PhaseTwo)
+        if (!PhaseTwo || ShieldActive)
         {
             for (var i = 0; i < _shieldNodeHealth.Length; i++)
             {
@@ -1311,6 +1318,14 @@ public sealed class BossEnemyDestroyer
     {
         if (!IsShieldNodeAlive(index) || amount <= 0f) return;
         _shieldNodeHealth[index] = MathF.Max(0f, _shieldNodeHealth[index] - amount);
+    }
+
+    private void RestoreShieldNodes()
+    {
+        for (var i = 0; i < _shieldNodeHealth.Length; i++)
+        {
+            _shieldNodeHealth[i] = ShieldNodeMaxHealth;
+        }
     }
 
     private void DamageCore(float amount)

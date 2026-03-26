@@ -1,7 +1,5 @@
 ﻿using System.Numerics;
 using System.Text.Json;
-using System.Security.Cryptography;
-using System.Text;
 using Raylib_cs;
 
 namespace Bungus.Game;
@@ -15,47 +13,7 @@ public static class Program
     }
 }
 
-public enum GameState { MainMenu, MapSelect, Storage, Character, Settings, Playing, Paused, Death }
-public enum WeaponClass { Melee, Ranged }
-public enum ItemType { Weapon, Armor, Consumable }
-public enum ConsumableType { Medkit, Stim }
-public enum ArmorRarity { Common, Rare, Epic, Legendary, Red }
-public enum StatType { Strength, Dexterity, Speed, Gunsmith }
-public enum WeaponPattern { Standard, PulseRifle, EnergySpear, GrenadeLauncher }
-public enum ProjectileKind { Bullet, Grenade }
-public enum DisplayMode { Windowed, Fullscreen }
-
-public static class Palette
-{
-    public static Color C(int r, int g, int b, int a = 255) => new((byte)r, (byte)g, (byte)b, (byte)a);
-
-    public static Color Rarity(ArmorRarity r) => r switch
-    {
-        ArmorRarity.Common => Color.LightGray,
-        ArmorRarity.Rare => Color.SkyBlue,
-        ArmorRarity.Epic => C(191, 120, 255),
-        ArmorRarity.Legendary => Color.Gold,
-        ArmorRarity.Red => C(230, 45, 45),
-        _ => Color.White
-    };
-}
-
-public sealed record VisualTheme(
-    string Name,
-    Color Background,
-    Color Grid,
-    Color BuildingFill,
-    Color BuildingLine,
-    Color OutpostFill,
-    Color OutpostLine,
-    Color ObstacleFill,
-    Color ObstacleLine,
-    Color Player,
-    Color Enemy,
-    Color EnemyStrong,
-    Color Boss);
-
-public sealed class SciFiRogueGame : IDisposable
+public sealed partial class SciFiRogueGame : IDisposable
 {
     private const int W = 1280;
     private const int H = 720;
@@ -88,14 +46,17 @@ public sealed class SciFiRogueGame : IDisposable
     private List<LootZone> _outposts = [];
     private List<Obstacle> _obstacles = [];
     private List<LootChest> _chests = [];
+    private List<GroundConsumablePickup> _groundConsumables = [];
 
     private DragPayload? _drag;
     private ItemStack? _hovered;
     private SlotKind _lastClickKind;
     private int _lastClickIndex = -1;
     private double _lastClickTime;
-    private bool _pendingUpgrade;
-    private StatType _pendingStat;
+    private int _pendingStrengthPoints;
+    private int _pendingDexterityPoints;
+    private int _pendingSpeedPoints;
+    private int _pendingGunsmithPoints;
     private int? _openedChestIndex;
     private bool _requestExit;
     private readonly List<VisualTheme> _themes;
@@ -135,10 +96,15 @@ public sealed class SciFiRogueGame : IDisposable
         (_buildings, _outposts) = GenerateZones(_rng.Next(14, 21), _rng.Next(7, 11));
         _obstacles = GenerateObstacles();
         _chests = GenerateChestsInZones();
+        _groundConsumables = [];
         _player = Player.Create(
             GeneratePlayerSpawnPoint(),
             GetCommonHealthBonus(),
             GetCommonDamageBonus(),
+            _meta.BaseStrength,
+            _meta.BaseDexterity,
+            _meta.BaseSpeed,
+            _meta.BaseGuns,
             TakeMetaLoadoutItem(SlotKind.RangedWeapon),
             TakeMetaLoadoutItem(SlotKind.MeleeWeapon),
             TakeMetaLoadoutItem(SlotKind.Armor),
@@ -161,7 +127,7 @@ public sealed class SciFiRogueGame : IDisposable
         _openedChestIndex = null;
         _drag = null;
         _hovered = null;
-        _pendingUpgrade = false;
+        ClearPendingLevelUpPoints();
 
         _camera.Offset = new Vector2(Raylib.GetScreenWidth() / 2f, Raylib.GetScreenHeight() / 2f);
         _camera.Target = _player.Position;
@@ -285,7 +251,11 @@ public sealed class SciFiRogueGame : IDisposable
         if (Raylib.IsKeyPressed(KeyboardKey.Tab))
         {
             _player.InventoryOpen = !_player.InventoryOpen;
-            if (!_player.InventoryOpen) _openedChestIndex = null;
+            if (!_player.InventoryOpen)
+            {
+                _openedChestIndex = null;
+                ClearPendingLevelUpPoints();
+            }
         }
 
         _player.Update(dt, _obstacles, World, _dashAfterImages);
@@ -309,6 +279,7 @@ public sealed class SciFiRogueGame : IDisposable
         UpdateSwings(dt);
         UpdateEffects(dt);
         UpdateChests();
+        UpdateGroundConsumables();
         UpdateInventoryUi();
         UpdateLevelUi();
         if (_drag is null) _player.Inventory.AutoFillConsumableSlots();
@@ -338,6 +309,7 @@ public sealed class SciFiRogueGame : IDisposable
             if (!e.Alive && !e.KillAwarded)
             {
                 e.KillAwarded = true;
+                TryDropEnemyConsumable(e.Position);
                 _player.RegisterKill();
                 AddRunScore(e.IsStrong ? 20 : 10);
             }
@@ -373,6 +345,7 @@ public sealed class SciFiRogueGame : IDisposable
             if (!h.Alive && !h.KillAwarded)
             {
                 h.KillAwarded = true;
+                TryDropEnemyConsumable(h.Position);
                 _player.RegisterKill();
                 AddRunScore(25);
             }
@@ -387,6 +360,7 @@ public sealed class SciFiRogueGame : IDisposable
             if (!turret.Alive && !turret.KillAwarded)
             {
                 turret.KillAwarded = true;
+                TryDropEnemyConsumable(turret.Position);
                 _player.RegisterKill();
                 AddRunScore(20);
             }
@@ -401,6 +375,7 @@ public sealed class SciFiRogueGame : IDisposable
             if (!b.Alive && !b.KillAwarded)
             {
                 b.KillAwarded = true;
+                TryDropEnemyConsumable(b.Position);
                 _player.RegisterKill();
                 _player.RegisterKill();
                 _player.RegisterKill();
@@ -417,13 +392,28 @@ public sealed class SciFiRogueGame : IDisposable
         if (!_destroyerBoss.Alive && !_destroyerBoss.KillAwarded)
         {
             _destroyerBoss.KillAwarded = true;
+            TryDropEnemyConsumable(_destroyerBoss.Position);
             _player.RegisterKill();
             _player.RegisterKill();
             _player.RegisterKill();
             _player.RegisterKill();
             _player.RegisterKill();
             AddRunScore(1000);
-            _chests.Add(new LootChest(_destroyerBoss.Position, [ItemStack.BossGrenadeLauncher()]));
+            _chests.Add(new LootChest(_destroyerBoss.Position, RollBossLoot()));
+        }
+    }
+
+    private void UpdateGroundConsumables()
+    {
+        for (var i = _groundConsumables.Count - 1; i >= 0; i--)
+        {
+            var pickup = _groundConsumables[i];
+            if (Vector2.Distance(pickup.Position, _player.Position) > 26f) continue;
+            if (!Raylib.IsKeyPressed(KeyboardKey.F)) continue;
+            if (!TryPickGroundItem(pickup.Item)) continue;
+
+            _groundConsumables.RemoveAt(i);
+            break;
         }
     }
 
@@ -675,6 +665,12 @@ public sealed class SciFiRogueGame : IDisposable
             var chest = _chests[i];
             if (Vector2.Distance(chest.Position, _player.Position) > 28f) continue;
             if (!Raylib.IsKeyPressed(KeyboardKey.F)) continue;
+
+            if (chest.RequiresClear && chest.ZoneId is int zoneId && !IsZoneCleared(zoneId))
+            {
+                ShowNotice("Clear all enemies in this zone first.");
+                continue;
+            }
 
             if (_openedChestIndex == i)
             {
@@ -1035,16 +1031,57 @@ public sealed class SciFiRogueGame : IDisposable
 
     private void UpdateLevelUi()
     {
-        if (!_player.InventoryOpen || _player.StatPoints <= 0) return;
-        if (Clicked(new Rectangle(252, 174, 22, 22))) { _pendingUpgrade = true; _pendingStat = StatType.Strength; }
-        if (Clicked(new Rectangle(252, 204, 22, 22))) { _pendingUpgrade = true; _pendingStat = StatType.Dexterity; }
-        if (Clicked(new Rectangle(252, 234, 22, 22))) { _pendingUpgrade = true; _pendingStat = StatType.Speed; }
-        if (Clicked(new Rectangle(252, 264, 22, 22))) { _pendingUpgrade = true; _pendingStat = StatType.Gunsmith; }
-        if (_pendingUpgrade && Clicked(new Rectangle(54, 326, 120, 30)))
+        if (!_player.InventoryOpen) return;
+
+        if (Clicked(new Rectangle(252, 174, 22, 22))) QueuePendingLevelUpPoint(StatType.Strength);
+        if (Clicked(new Rectangle(252, 204, 22, 22))) QueuePendingLevelUpPoint(StatType.Dexterity);
+        if (Clicked(new Rectangle(252, 234, 22, 22))) QueuePendingLevelUpPoint(StatType.Speed);
+        if (Clicked(new Rectangle(252, 264, 22, 22))) QueuePendingLevelUpPoint(StatType.Gunsmith);
+
+        if (GetPendingLevelUpPointCount() > 0 && Clicked(new Rectangle(54, 326, 120, 30)))
         {
-            _player.ApplyPoint(_pendingStat);
-            _pendingUpgrade = false;
+            ApplyPendingLevelUpPoints();
         }
+
+        if (GetPendingLevelUpPointCount() > 0 && Clicked(new Rectangle(184, 326, 120, 30)))
+        {
+            ClearPendingLevelUpPoints();
+        }
+    }
+
+    private void QueuePendingLevelUpPoint(StatType stat)
+    {
+        if (_player.StatPoints - GetPendingLevelUpPointCount() <= 0) return;
+
+        if (stat == StatType.Strength) _pendingStrengthPoints++;
+        if (stat == StatType.Dexterity) _pendingDexterityPoints++;
+        if (stat == StatType.Speed) _pendingSpeedPoints++;
+        if (stat == StatType.Gunsmith) _pendingGunsmithPoints++;
+    }
+
+    private int GetPendingLevelUpPointCount()
+        => _pendingStrengthPoints + _pendingDexterityPoints + _pendingSpeedPoints + _pendingGunsmithPoints;
+
+    private void ApplyPendingLevelUpPoints()
+    {
+        ApplyPendingStat(StatType.Strength, _pendingStrengthPoints);
+        ApplyPendingStat(StatType.Dexterity, _pendingDexterityPoints);
+        ApplyPendingStat(StatType.Speed, _pendingSpeedPoints);
+        ApplyPendingStat(StatType.Gunsmith, _pendingGunsmithPoints);
+        ClearPendingLevelUpPoints();
+    }
+
+    private void ApplyPendingStat(StatType stat, int count)
+    {
+        for (var i = 0; i < count; i++) _player.ApplyPoint(stat);
+    }
+
+    private void ClearPendingLevelUpPoints()
+    {
+        _pendingStrengthPoints = 0;
+        _pendingDexterityPoints = 0;
+        _pendingSpeedPoints = 0;
+        _pendingGunsmithPoints = 0;
     }
 
     private List<UiSlot> BuildSlots()
@@ -1224,492 +1261,9 @@ public sealed class SciFiRogueGame : IDisposable
         return Vector2.Distance(p, nearest);
     }
 
-    private void Draw()
-    {
-        Raylib.BeginDrawing();
-        Raylib.ClearBackground(Theme.Background);
-
-        switch (_state)
-        {
-            case GameState.MainMenu:
-                DrawMainMenu();
-                break;
-            case GameState.MapSelect:
-                DrawMapSelect();
-                break;
-            case GameState.Storage:
-                DrawStorage();
-                break;
-            case GameState.Character:
-                DrawCharacter();
-                break;
-            case GameState.Settings:
-                DrawSettings();
-                break;
-            case GameState.Playing:
-                DrawWorld();
-                DrawHud();
-                DrawInventory();
-                break;
-            case GameState.Paused:
-                DrawWorld();
-                DrawHud();
-                DrawPause();
-                break;
-            case GameState.Death:
-                DrawWorld();
-                DrawDeath();
-                break;
-        }
-
-        DrawNotice();
-
-        Raylib.EndDrawing();
-    }
-
-    private void DrawWorld()
-    {
-        Raylib.BeginMode2D(_camera);
-        DrawGrid();
-
-        foreach (var b in _buildings)
-        {
-            Raylib.DrawRectangleRec(b.Rect, Theme.BuildingFill);
-            Raylib.DrawRectangleLinesEx(b.Rect, 2f, Theme.BuildingLine);
-        }
-
-        foreach (var o in _outposts)
-        {
-            Raylib.DrawRectangleRec(o.Rect, Theme.OutpostFill);
-            Raylib.DrawRectangleLinesEx(o.Rect, 2f, Theme.OutpostLine);
-        }
-
-        foreach (var obstacle in _obstacles)
-        {
-            Raylib.DrawRectangleRec(obstacle.Rect, Theme.ObstacleFill);
-            Raylib.DrawRectangleLinesEx(obstacle.Rect, 1.5f, Theme.ObstacleLine);
-        }
-
-        foreach (var chest in _chests)
-        {
-            var rect = new Rectangle(chest.Position.X - 14, chest.Position.Y - 10, 28, 20);
-            Raylib.DrawRectangleRec(rect, chest.Opened ? Palette.C(65, 65, 65, 180) : Palette.C(122, 82, 38, 240));
-            Raylib.DrawRectangleLinesEx(rect, 1.5f, chest.Opened ? Color.Gray : Color.Gold);
-            Raylib.DrawLine((int)rect.X, (int)(rect.Y + rect.Height / 2), (int)(rect.X + rect.Width), (int)(rect.Y + rect.Height / 2), Color.Black);
-
-            if (Vector2.Distance(chest.Position, _player.Position) < 30f)
-            {
-                Raylib.DrawText("F", (int)rect.X + 10, (int)rect.Y - 18, 18, Color.Gold);
-            }
-        }
-
-        foreach (var portal in _extractPortals) portal.Draw((float)Raylib.GetTime());
-
-        foreach (var ghost in _dashAfterImages) ghost.Draw();
-
-        foreach (var e in _enemies) e.DrawSight();
-        foreach (var h in _hexEnemies) h.DrawSight();
-        foreach (var t in _turrets) t.DrawSight();
-        foreach (var b in _miniBosses) b.DrawSight();
-        _destroyerBoss?.DrawSight();
-        foreach (var e in _enemies) e.Draw(Theme);
-        foreach (var h in _hexEnemies) h.Draw();
-        foreach (var t in _turrets) t.Draw();
-        foreach (var b in _miniBosses) b.Draw(Theme);
-        _destroyerBoss?.Draw();
-        foreach (var t in _turrets) t.DrawAimLine();
-
-        foreach (var p in _projectiles)
-        {
-            Raylib.DrawCircleV(p.Position, p.DrawRadius, p.Color);
-        }
-
-        foreach (var ex in _explosions)
-        {
-            var t = ex.Life / ex.MaxLife;
-            var r = ex.Radius * (1f - t);
-            Raylib.DrawCircleLines((int)ex.Position.X, (int)ex.Position.Y, r, ex.Color);
-        }
-
-        foreach (var s in _swings)
-        {
-            if (s.IsLine)
-            {
-                Raylib.DrawLineEx(s.LineStart, s.LineEnd, 8f, s.Color);
-            }
-            else
-            {
-                for (var i = 0; i < 18; i++)
-                {
-                    var p = i / 18f;
-                    var a = s.AngleStart + (s.AngleEnd - s.AngleStart) * p;
-                    var point = s.Origin + new Vector2(MathF.Cos(a), MathF.Sin(a)) * s.Radius;
-                    Raylib.DrawCircleV(point, 3f, s.Color);
-                }
-            }
-        }
-
-        Raylib.DrawRectangleLinesEx(new Rectangle(0, 0, World, World), 6f, Palette.C(120, 160, 220));
-        Raylib.DrawCircleV(_player.Position, 16f, Theme.Player);
-        Raylib.EndMode2D();
-    }
-
-    private void DrawHud()
-    {
-        Raylib.DrawText($"HP {_player.Health:0}/{_player.MaxHealth:0} | Level {_player.Level} ({_player.Kills}/{_player.KillsTarget})", 20, 14, 24, Color.White);
-
-        var activeWeapon = _player.ActiveWeaponClass == WeaponClass.Ranged ? _player.RangedWeapon : _player.MeleeWeapon;
-        Raylib.DrawText($"Current: {activeWeapon?.Name ?? "None"} {BuildWeaponDamageText(_player, activeWeapon, _player.ActiveWeaponClass)}", 20, 48, 22, activeWeapon?.Color ?? Color.LightGray);
-        Raylib.DrawText($"Consumables: Q [{(_player.Inventory.QuickSlotQ?.Name ?? "-")}]  R [{(_player.Inventory.QuickSlotR?.Name ?? "-")}]", 20, 78, 20, Color.White);
-        Raylib.DrawText($"Run score {_runScore}", 20, 108, 20, Color.Gold);
-        DrawExtractionHud();
-        Raylib.DrawText("WASD move | LMB attack | E switch active weapon | TAB inventory | ESC menu", 20, Raylib.GetScreenHeight() - 28, 18, Color.Gray);
-        DrawZoneArrows();
-    }
-
-    private void DrawInventory()
-    {
-        if (!_player.InventoryOpen) return;
-
-        var slots = BuildSlots();
-        if (_openedChestIndex is null)
-        {
-            Raylib.DrawRectangle(32, 104, 1216, 460, Palette.C(6, 10, 20, 220));
-            Raylib.DrawRectangleLines(32, 104, 1216, 460, Color.SkyBlue);
-            Raylib.DrawText("Inventory", 42, 116, 24, Color.White);
-
-            DrawBackpackGrid(new Vector2(700, 118), 6, 5);
-            Raylib.DrawText("Backpack", 700, 86, 20, Color.LightGray);
-            Raylib.DrawText("Equipment", 560, 86, 20, Color.LightGray);
-            Raylib.DrawText("Stats", 54, 146, 20, Color.LightGray);
-
-            Raylib.DrawText($"STR {_player.Str}", 54, 176, 20, Color.LightGray);
-            Raylib.DrawText($"DEX {_player.Dex}", 54, 206, 20, Color.LightGray);
-            Raylib.DrawText($"SPD {_player.Spd}", 54, 236, 20, Color.LightGray);
-            Raylib.DrawText($"GUN {_player.Guns}", 54, 266, 20, Color.LightGray);
-            Raylib.DrawText($"Points {_player.StatPoints}", 54, 296, 20, Color.Yellow);
-
-            if (_player.StatPoints > 0)
-            {
-                DrawPlus(new Rectangle(252, 174, 22, 22));
-                DrawPlus(new Rectangle(252, 204, 22, 22));
-                DrawPlus(new Rectangle(252, 234, 22, 22));
-                DrawPlus(new Rectangle(252, 264, 22, 22));
-                if (_pendingUpgrade) DrawButton(new Rectangle(54, 326, 120, 30), "Confirm");
-            }
-
-            DrawStatTooltip();
-        }
-        else
-        {
-            Raylib.DrawRectangle(40, 138, 430, 370, Palette.C(6, 10, 20, 220));
-            Raylib.DrawRectangleLines(40, 138, 430, 370, Color.SkyBlue);
-            Raylib.DrawText("Backpack", 50, 150, 24, Color.White);
-            DrawBackpackGrid(new Vector2(70, 190), 6, 5);
-
-            Raylib.DrawRectangle(730, 138, 350, 170, Palette.C(6, 10, 20, 220));
-            Raylib.DrawRectangleLines(730, 138, 350, 170, Color.SkyBlue);
-            Raylib.DrawText("Chest", 740, 150, 24, Color.White);
-            DrawBackpackGrid(new Vector2(760, 190), 5, 1);
-            DrawButton(TakeAllButtonRect, "Take all");
-        }
-
-        foreach (var slot in slots)
-        {
-            Raylib.DrawRectangleRec(slot.Rect, Palette.C(22, 28, 42, 255));
-            Raylib.DrawRectangleLinesEx(slot.Rect, 1f, Color.SkyBlue);
-            if (slot.Kind == SlotKind.Trash) Raylib.DrawText("TR", (int)slot.Rect.X + 16, (int)slot.Rect.Y + 18, 20, Color.Orange);
-            if (slot.Kind == SlotKind.QuickSlotQ) Raylib.DrawText("Q", (int)slot.Rect.X + 20, (int)slot.Rect.Y - 18, 16, Color.Green);
-            if (slot.Kind == SlotKind.QuickSlotR) Raylib.DrawText("R", (int)slot.Rect.X + 20, (int)slot.Rect.Y - 18, 16, Color.Yellow);
-            if (slot.Item is not null) DrawItemIcon(slot.Item, new Rectangle(slot.Rect.X + 8, slot.Rect.Y + 8, 42, 42));
-        }
-
-        if (_drag is not null)
-        {
-            var m = Raylib.GetMousePosition();
-            DrawItemIcon(_drag.Item, new Rectangle(m.X + 8, m.Y + 8, 34, 34));
-        }
-
-        if (_hovered is not null) DrawTooltip(_hovered, Raylib.GetMousePosition());
-    }
-
-    private static void DrawBackpackGrid(Vector2 origin, int cols, int rows)
-    {
-        for (var r = 0; r < rows; r++)
-        {
-            for (var c = 0; c < cols; c++)
-            {
-                var rect = new Rectangle(origin.X + c * 62, origin.Y + r * 62, 58, 58);
-                Raylib.DrawRectangleLinesEx(rect, 1f, Palette.C(70, 90, 130, 170));
-            }
-        }
-    }
-
-    private static void DrawItemIcon(ItemStack item, Rectangle rect)
-    {
-        if (item.Type == ItemType.Armor)
-        {
-            Raylib.DrawRectangleRec(rect, item.Color);
-            Raylib.DrawText("AR", (int)rect.X + 8, (int)rect.Y + 10, 18, Color.Black);
-        }
-        else if (item.Type == ItemType.Weapon)
-        {
-            Raylib.DrawRectangleRec(rect, item.Color);
-            Raylib.DrawText(item.WeaponKind == WeaponClass.Ranged ? "RW" : "MW", (int)rect.X + 4, (int)rect.Y + 10, 18, Color.Black);
-        }
-        else
-        {
-            Raylib.DrawRectangleRec(rect, Palette.C(130, 210, 120));
-            Raylib.DrawText("CS", (int)rect.X + 8, (int)rect.Y + 10, 18, Color.Black);
-        }
-    }
-
-    private static void DrawTooltip(ItemStack item, Vector2 mouse)
-    {
-        var x = (int)mouse.X + 20;
-        var y = (int)mouse.Y + 14;
-        Raylib.DrawRectangle(x, y, 300, 96, Palette.C(0, 0, 0, 220));
-        Raylib.DrawRectangleLines(x, y, 300, 96, Color.SkyBlue);
-        Raylib.DrawText(item.Name, x + 8, y + 8, 18, Color.White);
-        Raylib.DrawText(item.Description, x + 8, y + 32, 16, Color.LightGray);
-        if (item.Type == ItemType.Armor) Raylib.DrawText($"Defense: {item.Defense:0} | {item.Rarity}", x + 8, y + 58, 16, item.Color);
-        if (item.Type == ItemType.Weapon) Raylib.DrawText($"Damage bonus: {item.PowerBonus:0} | {item.WeaponKind}", x + 8, y + 58, 16, item.Color);
-        if (item.Type == ItemType.Consumable) Raylib.DrawText("Use by Q/R", x + 8, y + 58, 16, Color.Green);
-    }
-
-    private static void DrawPlus(Rectangle r)
-    {
-        Raylib.DrawRectangleRec(r, Palette.C(42, 95, 180));
-        Raylib.DrawText("+", (int)r.X + 5, (int)r.Y - 1, 24, Color.White);
-    }
-
-    private void DrawGrid()
-    {
-        for (var x = 0; x < World; x += 80) Raylib.DrawLine(x, 0, x, World, Theme.Grid);
-        for (var y = 0; y < World; y += 80) Raylib.DrawLine(0, y, World, y, Theme.Grid);
-    }
-
-    private void DrawMainMenu()
-    {
-        Raylib.DrawText("a0.1.1", 86, 150, 24, Palette.C(150, 185, 220));
-        DrawMetaProgressHeader();
-
-        DrawButton(MainMenuButtonRect(0), "Play");
-        DrawButton(MainMenuButtonRect(1), "Storage");
-        DrawButton(MainMenuButtonRect(2), "Character");
-        DrawButton(MainMenuButtonRect(3), "Settings");
-        DrawButton(MainMenuButtonRect(4), "Exit");
-    }
-
-    private void DrawMapSelect()
-    {
-        DrawTitle("Select Map", 64, 66);
-        Raylib.DrawText("Choose your landing zone", 72, 118, 26, Color.LightGray);
-
-        var card = new Rectangle(340, 170, 600, 320);
-        var hover = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), card);
-        Raylib.DrawRectangleRec(card, hover ? Palette.C(22, 40, 62) : Palette.C(14, 24, 40));
-        Raylib.DrawRectangleLinesEx(card, 2f, Palette.C(116, 180, 235));
-
-        var sky = new Rectangle(card.X + 24, card.Y + 24, card.Width - 48, 120);
-        Raylib.DrawRectangleRec(sky, Palette.C(34, 58, 86));
-        Raylib.DrawCircleGradient((int)(sky.X + sky.Width - 90), (int)(sky.Y + 48), 42, Palette.C(250, 214, 120), Palette.C(250, 214, 120, 30));
-        Raylib.DrawRectangle((int)card.X + 40, (int)card.Y + 220, 160, 54, Palette.C(60, 96, 126));
-        Raylib.DrawRectangle((int)card.X + 240, (int)card.Y + 196, 122, 78, Palette.C(112, 74, 58));
-        Raylib.DrawRectangle((int)card.X + 408, (int)card.Y + 182, 180, 92, Palette.C(138, 84, 64));
-        Raylib.DrawCircle((int)card.X + 178, (int)card.Y + 248, 16, Palette.C(80, 170, 255));
-        Raylib.DrawCircle((int)card.X + 498, (int)card.Y + 238, 24, Palette.C(220, 92, 82));
-        Raylib.DrawLine((int)card.X + 54, (int)card.Y + 246, (int)card.X + 560, (int)card.Y + 246, Palette.C(210, 190, 160));
-
-        Raylib.DrawText("Baselands", 378, 184, 34, Color.White);
-
-        DrawButton(new Rectangle(340, 520, 280, 58), "Deploy");
-        DrawButton(new Rectangle(70, 620, 220, 52), "Back");
-    }
-
-    private void DrawStorage()
-    {
-        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(8, 12, 20));
-        DrawTitle("Storage", 48, 56);
-        Raylib.DrawText("Equip items here before deployment. Extracted loot returns to this stash.", 70, 106, 24, Color.LightGray);
-        Raylib.DrawText($"Capacity {GetStoredItemCount()}/{MetaProfile.StorageCapacity}", 70, 138, 22, Color.White);
-
-        Raylib.DrawRectangle(52, 170, 300, 380, Palette.C(10, 18, 30, 220));
-        Raylib.DrawRectangleLinesEx(new Rectangle(52, 170, 300, 380), 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText("Loadout", 72, 184, 24, Color.White);
-        Raylib.DrawText("Armor", 72, 236, 18, Color.LightGray);
-        Raylib.DrawText("Ranged", 72, 304, 18, Color.LightGray);
-        Raylib.DrawText("Melee", 72, 372, 18, Color.LightGray);
-        Raylib.DrawText("Consumables", 72, 440, 18, Color.LightGray);
-
-        Raylib.DrawRectangle(392, 116, 510, 530, Palette.C(10, 18, 30, 220));
-        Raylib.DrawRectangleLinesEx(new Rectangle(392, 116, 510, 530), 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText("Stash", 414, 132, 24, Color.White);
-        DrawStorageGrid(new Vector2(414, 174), 10, 10);
-
-        var trashPanel = new Rectangle(1028, 170, 180, 220);
-        Raylib.DrawRectangleRec(trashPanel, Palette.C(10, 18, 30, 220));
-        Raylib.DrawRectangleLinesEx(trashPanel, 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText("Trash", 1080, 194, 24, Color.White);
-        Raylib.DrawText("Right click sends", 1052, 338, 20, Color.LightGray);
-        Raylib.DrawText("items here", 1080, 364, 20, Color.LightGray);
-
-        DrawButton(new Rectangle(70, 620, 220, 52), "Back");
-
-        var slots = BuildStorageSlots();
-        foreach (var slot in slots)
-        {
-            Raylib.DrawRectangleRec(slot.Rect, Palette.C(22, 28, 42, 255));
-            Raylib.DrawRectangleLinesEx(slot.Rect, 1f, slot.Kind == SlotKind.Trash ? Color.Orange : Color.SkyBlue);
-            if (slot.Kind == SlotKind.Trash) Raylib.DrawText("TR", (int)slot.Rect.X + 14, (int)slot.Rect.Y + 14, 18, Color.Orange);
-            if (slot.Kind == SlotKind.QuickSlotQ) Raylib.DrawText("Q", (int)slot.Rect.X + 15, (int)slot.Rect.Y - 18, 16, Color.Green);
-            if (slot.Kind == SlotKind.QuickSlotR) Raylib.DrawText("R", (int)slot.Rect.X + 15, (int)slot.Rect.Y - 18, 16, Color.Yellow);
-            if (slot.Item is not null) DrawItemIcon(slot.Item, new Rectangle(slot.Rect.X + 6, slot.Rect.Y + 6, slot.Rect.Width - 12, slot.Rect.Height - 12));
-        }
-
-        if (_drag is not null)
-        {
-            var m = Raylib.GetMousePosition();
-            DrawItemIcon(_drag.Item, new Rectangle(m.X + 8, m.Y + 8, 32, 32));
-        }
-
-        if (_hovered is not null) DrawTooltip(_hovered, Raylib.GetMousePosition());
-    }
-
-    private void DrawCharacter()
-    {
-        var previewPlayer = CreateLandingPreviewPlayer();
-        var rangedDamage = BuildWeaponDamageText(previewPlayer, previewPlayer.RangedWeapon, WeaponClass.Ranged);
-        var meleeDamage = BuildWeaponDamageText(previewPlayer, previewPlayer.MeleeWeapon, WeaponClass.Melee);
-
-        DrawTitle("Character", 56, 60);
-        Raylib.DrawText("Common landing stats", 74, 126, 28, Color.LightGray);
-
-        var panel = new Rectangle(70, 170, 640, 320);
-        Raylib.DrawRectangleRec(panel, Palette.C(10, 18, 30, 220));
-        Raylib.DrawRectangleLinesEx(panel, 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText($"General level: {_meta.Level}", 96, 208, 28, Color.Gold);
-        Raylib.DrawText($"Next level: {_meta.Score}/{GetMetaScoreRequired(_meta.Level)}", 96, 250, 24, Color.White);
-        Raylib.DrawText($"Landing HP: {previewPlayer.MaxHealth:0}", 96, 310, 24, Palette.C(140, 220, 160));
-        Raylib.DrawText($"Ranged damage: {rangedDamage}", 96, 350, 24, Palette.C(255, 210, 120));
-        Raylib.DrawText($"Melee damage: {meleeDamage}", 96, 390, 24, Palette.C(255, 180, 120));
-
-        DrawButton(new Rectangle(70, 620, 220, 52), "Back");
-    }
-
-    private void DrawMetaProgressHeader()
-    {
-        var square = new Rectangle(24, 24, 78, 78);
-        var bar = new Rectangle(square.X + square.Width, square.Y, Raylib.GetScreenWidth() - (square.X + square.Width) - 24, square.Height);
-        var progressInset = 6f;
-        var required = GetMetaScoreRequired(_meta.Level);
-        var progress = required <= 0 ? 0f : Math.Clamp(_meta.Score / (float)required, 0f, 1f);
-
-        Raylib.DrawRectangleRec(square, Palette.C(18, 32, 52, 235));
-        Raylib.DrawRectangleLinesEx(square, 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText($"{_meta.Level}", (int)(square.X + square.Width / 2f - Raylib.MeasureText($"{_meta.Level}", 36) / 2f), (int)(square.Y + 20), 36, Color.Gold);
-
-        Raylib.DrawRectangleRec(bar, Palette.C(14, 24, 40, 235));
-        var fill = new Rectangle(bar.X + progressInset, bar.Y + progressInset, Math.Max(0, (bar.Width - progressInset * 2f) * progress), bar.Height - progressInset * 2f);
-        Raylib.DrawRectangleRec(fill, Palette.C(72, 126, 196));
-        Raylib.DrawRectangleLinesEx(bar, 2f, Palette.C(108, 170, 228));
-
-        var progressText = $"{_meta.Score}/{required}";
-        Raylib.DrawText(progressText, (int)(bar.X + bar.Width / 2f - Raylib.MeasureText(progressText, 28) / 2f), (int)(bar.Y + bar.Height / 2f - 14), 28, Color.White);
-    }
-
-    private void DrawSettings()
-    {
-        DrawTitle("Settings", 100, 66);
-        Raylib.DrawText("Video", (Raylib.GetScreenWidth() - Raylib.MeasureText("Video", 28)) / 2, 118, 28, Color.LightGray);
-        DrawButton(CenterRect(0, 156, 360, 56), _displayMode == DisplayMode.Windowed ? "> Windowed <" : "Windowed");
-        DrawButton(CenterRect(0, 220, 360, 56), _displayMode == DisplayMode.Fullscreen ? "> Fullscreen <" : "Fullscreen");
-
-        Raylib.DrawText("Choose theme", (Raylib.GetScreenWidth() - Raylib.MeasureText("Choose theme", 28)) / 2, 290, 28, Color.LightGray);
-        for (var i = 0; i < _themes.Count; i++)
-        {
-            var name = i == _themeIndex ? $"> {_themes[i].Name} <" : _themes[i].Name;
-            DrawButton(CenterRect(0, 330 + i * 56, 360, 48), name);
-        }
-
-        DrawButton(CenterRect(0, 620, 280, 56), "Back");
-    }
-
-    private void DrawPause()
-    {
-        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(0, 0, 0, 175));
-        DrawTitle("Paused", 170, 64);
-        DrawButton(CenterRect(0, 320, 320, 62), "Resume");
-        DrawButton(CenterRect(0, 400, 320, 62), "Abandon run");
-    }
-
-    private void DrawDeath()
-    {
-        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(0, 0, 0, 180));
-        DrawTitle(_deathHeader, 150, 68);
-        Raylib.DrawText(_deathBody, (Raylib.GetScreenWidth() - Raylib.MeasureText(_deathBody, 24)) / 2, 250, 24, Color.LightGray);
-        DrawButton(CenterRect(0, 320, 320, 62), "Deploy again");
-        DrawButton(CenterRect(0, 400, 320, 62), "Main menu");
-    }
-
-    private void DrawNotice()
-    {
-        if (string.IsNullOrWhiteSpace(_noticeText)) return;
-
-        var width = Math.Max(360, Raylib.MeasureText(_noticeText, 20) + 36);
-        var rect = new Rectangle(Raylib.GetScreenWidth() - width - 30, 26, width, 46);
-        Raylib.DrawRectangleRec(rect, Palette.C(12, 22, 36, 220));
-        Raylib.DrawRectangleLinesEx(rect, 2f, Palette.C(110, 185, 240));
-        Raylib.DrawText(_noticeText, (int)rect.X + 18, (int)rect.Y + 12, 20, Color.White);
-    }
-
-    private static void DrawTitle(string text, int y, int size)
-    {
-        var x = (Raylib.GetScreenWidth() - Raylib.MeasureText(text, size)) / 2;
-        Raylib.DrawText(text, x, y, size, Color.White);
-    }
-
-    private static void DrawButton(Rectangle rect, string text)
-    {
-        var hover = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), rect);
-        Raylib.DrawRectangleRec(rect, hover ? Palette.C(68, 112, 186) : Palette.C(36, 56, 90));
-        Raylib.DrawRectangleLinesEx(rect, 2f, Color.White);
-        const int fs = 24;
-        Raylib.DrawText(text, (int)(rect.X + rect.Width / 2 - Raylib.MeasureText(text, fs) / 2f), (int)(rect.Y + rect.Height / 2 - fs / 2f), fs, Color.White);
-    }
-
-    private static void DrawStorageGrid(Vector2 origin, int cols, int rows)
-    {
-        for (var r = 0; r < rows; r++)
-        {
-            for (var c = 0; c < cols; c++)
-            {
-                var rect = new Rectangle(origin.X + c * 48, origin.Y + r * 46, 42, 42);
-                Raylib.DrawRectangleLinesEx(rect, 1f, Palette.C(70, 90, 130, 170));
-            }
-        }
-    }
-
-    private void DrawExtractionHud()
-    {
-        var timerText = _extractPortals.Count == 0
-            ? $"Portals in {FormatTime(_portalUnlockTimer)}"
-            : $"Portals active {FormatTime(_portalActiveTimer)}";
-
-        var color = _extractPortals.Count == 0 ? Color.LightGray : Palette.C(110, 215, 255);
-        Raylib.DrawText(timerText, 20, 138, 22, color);
-        Raylib.DrawText($"Map {_selectedMapName}", 20, 168, 20, Palette.C(165, 195, 220));
-    }
-
-    private Rectangle MainMenuButtonRect(int index)
-        => new(70, Raylib.GetScreenHeight() - 344 + index * 60, 220, 48);
-
-    private static Rectangle CenterRect(int offsetX, int y, int w, int h) => new((Raylib.GetScreenWidth() - w) / 2f + offsetX, y, w, h);
-    private static bool Clicked(Rectangle rect) => Raylib.IsMouseButtonPressed(MouseButton.Left) && Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), rect);
-
     private float GetCommonHealthBonus() => _meta.Level * 3f;
 
-    private float GetCommonDamageBonus() => _meta.Level / 2;
+    private float GetCommonDamageBonus() => MathF.Floor(_meta.Level / 2f);
 
     private static int GetMetaScoreRequired(int level)
     {
@@ -1865,7 +1419,7 @@ public sealed class SciFiRogueGame : IDisposable
         _drag = null;
         _hovered = null;
         _openedChestIndex = null;
-        _pendingUpgrade = false;
+        ClearPendingLevelUpPoints();
     }
 
     private void ShowNotice(string text)
@@ -1917,10 +1471,10 @@ public sealed class SciFiRogueGame : IDisposable
         var mouse = Raylib.GetMousePosition();
         var hints = new (Rectangle Rect, string Header, string Body)[]
         {
-            (new Rectangle(54, 176, 180, 24), "STR", "Увеличивает урон ближнего боя и максимум здоровья на 5."),
-            (new Rectangle(54, 206, 180, 24), "DEX", "Усиливает ближний урон, снижает входящий урон и шанс негативных эффектов."),
-            (new Rectangle(54, 236, 180, 24), "SPD", "Увеличивает скорость передвижения и рывка."),
-            (new Rectangle(54, 266, 180, 24), "GUN", "Увеличивает бонусный урон дальнего оружия.")
+            (new Rectangle(54, 176, 220, 24), "STR", "+5 HP и +0.25% урона ближнего оружия за каждое очко."),
+            (new Rectangle(54, 206, 220, 24), "DEX", "+1% урона ближнего оружия за каждое очко."),
+            (new Rectangle(54, 236, 220, 24), "SPD", "+1% к множителю скорости за каждое очко."),
+            (new Rectangle(54, 266, 220, 24), "GUN", "+1% урона дальнего оружия за каждое очко.")
         };
 
         var hit = hints.FirstOrDefault(h => Raylib.CheckCollisionPointRec(mouse, h.Rect));
@@ -1990,6 +1544,10 @@ public sealed class SciFiRogueGame : IDisposable
             Vector2.Zero,
             GetCommonHealthBonus(),
             GetCommonDamageBonus(),
+            _meta.BaseStrength,
+            _meta.BaseDexterity,
+            _meta.BaseSpeed,
+            _meta.BaseGuns,
             _meta.RangedWeapon,
             _meta.MeleeWeapon,
             _meta.Armor,
@@ -2001,13 +1559,12 @@ public sealed class SciFiRogueGame : IDisposable
         if (weapon is null) return string.Empty;
 
         var total = player.GetWeaponDamage(weapon);
-        if (weapon.Pattern == WeaponPattern.GrenadeLauncher) return $"blast {total:0} / direct {total * 1.6f:0}";
+        var roundedTotal = MathF.Round(total, MidpointRounding.AwayFromZero);
+        if (weapon.Pattern == WeaponPattern.GrenadeLauncher) return $"blast {roundedTotal:0} / direct {roundedTotal + 200f:0}";
 
-        var bonus = kind == WeaponClass.Ranged
-            ? player.GetRangedStatBonus()
-            : player.GetMeleeStatBonus();
-
-        return $"dmg {total:0}(+{bonus:0})";
+        var bonus = player.GetWeaponModifierDamage(weapon);
+        var roundedBonus = MathF.Round(bonus, MidpointRounding.AwayFromZero);
+        return $"dmg {roundedTotal:0}(+{roundedBonus:0})";
     }
 
     private (List<LootZone> buildings, List<LootZone> outposts) GenerateZones(int buildingCount, int outpostCount)
@@ -2033,7 +1590,7 @@ public sealed class SciFiRogueGame : IDisposable
             var pos = new Vector2(_rng.Next(80, World - (int)size.X - 80), _rng.Next(80, World - (int)size.Y - 80));
             var rect = new Rectangle(pos, size);
             if (!IsZonePlacementValid(rect, all)) continue;
-            all.Add(new LootZone(rect, outpost));
+            all.Add(new LootZone(all.Count, rect, outpost));
             created++;
         }
     }
@@ -2062,32 +1619,62 @@ public sealed class SciFiRogueGame : IDisposable
         foreach (var zone in _buildings.Concat(_outposts))
         {
             var chestCount = _rng.Next(1, 4);
-            var itemsHighTier = zone.IsOutpost;
             for (var i = 0; i < chestCount; i++)
             {
                 var pos = RandomPointInZoneSafe(zone.Rect, 20f);
                 var lootCount = _rng.Next(1, 6);
                 var loot = new List<ItemStack>();
-                for (var l = 0; l < lootCount; l++) loot.Add(RollLoot(itemsHighTier, zone.IsOutpost));
-                list.Add(new LootChest(pos, loot));
+                for (var l = 0; l < lootCount; l++) loot.Add(RollLoot(zone.IsOutpost));
+                list.Add(new LootChest(pos, loot, zone.Id, LootContainerKind.Chest));
+            }
+
+            var crateSpawnChance = zone.IsOutpost ? 0.60f : 0.40f;
+            var crateCount = 0;
+            if (_rng.NextSingle() < crateSpawnChance)
+            {
+                var cratePos = RandomPointInZoneSafe(zone.Rect, 20f);
+                list.Add(new LootChest(cratePos, RollCrateLoot(zone.IsOutpost), zone.Id, LootContainerKind.Crate));
+                crateCount++;
+            }
+
+            if (crateCount > 0 && _rng.NextSingle() < 0.10f)
+            {
+                var cratePos = RandomPointInZoneSafe(zone.Rect, 20f);
+                list.Add(new LootChest(cratePos, RollCrateLoot(zone.IsOutpost), zone.Id, LootContainerKind.Crate));
             }
         }
 
         return list;
     }
 
-    private ItemStack RollLoot(bool highTier, bool isOutpost)
+    private ItemStack RollLoot(bool isOutpost)
     {
         var r = _rng.NextSingle();
-        if (r < 0.35f) return ItemStack.Consumable(_rng.NextSingle() < 0.5f ? ConsumableType.Medkit : ConsumableType.Stim);
-        if (r < 0.70f) return ItemStack.Armor(RollRarity(highTier, isOutpost), _rng);
-        return ItemStack.Weapon(_rng.NextSingle() < 0.5f ? WeaponClass.Ranged : WeaponClass.Melee, RollRarity(highTier, isOutpost), _rng);
+        if (r < 0.35f) return ItemStack.Consumable(RollConsumableType());
+
+        var rarity = RollRarity(isOutpost);
+        return RollEquipmentOfRarity(rarity);
     }
 
-    private ArmorRarity RollRarity(bool highTier, bool isOutpost)
+    private ArmorRarity RollRarity(bool isOutpost)
     {
         var r = _rng.NextSingle();
-        if (!highTier)
+
+        if (_selectedMapName.Equals("Baselands", StringComparison.OrdinalIgnoreCase))
+        {
+            if (isOutpost)
+            {
+                if (r < 0.40f) return ArmorRarity.Common;
+                if (r < 0.90f) return ArmorRarity.Rare;
+                return ArmorRarity.Epic;
+            }
+
+            if (r < 0.80f) return ArmorRarity.Common;
+            if (r < 0.98f) return ArmorRarity.Rare;
+            return ArmorRarity.Epic;
+        }
+
+        if (!isOutpost)
         {
             if (r < 0.55f) return ArmorRarity.Common;
             if (r < 0.84f) return ArmorRarity.Rare;
@@ -2095,16 +1682,73 @@ public sealed class SciFiRogueGame : IDisposable
             return ArmorRarity.Legendary;
         }
 
-        if (!isOutpost)
-        {
-            if (r < 0.24f) return ArmorRarity.Rare;
-            if (r < 0.84f) return ArmorRarity.Epic;
-            return ArmorRarity.Legendary;
-        }
-
         if (r < 0.20f) return ArmorRarity.Rare;
         if (r < 0.75f) return ArmorRarity.Epic;
         return ArmorRarity.Legendary;
+    }
+
+    private ItemStack RollEquipmentOfRarity(ArmorRarity rarity)
+    {
+        if (_rng.NextSingle() < 0.35f) return ItemStack.Armor(rarity, _rng);
+        return ItemStack.Weapon(_rng.NextSingle() < 0.5f ? WeaponClass.Ranged : WeaponClass.Melee, rarity, _rng);
+    }
+
+    private ConsumableType RollConsumableType()
+        => _rng.NextSingle() < 0.5f ? ConsumableType.Medkit : ConsumableType.Stim;
+
+    private List<ItemStack> RollBossLoot()
+    {
+        var loot = new List<ItemStack> { RollEquipmentOfRarity(ArmorRarity.Epic) };
+        if (_rng.NextSingle() < 0.05f) loot.Add(RollEquipmentOfRarity(ArmorRarity.Legendary));
+        if (_rng.NextSingle() < 0.02f) loot.Add(ItemStack.BossGrenadeLauncher());
+        return loot;
+    }
+
+    private List<ItemStack> RollCrateLoot(bool isOutpost)
+    {
+        var loot = new List<ItemStack>();
+
+        if (isOutpost)
+        {
+            var r = _rng.NextSingle();
+            if (r < 0.01f) loot.Add(RollEquipmentOfRarity(ArmorRarity.Rare));
+            else if (r < 0.76f) loot.Add(RollEquipmentOfRarity(ArmorRarity.Common));
+
+            loot.Add(ItemStack.Consumable(RollConsumableType()));
+            loot.Add(ItemStack.Consumable(RollConsumableType()));
+            return loot;
+        }
+
+        if (_rng.NextSingle() < 0.20f) loot.Add(RollEquipmentOfRarity(ArmorRarity.Common));
+        loot.Add(ItemStack.Consumable(RollConsumableType()));
+        if (_rng.NextSingle() < 0.20f) loot.Add(ItemStack.Consumable(RollConsumableType()));
+        return loot;
+    }
+
+    private bool IsZoneCleared(int zoneId)
+    {
+        if (_enemies.Any(enemy => enemy.Alive && enemy.ZoneId == zoneId)) return false;
+        if (_turrets.Any(turret => turret.Alive && turret.ZoneId == zoneId)) return false;
+        if (_miniBosses.Any(boss => boss.Alive && boss.ZoneId == zoneId)) return false;
+        return true;
+    }
+
+    private void TryDropEnemyConsumable(Vector2 position)
+    {
+        if (_rng.NextSingle() >= 0.01f) return;
+        _groundConsumables.Add(new GroundConsumablePickup(position, ItemStack.Consumable(RollConsumableType())));
+    }
+
+    private bool TryPickGroundItem(ItemStack item)
+    {
+        if (_player.Inventory.HasFreeBackpackSlot()) return _player.Inventory.AddToBackpack(item);
+
+        if (item.Type == ItemType.Consumable && _player.Inventory.TryReceiveGroundConsumableWhenBackpackFull(item))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     private Vector2 RandomPointIn(Rectangle r)
@@ -2196,13 +1840,13 @@ public sealed class SciFiRogueGame : IDisposable
             {
                 var patrolA = RandomPointInZoneSafe(b.Rect, 14f);
                 var patrolB = RandomPointInZoneSafe(b.Rect, 14f);
-                list.Add(Enemy.CreatePatrol(patrolA, patrolB, false));
+                list.Add(Enemy.CreatePatrol(patrolA, patrolB, false, b.Id));
             }
 
             var strongCount = _rng.Next(1, 3);
             for (var i = 0; i < strongCount; i++)
             {
-                list.Add(Enemy.CreateStrong(RandomPointInZoneSafe(b.Rect, 14f)));
+                list.Add(Enemy.CreateStrong(RandomPointInZoneSafe(b.Rect, 14f), b.Id));
             }
         }
 
@@ -2213,10 +1857,10 @@ public sealed class SciFiRogueGame : IDisposable
             {
                 var patrolA = RandomPointInZoneSafe(o.Rect, 14f);
                 var patrolB = RandomPointInZoneSafe(o.Rect, 14f);
-                list.Add(Enemy.CreatePatrol(patrolA, patrolB, true));
+                list.Add(Enemy.CreatePatrol(patrolA, patrolB, true, o.Id));
             }
             var strong = _rng.Next(3, 5);
-            for (var i = 0; i < strong; i++) list.Add(Enemy.CreateStrong(RandomPointInZoneSafe(o.Rect, 14f)));
+            for (var i = 0; i < strong; i++) list.Add(Enemy.CreateStrong(RandomPointInZoneSafe(o.Rect, 14f), o.Id));
         }
 
         var outdoorPatrols = _rng.Next(12, 19);
@@ -2251,7 +1895,7 @@ public sealed class SciFiRogueGame : IDisposable
             var count = _rng.Next(1, 3);
             for (var i = 0; i < count; i++)
             {
-                list.Add(new TurretEnemy(RandomPointInZoneSafe(outpost.Rect, 18f), _rng.NextSingle() * MathF.Tau));
+                list.Add(new TurretEnemy(RandomPointInZoneSafe(outpost.Rect, 18f), _rng.NextSingle() * MathF.Tau, outpost.Id));
             }
         }
 
@@ -2277,7 +1921,7 @@ public sealed class SciFiRogueGame : IDisposable
         var list = new List<MiniBossEnemySquare>();
         foreach (var o in _outposts)
         {
-            list.Add(new MiniBossEnemySquare(RandomPointInZoneSafe(o.Rect, 28f)));
+            list.Add(new MiniBossEnemySquare(RandomPointInZoneSafe(o.Rect, 28f), o.Id));
         }
 
         return list;
@@ -2306,772 +1950,5 @@ public sealed class SciFiRogueGame : IDisposable
         return MathF.Sqrt(dx * dx + dy * dy);
     }
 
-    private void LoadPersistentState()
-    {
-        try
-        {
-            if (!File.Exists(SaveFilePath))
-            {
-                SavePersistentState();
-                return;
-            }
-
-            var json = File.ReadAllText(SaveFilePath);
-            var data = DeserializePersistentStateFile(json, out var migratedLegacySave);
-            if (data is null)
-            {
-                ShowNotice("Save tampering detected. Profile was reset.");
-                SavePersistentState();
-                return;
-            }
-
-            _themeIndex = Math.Clamp(data.ThemeIndex, 0, Math.Max(0, _themes.Count - 1));
-            _displayMode = Enum.IsDefined(data.DisplayMode) ? data.DisplayMode : DisplayMode.Windowed;
-            _selectedMapName = string.IsNullOrWhiteSpace(data.SelectedMapName) ? "Baselands" : data.SelectedMapName;
-            ApplyMetaSaveData(data.Meta);
-            ApplyDisplayMode();
-            if (migratedLegacySave) SavePersistentState();
-        }
-        catch
-        {
-            _themeIndex = 0;
-            _displayMode = DisplayMode.Windowed;
-            _selectedMapName = "Baselands";
-            ApplyMetaSaveData(null);
-            ApplyDisplayMode();
-            SavePersistentState();
-        }
-    }
-
-    private void SavePersistentState()
-    {
-        try
-        {
-            var directory = Path.GetDirectoryName(SaveFilePath);
-            if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
-
-            var data = new PersistentStateData
-            {
-                ThemeIndex = _themeIndex,
-                DisplayMode = _displayMode,
-                SelectedMapName = _selectedMapName,
-                Meta = BuildMetaSaveData()
-            };
-
-            var protectedSave = ProtectSavePayload(JsonSerializer.Serialize(data, SaveJsonOptions));
-
-            File.WriteAllText(SaveFilePath, JsonSerializer.Serialize(protectedSave, SaveJsonOptions));
-        }
-        catch
-        {
-            // Saving failure should not break the session.
-        }
-    }
-
-    private static PersistentStateData? DeserializePersistentStateFile(string json, out bool migratedLegacySave)
-    {
-        migratedLegacySave = false;
-
-        try
-        {
-            var protectedSave = JsonSerializer.Deserialize<ProtectedSaveFile>(json);
-            if (!string.IsNullOrWhiteSpace(protectedSave?.ProtectedPayload))
-            {
-                var payloadJson = UnprotectSavePayload(protectedSave);
-                return JsonSerializer.Deserialize<PersistentStateData>(payloadJson);
-            }
-        }
-        catch (CryptographicException)
-        {
-            return null;
-        }
-        catch (FormatException)
-        {
-            return null;
-        }
-
-        try
-        {
-            var legacy = JsonSerializer.Deserialize<PersistentStateData>(json);
-            if (legacy is null) return null;
-
-            migratedLegacySave = true;
-            return legacy;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static ProtectedSaveFile ProtectSavePayload(string json)
-    {
-        var plainBytes = Encoding.UTF8.GetBytes(json);
-
-        using var aes = Aes.Create();
-        aes.Key = DeriveSaveKeyBytes("enc");
-        aes.GenerateIV();
-
-        using var encryptor = aes.CreateEncryptor();
-        var cipherBytes = encryptor.TransformFinalBlock(plainBytes, 0, plainBytes.Length);
-        var signatureBytes = ComputeSaveSignature(aes.IV, cipherBytes);
-
-        return new ProtectedSaveFile
-        {
-            Version = ProtectedSaveVersion,
-            Iv = Convert.ToBase64String(aes.IV),
-            ProtectedPayload = Convert.ToBase64String(cipherBytes),
-            Signature = Convert.ToBase64String(signatureBytes)
-        };
-    }
-
-    private static string UnprotectSavePayload(ProtectedSaveFile protectedSave)
-    {
-        var ivBytes = Convert.FromBase64String(protectedSave.Iv);
-        var cipherBytes = Convert.FromBase64String(protectedSave.ProtectedPayload);
-        var signatureBytes = Convert.FromBase64String(protectedSave.Signature);
-        var expectedSignature = ComputeSaveSignature(ivBytes, cipherBytes);
-
-        if (!CryptographicOperations.FixedTimeEquals(signatureBytes, expectedSignature))
-        {
-            throw new CryptographicException("Save signature mismatch.");
-        }
-
-        using var aes = Aes.Create();
-        aes.Key = DeriveSaveKeyBytes("enc");
-        aes.IV = ivBytes;
-
-        using var decryptor = aes.CreateDecryptor();
-        var plainBytes = decryptor.TransformFinalBlock(cipherBytes, 0, cipherBytes.Length);
-        return Encoding.UTF8.GetString(plainBytes);
-    }
-
-    private static byte[] DeriveSaveKeyBytes(string purpose)
-    {
-        var source = $"{Environment.UserName}|{Environment.MachineName}|{AppContext.BaseDirectory}|{purpose}|Bungus.Profile.Save.v2";
-        return SHA256.HashData(Encoding.UTF8.GetBytes(source));
-    }
-
-    private static byte[] ComputeSaveSignature(byte[] ivBytes, byte[] cipherBytes)
-    {
-        using var hmac = new HMACSHA256(DeriveSaveKeyBytes("mac"));
-        hmac.TransformBlock(ivBytes, 0, ivBytes.Length, null, 0);
-        hmac.TransformFinalBlock(cipherBytes, 0, cipherBytes.Length);
-        return hmac.Hash ?? [];
-    }
-
-    private MetaProfileSaveData BuildMetaSaveData()
-    {
-        return new MetaProfileSaveData
-        {
-            Level = _meta.Level,
-            Score = _meta.Score,
-            StorageSlots = _meta.StorageSlots.Select(ItemStack.ToSaveData).ToList(),
-            Armor = ItemStack.ToSaveData(_meta.Armor),
-            RangedWeapon = ItemStack.ToSaveData(_meta.RangedWeapon),
-            MeleeWeapon = ItemStack.ToSaveData(_meta.MeleeWeapon),
-            QuickSlotQ = ItemStack.ToSaveData(_meta.QuickSlotQ),
-            QuickSlotR = ItemStack.ToSaveData(_meta.QuickSlotR),
-            Trash = ItemStack.ToSaveData(_meta.Trash)
-        };
-    }
-
-    private void ApplyMetaSaveData(MetaProfileSaveData? data)
-    {
-        _meta.Level = Math.Max(1, data?.Level ?? 1);
-        _meta.Score = Math.Max(0, data?.Score ?? 0);
-        _meta.StorageSlots.Clear();
-
-        var savedSlots = data?.StorageSlots ?? [];
-        for (var i = 0; i < MetaProfile.StorageCapacity; i++)
-        {
-            _meta.StorageSlots.Add(i < savedSlots.Count ? ItemStack.FromSaveData(savedSlots[i]) : null);
-        }
-
-        _meta.Armor = ItemStack.FromSaveData(data?.Armor);
-        _meta.RangedWeapon = ItemStack.FromSaveData(data?.RangedWeapon);
-        _meta.MeleeWeapon = ItemStack.FromSaveData(data?.MeleeWeapon);
-        _meta.QuickSlotQ = ItemStack.FromSaveData(data?.QuickSlotQ);
-        _meta.QuickSlotR = ItemStack.FromSaveData(data?.QuickSlotR);
-        _meta.Trash = ItemStack.FromSaveData(data?.Trash);
-    }
-
-    public void Dispose()
-    {
-        SavePersistentState();
-        Raylib.CloseWindow();
-    }
-}
-
-public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life, Color color, bool ownerEnemy, float damage, ProjectileKind kind = ProjectileKind.Bullet, float explosionRadius = 0f, float explosionDamage = 0f, float drawRadius = 4f)
-{
-    public Vector2 Position { get; private set; } = pos;
-    public Vector2 PreviousPosition { get; private set; } = pos;
-    public Color Color { get; } = color;
-    public bool OwnerEnemy { get; } = ownerEnemy;
-    public float Damage { get; } = damage;
-    public ProjectileKind Kind { get; } = kind;
-    public float ExplosionRadius { get; } = explosionRadius;
-    public float ExplosionDamage { get; } = explosionDamage;
-    public float DrawRadius { get; } = drawRadius;
-    private float _life = life;
-    public bool Alive => _life > 0f;
-
-    public void Update(float dt)
-    {
-        PreviousPosition = Position;
-        Position += dir * speed * dt;
-        _life -= dt;
-    }
-}
-
-public sealed class Explosion(Vector2 pos, float radius, Color color)
-{
-    public Vector2 Position { get; } = pos;
-    public float Radius { get; } = radius;
-    public float MaxLife { get; } = 0.24f;
-    public float Life { get; set; } = 0.24f;
-    public Color Color { get; } = color;
-}
-
-public sealed class SwingArc
-{
-    public Vector2 Origin { get; }
-    public float Radius { get; }
-    public float AngleStart { get; }
-    public float AngleEnd { get; }
-    public float Life { get; set; }
-    public Color Color { get; }
-    public bool IsLine { get; }
-    public Vector2 LineStart { get; }
-    public Vector2 LineEnd { get; }
-
-    private SwingArc(Vector2 origin, float radius, float angleStart, float angleEnd, float life, Color color)
-    {
-        Origin = origin;
-        Radius = radius;
-        AngleStart = angleStart;
-        AngleEnd = angleEnd;
-        Life = life;
-        Color = color;
-    }
-
-    private SwingArc(Vector2 lineStart, Vector2 lineEnd, float life, Color color)
-    {
-        IsLine = true;
-        LineStart = lineStart;
-        LineEnd = lineEnd;
-        Life = life;
-        Color = color;
-    }
-
-    public static SwingArc Arc(Vector2 origin, float radius, float angleStart, float angleEnd, float life, Color color)
-        => new(origin, radius, angleStart, angleEnd, life, color);
-
-    public static SwingArc Line(Vector2 lineStart, Vector2 lineEnd, float life, Color color)
-        => new(lineStart, lineEnd, life, color);
-}
-
-public sealed class LootZone(Rectangle rect, bool isOutpost)
-{
-    public Rectangle Rect { get; } = rect;
-    public bool IsOutpost { get; } = isOutpost;
-    public Vector2 Center => new(Rect.X + Rect.Width / 2f, Rect.Y + Rect.Height / 2f);
-}
-
-public sealed class Obstacle(Rectangle rect)
-{
-    public Rectangle Rect { get; } = rect;
-}
-
-public static class MovementUtils
-{
-    public static Vector2 MoveWithCollisions(Vector2 position, Vector2 delta, float radius, List<Obstacle> obstacles, int worldSize)
-    {
-        var next = position;
-        var xTry = new Vector2(position.X + delta.X, position.Y);
-        if (!CircleHitsObstacle(xTry, radius, obstacles)) next.X = xTry.X;
-
-        var yTry = new Vector2(next.X, position.Y + delta.Y);
-        if (!CircleHitsObstacle(yTry, radius, obstacles)) next.Y = yTry.Y;
-
-        next.X = Math.Clamp(next.X, radius, worldSize - radius);
-        next.Y = Math.Clamp(next.Y, radius, worldSize - radius);
-        return next;
-    }
-
-    public static bool CircleHitsObstacle(Vector2 center, float radius, List<Obstacle> obstacles)
-    {
-        foreach (var o in obstacles)
-        {
-            var nx = Math.Clamp(center.X, o.Rect.X, o.Rect.X + o.Rect.Width);
-            var ny = Math.Clamp(center.Y, o.Rect.Y, o.Rect.Y + o.Rect.Height);
-            var dx = center.X - nx;
-            var dy = center.Y - ny;
-            if (dx * dx + dy * dy < radius * radius) return true;
-        }
-
-        return false;
-    }
-}
-
-public sealed class DashAfterImage(Vector2 position, Color color, float alpha, bool square)
-{
-    public Vector2 Position { get; } = position;
-    public Color Color { get; } = color;
-    public float InitialAlpha { get; } = alpha;
-    public float Life { get; set; } = 1f;
-    public bool Square { get; } = square;
-
-    public void Draw()
-    {
-        var current = MathF.Max(0f, InitialAlpha * (Life / 1f));
-        var c = new Color(Color.R, Color.G, Color.B, (byte)(255 * current));
-        if (Square)
-            Raylib.DrawRectangle((int)Position.X - 21, (int)Position.Y - 21, 42, 42, c);
-        else
-            Raylib.DrawCircleV(Position, 16f, c);
-    }
-
-    public static void Spawn(List<DashAfterImage> target, Vector2 endPosition, Vector2 dashDir, float distance, Color color, bool square)
-    {
-        var dir = dashDir == Vector2.Zero ? new Vector2(1f, 0f) : Vector2.Normalize(dashDir);
-        var steps = new[]
-        {
-            (9f, 0.5f),
-            (8f, 0.45f),
-            (7f, 0.35f),
-            (6f, 0.25f),
-            (5f, 0.15f),
-            (4f, 0.05f)
-        };
-
-        foreach (var (ratio, alpha) in steps)
-        {
-            target.Add(new DashAfterImage(endPosition - dir * (distance * (10f - ratio) / 10f), color, alpha, square));
-        }
-    }
-}
-
-public static class VisibilityUtils
-{
-    public static bool HasLineOfSight(Vector2 from, Vector2 to, List<Obstacle> obstacles)
-    {
-        foreach (var obstacle in obstacles)
-        {
-            var r = InflateRect(obstacle.Rect, 2f);
-            Vector2 hit = default;
-
-            if (Raylib.CheckCollisionPointRec(from, r) || Raylib.CheckCollisionPointRec(to, r)) continue;
-            if (Raylib.CheckCollisionLines(from, to, new Vector2(r.X, r.Y), new Vector2(r.X + r.Width, r.Y), ref hit)) return false;
-            if (Raylib.CheckCollisionLines(from, to, new Vector2(r.X + r.Width, r.Y), new Vector2(r.X + r.Width, r.Y + r.Height), ref hit)) return false;
-            if (Raylib.CheckCollisionLines(from, to, new Vector2(r.X + r.Width, r.Y + r.Height), new Vector2(r.X, r.Y + r.Height), ref hit)) return false;
-            if (Raylib.CheckCollisionLines(from, to, new Vector2(r.X, r.Y + r.Height), new Vector2(r.X, r.Y), ref hit)) return false;
-        }
-
-        return true;
-    }
-
-    public static Vector2 Rotate(Vector2 v, float a)
-    {
-        var c = MathF.Cos(a);
-        var s = MathF.Sin(a);
-        return new Vector2(v.X * c - v.Y * s, v.X * s + v.Y * c);
-    }
-
-    public static void DrawDashedLine(Vector2 a, Vector2 b, int segments, Color c)
-    {
-        for (var i = 0; i < segments; i++)
-        {
-            if (i % 2 == 1) continue;
-            var t1 = i / (float)segments;
-            var t2 = (i + 1) / (float)segments;
-            Raylib.DrawLineV(Vector2.Lerp(a, b, t1), Vector2.Lerp(a, b, t2), c);
-        }
-    }
-
-    public static void DrawDashedCircle(Vector2 center, float radius, int segments, Color c)
-    {
-        for (var i = 0; i < segments; i++)
-        {
-            if (i % 2 == 1) continue;
-            var a1 = i / (float)segments * MathF.Tau;
-            var a2 = (i + 1) / (float)segments * MathF.Tau;
-            var p1 = center + new Vector2(MathF.Cos(a1), MathF.Sin(a1)) * radius;
-            var p2 = center + new Vector2(MathF.Cos(a2), MathF.Sin(a2)) * radius;
-            Raylib.DrawLineV(p1, p2, c);
-        }
-    }
-
-    private static Rectangle InflateRect(Rectangle rect, float pad)
-        => new(rect.X - pad, rect.Y - pad, rect.Width + pad * 2f, rect.Height + pad * 2f);
-}
-
-public sealed class LootChest(Vector2 position, List<ItemStack> items)
-{
-    public Vector2 Position { get; } = position;
-    public List<ItemStack> Items { get; } = items;
-    public bool Opened { get; set; }
-}
-
-public sealed class MetaProfile
-{
-    public const int StorageCapacity = 100;
-
-    public int Level { get; set; } = 1;
-    public int Score { get; set; }
-
-    public List<ItemStack?> StorageSlots { get; } = Enumerable.Repeat<ItemStack?>(null, StorageCapacity).ToList();
-    public ItemStack? Armor { get; set; }
-    public ItemStack? RangedWeapon { get; set; }
-    public ItemStack? MeleeWeapon { get; set; }
-    public ItemStack? QuickSlotQ { get; set; }
-    public ItemStack? QuickSlotR { get; set; }
-    public ItemStack? Trash { get; set; }
-
-    public bool AddToStorage(ItemStack item)
-    {
-        for (var i = 0; i < StorageSlots.Count; i++)
-        {
-            if (StorageSlots[i] is not null) continue;
-            StorageSlots[i] = item;
-            return true;
-        }
-
-        return false;
-    }
-
-    public bool HasFreeStorageSlot() => StorageSlots.Any(item => item is null);
-}
-
-public sealed class PersistentStateData
-{
-    public int ThemeIndex { get; set; }
-    public DisplayMode DisplayMode { get; set; } = DisplayMode.Windowed;
-    public string SelectedMapName { get; set; } = "Baselands";
-    public MetaProfileSaveData Meta { get; set; } = new();
-}
-
-public sealed class ProtectedSaveFile
-{
-    public int Version { get; set; } = 1;
-    public string Iv { get; set; } = string.Empty;
-    public string ProtectedPayload { get; set; } = string.Empty;
-    public string Signature { get; set; } = string.Empty;
-}
-
-public sealed class MetaProfileSaveData
-{
-    public int Level { get; set; } = 1;
-    public int Score { get; set; }
-    public List<ItemStackSaveData?> StorageSlots { get; set; } = [];
-    public ItemStackSaveData? Armor { get; set; }
-    public ItemStackSaveData? RangedWeapon { get; set; }
-    public ItemStackSaveData? MeleeWeapon { get; set; }
-    public ItemStackSaveData? QuickSlotQ { get; set; }
-    public ItemStackSaveData? QuickSlotR { get; set; }
-    public ItemStackSaveData? Trash { get; set; }
-}
-
-public sealed class ItemStackSaveData
-{
-    public ItemType Type { get; set; }
-    public string Name { get; set; } = string.Empty;
-    public string Description { get; set; } = string.Empty;
-    public ArmorRarity Rarity { get; set; }
-    public byte ColorR { get; set; }
-    public byte ColorG { get; set; }
-    public byte ColorB { get; set; }
-    public byte ColorA { get; set; } = 255;
-    public WeaponClass? WeaponKind { get; set; }
-    public WeaponPattern Pattern { get; set; }
-    public ConsumableType? ConsumableKind { get; set; }
-    public bool IsStarter { get; set; }
-    public float Defense { get; set; }
-    public float PowerBonus { get; set; }
-}
-
-public sealed class ExtractPortal(Vector2 position, float seed)
-{
-    public Vector2 Position { get; } = position;
-    public float Seed { get; } = seed;
-    public float InteractionRadius { get; } = 34f;
-
-    public void Draw(float time)
-    {
-        Raylib.DrawEllipse((int)Position.X, (int)Position.Y, 28f, 42f, Palette.C(60, 150, 255, 110));
-        Raylib.DrawEllipseLines((int)Position.X, (int)Position.Y, 30f, 44f, Palette.C(120, 220, 255));
-
-        for (var i = 0; i < 4; i++)
-        {
-            var speed = 0.6f + i * 0.32f;
-            var angle = Seed + time * speed + i * MathF.PI * 0.5f;
-            var offset = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * (8f + i * 3f);
-            var size = 8f - i;
-            Raylib.DrawPoly(Position + offset, 4, size, time * 100f * speed, Palette.C(150 - i * 12, 220 - i * 10, 255));
-        }
-    }
-}
-
-public sealed class Inventory
-{
-    public const int BackpackCapacity = 30;
-
-    public List<ItemStack?> BackpackSlots { get; } = Enumerable.Repeat<ItemStack?>(null, BackpackCapacity).ToList();
-    public ItemStack? QuickSlotQ { get; set; }
-    public ItemStack? QuickSlotR { get; set; }
-
-    public ItemStack? Trash { get; set; }
-
-    public bool AddToBackpack(ItemStack item)
-    {
-        if (TryPlaceIntoConsumableSlot(item)) return true;
-
-        for (var i = 0; i < BackpackSlots.Count; i++)
-        {
-            if (BackpackSlots[i] is not null) continue;
-            BackpackSlots[i] = item;
-            return true;
-        }
-
-        return false;
-    }
-
-    public void AutoFillConsumableSlots()
-    {
-        if (QuickSlotQ is null) QuickSlotQ = TakeFirstConsumableFromBackpack();
-        if (QuickSlotR is null) QuickSlotR = TakeFirstConsumableFromBackpack();
-    }
-
-    private bool TryPlaceIntoConsumableSlot(ItemStack item)
-    {
-        if (item.Type != ItemType.Consumable) return false;
-
-        if (QuickSlotQ is null)
-        {
-            QuickSlotQ = item;
-            return true;
-        }
-
-        if (QuickSlotR is null)
-        {
-            QuickSlotR = item;
-            return true;
-        }
-
-        return false;
-    }
-
-    private ItemStack? TakeFirstConsumableFromBackpack()
-    {
-        for (var i = 0; i < BackpackSlots.Count; i++)
-        {
-            var item = BackpackSlots[i];
-            if (item?.Type != ItemType.Consumable) continue;
-            BackpackSlots[i] = null;
-            return item;
-        }
-
-        return null;
-    }
-}
-
-public sealed class ItemStack
-{
-    public ItemType Type { get; }
-    public string Name { get; }
-    public string Description { get; }
-    public ArmorRarity Rarity { get; }
-    public Color Color { get; }
-
-    public WeaponClass? WeaponKind { get; }
-    public WeaponPattern Pattern { get; }
-    public ConsumableType? ConsumableKind { get; }
-    public bool IsStarter { get; }
-
-    public float Defense { get; }
-    public float PowerBonus { get; }
-
-    private ItemStack(ItemType type, string name, string description, ArmorRarity rarity, Color color, WeaponClass? weaponClass, WeaponPattern pattern, ConsumableType? consumableType, float defense, float powerBonus, bool isStarter)
-    {
-        Type = type;
-        Name = name;
-        Description = description;
-        Rarity = rarity;
-        Color = color;
-        WeaponKind = weaponClass;
-        Pattern = pattern;
-        ConsumableKind = consumableType;
-        IsStarter = isStarter;
-        Defense = defense;
-        PowerBonus = powerBonus;
-    }
-
-    public static ItemStackSaveData? ToSaveData(ItemStack? item)
-    {
-        if (item is null) return null;
-
-        return new ItemStackSaveData
-        {
-            Type = item.Type,
-            Name = item.Name,
-            Description = item.Description,
-            Rarity = item.Rarity,
-            ColorR = item.Color.R,
-            ColorG = item.Color.G,
-            ColorB = item.Color.B,
-            ColorA = item.Color.A,
-            WeaponKind = item.WeaponKind,
-            Pattern = item.Pattern,
-            ConsumableKind = item.ConsumableKind,
-            IsStarter = item.IsStarter,
-            Defense = item.Defense,
-            PowerBonus = item.PowerBonus
-        };
-    }
-
-    public static ItemStack? FromSaveData(ItemStackSaveData? data)
-    {
-        if (data is null) return null;
-
-        return new ItemStack(
-            data.Type,
-            data.Name,
-            data.Description,
-            data.Rarity,
-            new Color(data.ColorR, data.ColorG, data.ColorB, data.ColorA),
-            data.WeaponKind,
-            data.Pattern,
-            data.ConsumableKind,
-            data.Defense,
-            data.PowerBonus,
-            data.IsStarter);
-    }
-
-    public static ItemStack Armor(ArmorRarity rarity, Random rng)
-    {
-        var baseDef = rarity switch
-        {
-            ArmorRarity.Common => 10f,
-            ArmorRarity.Rare => 14f,
-            ArmorRarity.Epic => 19f,
-            ArmorRarity.Legendary => 25f,
-            _ => 33f
-        };
-
-        var name = rarity switch
-        {
-            ArmorRarity.Common => "Scrap Vest",
-            ArmorRarity.Rare => "Titan Weave",
-            ArmorRarity.Epic => "Aegis Fiber",
-            ArmorRarity.Legendary => "Nova Bulwark",
-            _ => "Crimson Bastion"
-        };
-
-        return new ItemStack(ItemType.Armor, name, "Armor. Drag into armor slot.", rarity, Palette.Rarity(rarity), null, WeaponPattern.Standard, null, baseDef + rng.NextSingle() * 4f, 0f, false);
-    }
-
-    public static ItemStack Weapon(WeaponClass kind, ArmorRarity rarity, Random rng)
-    {
-        var p = rarity switch
-        {
-            ArmorRarity.Common => 0f,
-            ArmorRarity.Rare => 3f,
-            ArmorRarity.Epic => 6f,
-            ArmorRarity.Legendary => 10f,
-            _ => 16f
-        };
-
-        p += rng.NextSingle() * 2f;
-
-        WeaponPattern pattern;
-        string name;
-        string description;
-
-        if (kind == WeaponClass.Ranged && rng.NextSingle() < 0.35f)
-        {
-            pattern = WeaponPattern.PulseRifle;
-            name = "Pulse Rifle";
-            description = "Ranged weapon. Fires a 3-round burst.";
-            p += 1.5f;
-        }
-        else if (kind == WeaponClass.Melee && rng.NextSingle() < 0.35f)
-        {
-            pattern = WeaponPattern.EnergySpear;
-            name = "Energy Spear";
-            description = "Melee weapon. Cleaves forward in a line.";
-            p += 1.2f;
-        }
-        else
-        {
-            pattern = WeaponPattern.Standard;
-            name = kind == WeaponClass.Ranged ? "Rail Pistol" : "Plasma Blade";
-            description = "Weapon. Drag to matching slot.";
-        }
-
-        return new ItemStack(ItemType.Weapon, name, description, rarity, Palette.Rarity(rarity), kind, pattern, null, 0f, p, false);
-    }
-
-    public static ItemStack StartingPistol()
-    {
-        return new ItemStack(ItemType.Weapon, "Rail Pistol", "Base sidearm.", ArmorRarity.Common, Palette.Rarity(ArmorRarity.Common), WeaponClass.Ranged, WeaponPattern.Standard, null, 0f, 1.5f, true);
-    }
-
-    public static ItemStack StartingMelee()
-    {
-        return new ItemStack(ItemType.Weapon, "Plasma Blade", "Base melee weapon.", ArmorRarity.Common, Palette.Rarity(ArmorRarity.Common), WeaponClass.Melee, WeaponPattern.Standard, null, 0f, 1.2f, true);
-    }
-
-    public static ItemStack BossGrenadeLauncher()
-    {
-        return new ItemStack(
-            ItemType.Weapon,
-            "Destroyer Grenade Launcher",
-            "Boss weapon. Explosive shell deals 250 blast damage and +60% on direct hit.",
-            ArmorRarity.Red,
-            Palette.Rarity(ArmorRarity.Red),
-            WeaponClass.Ranged,
-            WeaponPattern.GrenadeLauncher,
-            null,
-            0f,
-            0f,
-            false);
-    }
-
-    public static ItemStack Consumable(ConsumableType t)
-    {
-        return t == ConsumableType.Medkit
-            ? new ItemStack(ItemType.Consumable, "Medkit", "Restore HP. Hotkey Q/R.", ArmorRarity.Common, Palette.C(130, 210, 120), null, WeaponPattern.Standard, t, 0f, 0f, false)
-            : new ItemStack(ItemType.Consumable, "Stim", "Move speed boost. Hotkey Q/R.", ArmorRarity.Common, Palette.C(220, 220, 120), null, WeaponPattern.Standard, t, 0f, 0f, false);
-    }
-}
-
-public enum SlotKind
-{
-    RangedWeapon,
-    MeleeWeapon,
-    Armor,
-    Trash,
-    Storage,
-    Backpack,
-    QuickSlotQ,
-    QuickSlotR,
-    Chest
-}
-
-public sealed class UiSlot(Rectangle rect, SlotKind kind, int? index, ItemStack? item, int slotId)
-{
-    public Rectangle Rect { get; } = rect;
-    public SlotKind Kind { get; } = kind;
-    public int Index { get; } = index ?? -1;
-    public ItemStack? Item { get; } = item;
-    public int SlotId { get; } = slotId;
-}
-
-public sealed class DragPayload(SlotKind kind, int index, ItemStack item)
-{
-    public SlotKind Kind { get; } = kind;
-    public int Index { get; } = index;
-    public ItemStack Item { get; } = item;
 }
 

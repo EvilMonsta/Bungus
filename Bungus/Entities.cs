@@ -5,9 +5,10 @@ namespace Bungus.Game;
 
 public sealed class Player
 {
-    private const int BaseStrength = 6;
+    private const float BaseMaxHealthValue = 100f;
+    private const float BaseMoveSpeed = 210f;
+    private const float BaseDashDistance = 150f;
 
-    private float _baseMaxHealth = 120f;
     private readonly float _globalMaxHealthBonus;
     private readonly float _globalDamageBonus;
     private float _attackCd;
@@ -22,18 +23,19 @@ public sealed class Player
 
     public Vector2 Position { get; private set; }
     public float Health { get; private set; }
-    public float MaxHealth => _baseMaxHealth + _globalMaxHealthBonus + MathF.Max(0, Str - BaseStrength) * 5f;
+    public float MaxHealth => BaseMaxHealthValue + _globalMaxHealthBonus + Str * 5f;
+    public float SpeedMultiplier => 1f + Spd * 0.01f;
 
     public bool InventoryOpen { get; set; }
 
-    public int Str { get; private set; } = 6;
-    public int Dex { get; private set; } = 8;
-    public int Spd { get; private set; } = 7;
-    public int Guns { get; private set; } = 7;
+    public int Str { get; private set; }
+    public int Dex { get; private set; }
+    public int Spd { get; private set; }
+    public int Guns { get; private set; }
 
     public int Level { get; private set; } = 1;
     public int Kills { get; private set; }
-    public int KillsTarget => Level * 10;
+    public int KillsTarget => 10 + 5 * ((Level - 1) * Level / 2);
     public int StatPoints { get; private set; }
 
     public Inventory Inventory { get; } = new();
@@ -44,22 +46,26 @@ public sealed class Player
 
     public WeaponClass ActiveWeaponClass { get; private set; } = WeaponClass.Ranged;
 
-    private Player(Vector2 p, float globalMaxHealthBonus, float globalDamageBonus, ItemStack? rangedWeapon, ItemStack? meleeWeapon, ItemStack? armor, ItemStack? quickSlotQ, ItemStack? quickSlotR)
+    private Player(Vector2 p, float globalMaxHealthBonus, float globalDamageBonus, int baseStrength, int baseDexterity, int baseSpeed, int baseGuns, ItemStack? rangedWeapon, ItemStack? meleeWeapon, ItemStack? armor, ItemStack? quickSlotQ, ItemStack? quickSlotR)
     {
         Position = p;
         _globalMaxHealthBonus = globalMaxHealthBonus;
         _globalDamageBonus = globalDamageBonus;
+        Str = Math.Max(0, baseStrength);
+        Dex = Math.Max(0, baseDexterity);
+        Spd = Math.Max(0, baseSpeed);
+        Guns = Math.Max(0, baseGuns);
 
         RangedWeapon = rangedWeapon ?? ItemStack.StartingPistol();
         MeleeWeapon = meleeWeapon ?? ItemStack.StartingMelee();
-        Armor = armor;
+        Armor = armor ?? ItemStack.StartingArmor();
         Inventory.QuickSlotQ = quickSlotQ;
         Inventory.QuickSlotR = quickSlotR;
         Health = MaxHealth;
     }
 
-    public static Player Create(Vector2 p, float globalMaxHealthBonus, float globalDamageBonus, ItemStack? rangedWeapon, ItemStack? meleeWeapon, ItemStack? armor, ItemStack? quickSlotQ, ItemStack? quickSlotR)
-        => new(p, globalMaxHealthBonus, globalDamageBonus, rangedWeapon, meleeWeapon, armor, quickSlotQ, quickSlotR);
+    public static Player Create(Vector2 p, float globalMaxHealthBonus, float globalDamageBonus, int baseStrength, int baseDexterity, int baseSpeed, int baseGuns, ItemStack? rangedWeapon, ItemStack? meleeWeapon, ItemStack? armor, ItemStack? quickSlotQ, ItemStack? quickSlotR)
+        => new(p, globalMaxHealthBonus, globalDamageBonus, baseStrength, baseDexterity, baseSpeed, baseGuns, rangedWeapon, meleeWeapon, armor, quickSlotQ, quickSlotR);
 
     public void Update(float dt, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages)
     {
@@ -82,7 +88,7 @@ public sealed class Player
         if (Raylib.IsKeyPressed(KeyboardKey.Space) && _dodgeCd <= 0f)
         {
             var dir = d == Vector2.Zero ? new Vector2(1f, 0f) : Vector2.Normalize(d);
-            var dist = 150f + Spd * 8f;
+            var dist = BaseDashDistance * SpeedMultiplier;
             Position = MovementUtils.MoveWithCollisions(Position, dir * dist, 16f, obstacles, worldSize);
             DashAfterImage.Spawn(afterImages, Position, dir, dist, Palette.C(120, 200, 255), false);
             _dodgeCd = 1.1f;
@@ -90,7 +96,7 @@ public sealed class Player
 
         if (d != Vector2.Zero)
         {
-            var speed = 210f + Spd * 6f;
+            var speed = BaseMoveSpeed * SpeedMultiplier;
             if (_stim > 0) speed *= 1.25f;
             var delta = Vector2.Normalize(d) * speed * dt;
             Position = MovementUtils.MoveWithCollisions(Position, delta, 16f, obstacles, worldSize);
@@ -120,7 +126,7 @@ public sealed class Player
                     0.72f,
                     weapon.Color,
                     false,
-                    damage * 0.6f,
+                    200f,
                     ProjectileKind.Grenade,
                     120f,
                     damage,
@@ -179,33 +185,43 @@ public sealed class Player
 
     public float GetMeleeDamage()
     {
-        var power = MeleeWeapon?.PowerBonus ?? 0f;
-        return (12f + _globalDamageBonus + GetMeleeStatBonusRaw() + power) * 0.7f;
+        return MeleeWeapon is null ? 0f : GetWeaponDamage(MeleeWeapon);
     }
 
     public float GetRangedDamage()
     {
-        var power = RangedWeapon?.PowerBonus ?? 0f;
-        return (9f + _globalDamageBonus + GetRangedStatBonusRaw() + power) * 1.3f;
+        return RangedWeapon is null ? 0f : GetWeaponDamage(RangedWeapon);
+    }
+
+    public float GetWeaponBaseDamage(ItemStack weapon)
+    {
+        if (weapon.Type != ItemType.Weapon) return 0f;
+        return MathF.Max(0f, weapon.BaseDamage);
+    }
+
+    public float GetWeaponModifierDamage(ItemStack weapon)
+    {
+        if (weapon.Type != ItemType.Weapon) return 0f;
+
+        var statMultiplier = weapon.WeaponKind == WeaponClass.Melee
+            ? GetMeleeDamageMultiplier()
+            : GetRangedDamageMultiplier();
+
+        return GetWeaponBaseDamage(weapon) * statMultiplier + _globalDamageBonus;
     }
 
     public float GetWeaponDamage(ItemStack weapon)
     {
         if (weapon.Type != ItemType.Weapon) return 0f;
-        if (weapon.Pattern == WeaponPattern.GrenadeLauncher) return 250f;
-        return weapon.WeaponKind == WeaponClass.Melee ? GetMeleeDamage() : GetRangedDamage();
+        return GetWeaponBaseDamage(weapon) + GetWeaponModifierDamage(weapon);
     }
 
-    public float GetMeleeStatBonus() => GetMeleeStatBonusRaw() * 0.7f;
-    public float GetRangedStatBonus() => GetRangedStatBonusRaw() * 1.3f;
-
-    private float GetMeleeStatBonusRaw() => Str * 2.2f + Dex * 0.6f;
-    private float GetRangedStatBonusRaw() => Guns * 2.4f;
+    public float GetMeleeDamageMultiplier() => Str * 0.0025f + Dex * 0.01f;
+    public float GetRangedDamageMultiplier() => Guns * 0.01f;
 
     public float GetStatusEffectChance(float baseChance)
     {
-        var reduction = Math.Clamp(Dex * 0.02f, 0f, 0.6f);
-        return baseChance * (1f - reduction);
+        return baseChance;
     }
 
     public void SwitchActiveWeapon() => ActiveWeaponClass = ActiveWeaponClass == WeaponClass.Ranged ? WeaponClass.Melee : WeaponClass.Ranged;
@@ -245,7 +261,7 @@ public sealed class Player
     public void TakeDamage(float value)
     {
         var armor = Armor?.Defense ?? 0f;
-        var reduced = MathF.Max(1f, value - armor * 0.75f - Dex * 0.12f);
+        var reduced = MathF.Max(1f, value - armor * 0.75f);
         Health = MathF.Max(0f, Health - reduced);
     }
 
@@ -256,7 +272,6 @@ public sealed class Player
         Kills = 0;
         Level++;
         StatPoints++;
-        _baseMaxHealth += 10f;
         Health = MathF.Min(MaxHealth, Health + MaxHealth * 0.25f);
     }
 
@@ -281,6 +296,7 @@ public sealed class Enemy
     public Vector2 Position;
     public float MaxHealth;
     public float Health;
+    public int ZoneId = -1;
     public bool IsStrong;
     public bool IsPatrol;
     public bool Alive => Health > 0f;
@@ -319,10 +335,11 @@ public sealed class Enemy
         _facing = new Vector2(1f, 0f);
     }
 
-    public static Enemy CreatePatrol(Vector2 a, Vector2 b, bool outpost)
+    public static Enemy CreatePatrol(Vector2 a, Vector2 b, bool outpost, int zoneId = -1)
     {
         var e = new Enemy(a)
         {
+            ZoneId = zoneId,
             IsPatrol = true,
             _patrolA = a,
             _patrolB = b,
@@ -332,10 +349,11 @@ public sealed class Enemy
         return e;
     }
 
-    public static Enemy CreateStrong(Vector2 pos)
+    public static Enemy CreateStrong(Vector2 pos, int zoneId = -1)
     {
         var e = new Enemy(pos)
         {
+            ZoneId = zoneId,
             IsStrong = true,
             MaxHealth = 300f,
             Health = 300f
@@ -640,6 +658,7 @@ public sealed class TurretEnemy
     public Vector2 Position;
     public float MaxHealth = 260f;
     public float Health = 260f;
+    public int ZoneId = -1;
     public bool Alive => Health > 0f;
     public bool KillAwarded;
 
@@ -657,9 +676,10 @@ public sealed class TurretEnemy
     private const float ViewDistance = 980f;
     private const float FovHalf = MathF.PI / 3f;
 
-    public TurretEnemy(Vector2 pos, float angle)
+    public TurretEnemy(Vector2 pos, float angle, int zoneId = -1)
     {
         Position = pos;
+        ZoneId = zoneId;
         _facing = new Vector2(MathF.Cos(angle), MathF.Sin(angle));
         var initialDelta = 60f * (MathF.PI / 180f);
         _scanAngularSpeed = initialDelta / 3f;
@@ -800,6 +820,7 @@ public sealed class MiniBossEnemySquare
     public Vector2 Position;
     public float MaxHealth = 2000f;
     public float Health = 2000f;
+    public int ZoneId = -1;
     public bool Alive => Health > 0;
     public bool KillAwarded;
 
@@ -815,7 +836,7 @@ public sealed class MiniBossEnemySquare
     private const float ViewDistance = 460f;
     private const float FovHalf = MathF.PI / 3f;
 
-    public MiniBossEnemySquare(Vector2 pos) { Position = pos; }
+    public MiniBossEnemySquare(Vector2 pos, int zoneId = -1) { Position = pos; ZoneId = zoneId; }
 
     public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, Player player, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages)
     {

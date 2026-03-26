@@ -75,12 +75,17 @@ public sealed partial class SciFiRogueGame
         {
             var rect = new Rectangle(chest.Position.X - 14, chest.Position.Y - 10, 28, 20);
             var locked = chest.RequiresClear && chest.ZoneId is int zoneId && !IsZoneCleared(zoneId);
-            var fill = chest.Kind == LootContainerKind.Crate
-                ? Palette.C(98, 62, 34, 240)
-                : chest.Opened ? Palette.C(65, 65, 65, 180) : Palette.C(122, 82, 38, 240);
-            var line = chest.Kind == LootContainerKind.Crate
-                ? Palette.C(140, 90, 52)
-                : locked ? Color.Red : chest.Opened ? Color.Gray : Color.Gold;
+            var empty = chest.Items.Count == 0;
+            var fill = empty
+                ? Palette.C(65, 65, 65, 180)
+                : chest.Kind == LootContainerKind.Crate
+                    ? Palette.C(98, 62, 34, 240)
+                    : Palette.C(122, 82, 38, 240);
+            var line = empty
+                ? Color.Gray
+                : chest.Kind == LootContainerKind.Crate
+                    ? Palette.C(140, 90, 52)
+                    : locked ? Color.Red : Color.Gold;
 
             if (chest.Kind == LootContainerKind.Crate)
             {
@@ -91,7 +96,7 @@ public sealed partial class SciFiRogueGame
             Raylib.DrawRectangleLinesEx(rect, 1.5f, line);
             Raylib.DrawLine((int)rect.X, (int)(rect.Y + rect.Height / 2), (int)(rect.X + rect.Width), (int)(rect.Y + rect.Height / 2), Color.Black);
 
-            if (Vector2.Distance(chest.Position, _player.Position) < 30f)
+            if (!empty && Vector2.Distance(chest.Position, _player.Position) < 30f)
             {
                 Raylib.DrawText("F", (int)rect.X + (chest.Kind == LootContainerKind.Crate ? 10 : 10), (int)rect.Y - 18, 18, line);
             }
@@ -139,25 +144,103 @@ public sealed partial class SciFiRogueGame
 
         foreach (var s in _swings)
         {
-            if (s.IsLine)
-            {
-                Raylib.DrawLineEx(s.LineStart, s.LineEnd, 8f, s.Color);
-            }
-            else
-            {
-                for (var i = 0; i < 18; i++)
-                {
-                    var p = i / 18f;
-                    var a = s.AngleStart + (s.AngleEnd - s.AngleStart) * p;
-                    var point = s.Origin + new Vector2(MathF.Cos(a), MathF.Sin(a)) * s.Radius;
-                    Raylib.DrawCircleV(point, 3f, s.Color);
-                }
-            }
+            DrawSwing(s);
         }
 
         Raylib.DrawRectangleLinesEx(new Rectangle(0, 0, World, World), 6f, Palette.C(120, 160, 220));
         Raylib.DrawCircleV(_player.Position, 16f, Theme.Player);
         Raylib.EndMode2D();
+    }
+
+    private static void DrawSwing(SwingArc swing)
+    {
+        if (swing.VisualStyle == SwingVisualStyle.SpearThrust)
+        {
+            DrawSpearSwing(swing);
+            return;
+        }
+
+        DrawSlashSwing(swing);
+    }
+
+    private static void DrawSlashSwing(SwingArc swing)
+    {
+        const int trailCount = 8;
+        const float trailStep = 0.06f;
+        var progress = swing.ReverseSweep ? 1f - swing.Progress : swing.Progress;
+        var lifeAlpha = Math.Clamp(swing.Life / MathF.Max(swing.MaxLife, 0.001f), 0f, 1f);
+        var baseAlpha = 0.55f + lifeAlpha * 0.45f;
+
+        for (var i = trailCount - 1; i >= 0; i--)
+        {
+            var trailProgress = swing.ReverseSweep
+                ? Math.Clamp(progress + i * trailStep, 0f, 1f)
+                : Math.Clamp(progress - i * trailStep, 0f, 1f);
+            var angle = swing.AngleStart + (swing.AngleEnd - swing.AngleStart) * trailProgress;
+            var point = swing.Origin + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * swing.Radius;
+            var alpha = i == 0
+                ? 1f
+                : Math.Clamp(baseAlpha * (0.55f + (trailCount - 1 - i) * 0.07f), 0f, 1f);
+            var color = WithAlpha(swing.Color, alpha);
+
+            if (i == 0)
+            {
+                Raylib.DrawLineEx(swing.Origin, point, 5f, color);
+            }
+            else
+            {
+                VisibilityUtils.DrawDashedLine(swing.Origin, point, 14, color);
+            }
+        }
+    }
+
+    private static void DrawSpearSwing(SwingArc swing)
+    {
+        const int trailCount = 8;
+        const float trailStep = 0.07f;
+        var delta = swing.LineEnd - swing.LineStart;
+        var length = delta.Length();
+        if (length <= 0.001f) return;
+
+        var dir = Vector2.Normalize(delta);
+        var angle = MathF.Atan2(dir.Y, dir.X) * 180f / MathF.PI;
+        var dashLength = length * Math.Clamp(swing.DashLengthRatio, 0.2f, 0.8f);
+        var travelLength = MathF.Max(0f, length - dashLength);
+        var lifeAlpha = Math.Clamp(swing.Life / MathF.Max(swing.MaxLife, 0.001f), 0f, 1f);
+        var baseAlpha = 0.55f + lifeAlpha * 0.45f;
+
+        VisibilityUtils.DrawDashedLine(swing.LineStart, swing.LineEnd, 16, WithAlpha(swing.Color, Math.Clamp(baseAlpha * 0.7f, 0f, 1f)));
+
+        for (var i = trailCount - 1; i >= 0; i--)
+        {
+            var trailProgress = Math.Clamp(swing.Progress - i * trailStep, 0f, 1f);
+            var center = swing.LineStart + dir * (dashLength * 0.5f + travelLength * trailProgress);
+            var height = MathF.Max(2.5f, 12f - i * 1.2f);
+            var alpha = i == 0
+                ? 1f
+                : Math.Clamp(baseAlpha * (0.55f + (trailCount - 1 - i) * 0.07f), 0f, 1f);
+            var color = WithAlpha(swing.Color, alpha);
+            Raylib.DrawRectanglePro(
+                new Rectangle(center.X, center.Y, dashLength, height),
+                new Vector2(dashLength * 0.5f, height * 0.5f),
+                angle,
+                color);
+
+            var tipLength = dashLength * 0.22f;
+            var tipHeight = MathF.Max(1.8f, height * 0.58f);
+            var tipCenter = center + dir * (dashLength * 0.5f + tipLength * 0.22f);
+            Raylib.DrawRectanglePro(
+                new Rectangle(tipCenter.X, tipCenter.Y, tipLength, tipHeight),
+                new Vector2(tipLength * 0.5f, tipHeight * 0.5f),
+                angle,
+                color);
+        }
+    }
+
+    private static Color WithAlpha(Color color, float alpha)
+    {
+        var clamped = Math.Clamp(alpha, 0f, 1f);
+        return new Color(color.R, color.G, color.B, (byte)(255 * clamped));
     }
 
     private void DrawHud()
@@ -307,7 +390,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMainMenu()
     {
-        Raylib.DrawText("a0.1.2", 86, 150, 24, Palette.C(150, 185, 220));
+        Raylib.DrawText("0.1.3", 86, 150, 24, Palette.C(150, 185, 220));
         DrawMetaProgressHeader();
 
         DrawButton(MainMenuButtonRect(0), "Play");

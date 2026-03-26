@@ -36,40 +36,78 @@ public sealed class Explosion(Vector2 pos, float radius, Color color)
 
 public sealed class SwingArc
 {
-    public Vector2 Origin { get; }
+    private readonly List<object> _hitTargets = [];
+    private readonly Vector2 _originOffset;
+    private readonly Vector2 _lineStartOffset;
+    private readonly Vector2 _lineEndOffset;
+
+    public Vector2 Origin { get; private set; }
     public float Radius { get; }
     public float AngleStart { get; }
     public float AngleEnd { get; }
     public float Life { get; set; }
+    public float MaxLife { get; }
     public Color Color { get; }
     public bool IsLine { get; }
-    public Vector2 LineStart { get; }
-    public Vector2 LineEnd { get; }
+    public Vector2 LineStart { get; private set; }
+    public Vector2 LineEnd { get; private set; }
+    public bool ReverseSweep { get; }
+    public float DashLengthRatio { get; }
+    public SwingVisualStyle VisualStyle { get; }
+    public float Progress => MaxLife <= 0f ? 1f : 1f - Math.Clamp(Life / MaxLife, 0f, 1f);
 
-    private SwingArc(Vector2 origin, float radius, float angleStart, float angleEnd, float life, Color color)
+    private SwingArc(Vector2 anchorPosition, Vector2 origin, float radius, float angleStart, float angleEnd, float life, Color color, bool reverseSweep)
     {
         Origin = origin;
+        _originOffset = origin - anchorPosition;
         Radius = radius;
         AngleStart = angleStart;
         AngleEnd = angleEnd;
         Life = life;
+        MaxLife = life;
         Color = color;
+        ReverseSweep = reverseSweep;
+        VisualStyle = SwingVisualStyle.ArcSlash;
     }
 
-    private SwingArc(Vector2 lineStart, Vector2 lineEnd, float life, Color color)
+    private SwingArc(Vector2 anchorPosition, Vector2 lineStart, Vector2 lineEnd, float life, Color color, float dashLengthRatio)
     {
         IsLine = true;
         LineStart = lineStart;
         LineEnd = lineEnd;
+        _lineStartOffset = lineStart - anchorPosition;
+        _lineEndOffset = lineEnd - anchorPosition;
         Life = life;
+        MaxLife = life;
         Color = color;
+        DashLengthRatio = dashLengthRatio;
+        VisualStyle = SwingVisualStyle.SpearThrust;
     }
 
-    public static SwingArc Arc(Vector2 origin, float radius, float angleStart, float angleEnd, float life, Color color)
-        => new(origin, radius, angleStart, angleEnd, life, color);
+    public static SwingArc Arc(Vector2 anchorPosition, Vector2 origin, float radius, float angleStart, float angleEnd, float life, Color color, bool reverseSweep = false)
+        => new(anchorPosition, origin, radius, angleStart, angleEnd, life, color, reverseSweep);
 
-    public static SwingArc Line(Vector2 lineStart, Vector2 lineEnd, float life, Color color)
-        => new(lineStart, lineEnd, life, color);
+    public static SwingArc Line(Vector2 anchorPosition, Vector2 lineStart, Vector2 lineEnd, float life, Color color, float dashLengthRatio = 0.4f)
+        => new(anchorPosition, lineStart, lineEnd, life, color, dashLengthRatio);
+
+    public void UpdateAnchor(Vector2 anchorPosition)
+    {
+        if (IsLine)
+        {
+            LineStart = anchorPosition + _lineStartOffset;
+            LineEnd = anchorPosition + _lineEndOffset;
+            return;
+        }
+
+        Origin = anchorPosition + _originOffset;
+    }
+
+    public bool TryRegisterHit(object target)
+    {
+        if (_hitTargets.Contains(target)) return false;
+        _hitTargets.Add(target);
+        return true;
+    }
 }
 
 public sealed class LootZone(int id, Rectangle rect, bool isOutpost)
@@ -139,12 +177,17 @@ public sealed class DashAfterImage(Vector2 position, Color color, float alpha, b
         var dir = dashDir == Vector2.Zero ? new Vector2(1f, 0f) : Vector2.Normalize(dashDir);
         var steps = new[]
         {
-            (9f, 0.5f),
-            (8f, 0.45f),
-            (7f, 0.35f),
-            (6f, 0.25f),
-            (5f, 0.15f),
-            (4f, 0.05f)
+            (10.0f, 0.66f),
+            (9.97f, 0.62f),
+            (9.92f, 0.58f),
+            (9.85f, 0.54f),
+            (9.6f, 0.48f),
+            (9.25f, 0.42f),
+            (8.8f, 0.34f),
+            (8.1f, 0.26f),
+            (7.2f, 0.18f),
+            (6.1f, 0.10f),
+            (5.0f, 0.06f)
         };
 
         foreach (var (ratio, alpha) in steps)

@@ -590,6 +590,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         for (var i = _swings.Count - 1; i >= 0; i--)
         {
             var s = _swings[i];
+            s.UpdateAnchor(_player.Position);
             s.Life -= dt;
             if (s.Life <= 0f)
             {
@@ -602,7 +603,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 var hit = s.IsLine
                     ? DistanceToSegment(e.Position, s.LineStart, s.LineEnd) < 16f
                     : IsInArc(e.Position, s, 8f);
-                if (!hit) continue;
+                if (!hit || !s.TryRegisterHit(e)) continue;
                 e.Damage(_player.GetMeleeDamage());
                 e.ForceAggro(_player.Position);
                 e.JustHitByPlayer = true;
@@ -613,7 +614,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 var hit = s.IsLine
                     ? DistanceToSegment(h.Position, s.LineStart, s.LineEnd) < 16f
                     : IsInArc(h.Position, s, 10f);
-                if (hit) h.Damage(_player.GetMeleeDamage());
+                if (hit && s.TryRegisterHit(h)) h.Damage(_player.GetMeleeDamage());
             }
 
             foreach (var t in _turrets.Where(x => x.Alive))
@@ -621,7 +622,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 var hit = s.IsLine
                     ? DistanceToSegment(t.Position, s.LineStart, s.LineEnd) < 20f
                     : IsInArc(t.Position, s, 14f);
-                if (hit) t.Damage(_player.GetMeleeDamage());
+                if (hit && s.TryRegisterHit(t)) t.Damage(_player.GetMeleeDamage());
             }
 
             foreach (var b in _miniBosses.Where(x => x.Alive))
@@ -629,7 +630,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 var hit = s.IsLine
                     ? DistanceToSegment(b.Position, s.LineStart, s.LineEnd) < 28f
                     : IsInArc(b.Position, s, 24f);
-                if (hit) b.Damage(_player.GetMeleeDamage() * 0.75f);
+                if (hit && s.TryRegisterHit(b)) b.Damage(_player.GetMeleeDamage() * 0.75f);
             }
 
             if (_destroyerBoss is not null && _destroyerBoss.Alive)
@@ -637,7 +638,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 var hit = s.IsLine
                     ? DistanceToSegment(_destroyerBoss.Position, s.LineStart, s.LineEnd) < 54f
                     : IsInArc(_destroyerBoss.Position, s, 50f);
-                if (hit) _destroyerBoss.Damage(_player.GetMeleeDamage() * 0.75f);
+                if (hit && s.TryRegisterHit(_destroyerBoss)) _destroyerBoss.Damage(_player.GetMeleeDamage() * 0.75f);
             }
         }
     }
@@ -653,7 +654,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         for (var i = _dashAfterImages.Count - 1; i >= 0; i--)
         {
-            _dashAfterImages[i].Life -= dt * 3f;
+            _dashAfterImages[i].Life -= dt * 3.75f;
             if (_dashAfterImages[i].Life <= 0f) _dashAfterImages.RemoveAt(i);
         }
     }
@@ -663,6 +664,17 @@ public sealed partial class SciFiRogueGame : IDisposable
         for (var i = 0; i < _chests.Count; i++)
         {
             var chest = _chests[i];
+            if (chest.Items.Count == 0)
+            {
+                if (_openedChestIndex == i)
+                {
+                    _openedChestIndex = null;
+                    _player.InventoryOpen = false;
+                }
+
+                continue;
+            }
+
             if (Vector2.Distance(chest.Position, _player.Position) > 28f) continue;
             if (!Raylib.IsKeyPressed(KeyboardKey.F)) continue;
 
@@ -1473,7 +1485,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             (new Rectangle(54, 176, 220, 24), "STR", "+5 HP и +0.25% урона ближнего оружия за каждое очко."),
             (new Rectangle(54, 206, 220, 24), "DEX", "+1% урона ближнего оружия за каждое очко."),
-            (new Rectangle(54, 236, 220, 24), "SPD", "+1% к множителю скорости за каждое очко."),
+            (new Rectangle(54, 236, 220, 24), "SPD", "+3% к множителю скорости за каждое очко."),
             (new Rectangle(54, 266, 220, 24), "GUN", "+1% урона дальнего оружия за каждое очко.")
         };
 
@@ -1561,6 +1573,23 @@ public sealed partial class SciFiRogueGame : IDisposable
         var total = player.GetWeaponDamage(weapon);
         var roundedTotal = MathF.Round(total, MidpointRounding.AwayFromZero);
         if (weapon.Pattern == WeaponPattern.GrenadeLauncher) return $"blast {roundedTotal:0} / direct {roundedTotal + 200f:0}";
+        if (weapon.Pattern == WeaponPattern.PulseRifle)
+        {
+            var perShot = player.GetPulseShotDamage(weapon);
+            var shots = player.GetPulseBurstShotCount(weapon);
+            var roundedPerShot = MathF.Round(perShot, MidpointRounding.AwayFromZero);
+            var roundedBurst = MathF.Round(perShot * shots, MidpointRounding.AwayFromZero);
+            return $"burst {roundedPerShot:0}x{shots}={roundedBurst:0}";
+        }
+
+        if (kind == WeaponClass.Melee)
+        {
+            var hitDamage = player.GetMeleeHitDamage(weapon);
+            var roundedHit = MathF.Round(hitDamage, MidpointRounding.AwayFromZero);
+            return weapon.Pattern == WeaponPattern.EnergySpear
+                ? $"thrust {roundedHit:0}"
+                : $"slash {roundedHit:0}";
+        }
 
         var bonus = player.GetWeaponModifierDamage(weapon);
         var roundedBonus = MathF.Round(bonus, MidpointRounding.AwayFromZero);
@@ -1665,13 +1694,12 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (isOutpost)
             {
                 if (r < 0.40f) return ArmorRarity.Common;
-                if (r < 0.90f) return ArmorRarity.Rare;
+                if (r < 0.9923077f) return ArmorRarity.Rare;
                 return ArmorRarity.Epic;
             }
 
-            if (r < 0.80f) return ArmorRarity.Common;
-            if (r < 0.98f) return ArmorRarity.Rare;
-            return ArmorRarity.Epic;
+            if (r < 0.90f) return ArmorRarity.Common;
+            return ArmorRarity.Rare;
         }
 
         if (!isOutpost)

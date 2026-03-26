@@ -239,14 +239,14 @@ public sealed class ItemStack
 
     public static ItemStack Armor(ArmorRarity rarity, Random rng)
     {
-        var baseDef = rarity switch
+        var (baseDef, variance) = rarity switch
         {
-            ArmorRarity.Damaged => 5f,
-            ArmorRarity.Common => 10f,
-            ArmorRarity.Rare => 14f,
-            ArmorRarity.Epic => 19f,
-            ArmorRarity.Legendary => 25f,
-            _ => 33f
+            ArmorRarity.Damaged => (5f, 2f),
+            ArmorRarity.Common => (8f, 4f),
+            ArmorRarity.Rare => (13f, 3f),
+            ArmorRarity.Epic => (18f, 4f),
+            ArmorRarity.Legendary => (25f, 3f),
+            _ => (33f, 4f)
         };
 
         var name = rarity switch
@@ -259,23 +259,22 @@ public sealed class ItemStack
             _ => "Crimson Bastion"
         };
 
-        var variance = rarity == ArmorRarity.Damaged ? 2f : 4f;
         return new ItemStack(ItemType.Armor, name, "Armor. Drag into armor slot.", rarity, Palette.Rarity(rarity), null, WeaponPattern.Standard, null, baseDef + rng.NextSingle() * variance, 0f, rarity == ArmorRarity.Damaged);
     }
 
     public static ItemStack Weapon(WeaponClass kind, ArmorRarity rarity, Random rng)
     {
-        var baseDamage = rarity switch
+        var (baseDamage, variance) = rarity switch
         {
-            ArmorRarity.Damaged => 4f,
-            ArmorRarity.Common => 11f,
-            ArmorRarity.Rare => 16f,
-            ArmorRarity.Epic => 22f,
-            ArmorRarity.Legendary => 30f,
-            _ => 150f
+            ArmorRarity.Damaged => (4f, 1f),
+            ArmorRarity.Common => (8f, 4f),
+            ArmorRarity.Rare => (13f, 3f),
+            ArmorRarity.Epic => (20f, 5f),
+            ArmorRarity.Legendary => (27f, 4f),
+            _ => (150f, 0f)
         };
 
-        baseDamage += rng.NextSingle() * (rarity == ArmorRarity.Damaged ? 1f : 3f);
+        baseDamage += rng.NextSingle() * variance;
 
         WeaponPattern pattern;
         string name;
@@ -285,15 +284,17 @@ public sealed class ItemStack
         {
             pattern = WeaponPattern.PulseRifle;
             name = "Pulse Rifle";
-            description = "Ranged weapon. Fires a 3-round burst.";
-            baseDamage += 2f;
+            description = rarity == ArmorRarity.Legendary
+                ? "Legendary ranged weapon. Fires a 4-round burst."
+                : "Ranged weapon. Fires a 3-round burst.";
         }
         else if (rarity != ArmorRarity.Damaged && kind == WeaponClass.Melee && rng.NextSingle() < 0.35f)
         {
             pattern = WeaponPattern.EnergySpear;
             name = "Energy Spear";
-            description = "Melee weapon. Cleaves forward in a line.";
-            baseDamage += 1.5f;
+            description = rarity == ArmorRarity.Legendary
+                ? "Legendary melee weapon. Longer thrust reach."
+                : "Melee weapon. Cleaves forward in a line.";
         }
         else
         {
@@ -301,7 +302,13 @@ public sealed class ItemStack
             name = rarity == ArmorRarity.Damaged
                 ? kind == WeaponClass.Ranged ? "Damaged Rail Pistol" : "Damaged Plasma Blade"
                 : kind == WeaponClass.Ranged ? "Rail Pistol" : "Plasma Blade";
-            description = rarity == ArmorRarity.Damaged ? "Damaged weapon. Emergency deployment issue." : "Weapon. Drag to matching slot.";
+            description = rarity == ArmorRarity.Damaged
+                ? "Damaged weapon. Emergency deployment issue."
+                : rarity == ArmorRarity.Legendary
+                    ? kind == WeaponClass.Ranged
+                        ? "Legendary pistol. 33% chance to fire two bullets with slight spread."
+                        : "Legendary blade. Slash arc is wider."
+                    : "Weapon. Drag to matching slot.";
         }
 
         return new ItemStack(ItemType.Weapon, name, description, rarity, Palette.Rarity(rarity), kind, pattern, null, 0f, baseDamage, rarity == ArmorRarity.Damaged);
@@ -367,7 +374,7 @@ public sealed class ItemStack
             WeaponPattern.GrenadeLauncher,
             null,
             0f,
-            0f,
+            150f,
             false);
     }
 

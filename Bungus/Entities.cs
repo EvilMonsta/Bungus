@@ -8,6 +8,18 @@ public sealed class Player
     private const float BaseMaxHealthValue = 100f;
     private const float BaseMoveSpeed = 210f;
     private const float BaseDashDistance = 150f;
+    private const float DashEchoDuration = 0.25f;
+    private const float DashEchoSpawnInterval = 0.05f;
+    private const float MeleeDamageMultiplier = 7f;
+    private const float MeleeSwingLife = 0.18f;
+    private const float BladeRadius = 72f;
+    private const float BladeHalfAngle = 0.6225f;
+    private const float LegendaryBladeHalfAngleBonus = MathF.PI / 72f;
+    private const float SpearStartDistance = 24f;
+    private const float SpearEndDistance = 125f;
+    private const float LegendarySpearLengthMultiplier = 1.2f;
+    private const float TwinShotChance = 0.33f;
+    private const float TwinShotSpread = 0.06f;
 
     private readonly float _globalMaxHealthBonus;
     private readonly float _globalDamageBonus;
@@ -15,6 +27,9 @@ public sealed class Player
     private float _dodgeCd;
     private float _stim;
     private float _bleed;
+    private float _dashEchoTimer;
+    private float _dashEchoSpawnTimer;
+    private Vector2 _dashEchoDir;
     private int _pulseQueuedShots;
     private float _pulseShotCd;
     private Vector2 _pulseDir;
@@ -24,7 +39,7 @@ public sealed class Player
     public Vector2 Position { get; private set; }
     public float Health { get; private set; }
     public float MaxHealth => BaseMaxHealthValue + _globalMaxHealthBonus + Str * 5f;
-    public float SpeedMultiplier => 1f + Spd * 0.01f;
+    public float SpeedMultiplier => 1f + Spd * 0.03f;
 
     public bool InventoryOpen { get; set; }
 
@@ -91,6 +106,9 @@ public sealed class Player
             var dist = BaseDashDistance * SpeedMultiplier;
             Position = MovementUtils.MoveWithCollisions(Position, dir * dist, 16f, obstacles, worldSize);
             DashAfterImage.Spawn(afterImages, Position, dir, dist, Palette.C(120, 200, 255), false);
+            _dashEchoDir = dir;
+            _dashEchoTimer = DashEchoDuration;
+            _dashEchoSpawnTimer = 0f;
             _dodgeCd = 1.1f;
         }
 
@@ -100,6 +118,27 @@ public sealed class Player
             if (_stim > 0) speed *= 1.25f;
             var delta = Vector2.Normalize(d) * speed * dt;
             Position = MovementUtils.MoveWithCollisions(Position, delta, 16f, obstacles, worldSize);
+        }
+
+        UpdateDashEcho(dt, afterImages);
+    }
+
+    private void UpdateDashEcho(float dt, List<DashAfterImage> afterImages)
+    {
+        if (_dashEchoTimer <= 0f) return;
+
+        _dashEchoTimer = MathF.Max(0f, _dashEchoTimer - dt);
+        _dashEchoSpawnTimer -= dt;
+
+        while (_dashEchoSpawnTimer <= 0f)
+        {
+            var strength = _dashEchoTimer / DashEchoDuration;
+            var offset = 6f + (1f - strength) * 10f;
+            var alpha = 0.18f + strength * 0.42f;
+            afterImages.Add(new DashAfterImage(Position - _dashEchoDir * offset, Palette.C(120, 200, 255), alpha, false));
+            _dashEchoSpawnTimer += DashEchoSpawnInterval;
+
+            if (_dashEchoTimer <= 0f) break;
         }
     }
 
@@ -126,7 +165,7 @@ public sealed class Player
                     0.72f,
                     weapon.Color,
                     false,
-                    200f,
+                    damage + 200f,
                     ProjectileKind.Grenade,
                     120f,
                     damage,
@@ -135,17 +174,27 @@ public sealed class Player
             }
             else if (weapon.Pattern == WeaponPattern.PulseRifle)
             {
-                FirePulseShot(projectiles, dir, weapon.Color, damage * 0.36f);
-                _pulseQueuedShots = 2;
-                _pulseShotCd = 0.08f;
+                var pulseShotDamage = GetPulseShotDamage(weapon);
+                FirePulseShot(projectiles, dir, weapon.Color, pulseShotDamage);
+                _pulseQueuedShots = GetPulseBurstShotCount(weapon) - 1;
+                _pulseShotCd = 0.064f;
                 _pulseDir = dir;
                 _pulseColor = weapon.Color;
-                _pulseDamage = damage * 0.36f;
-                _attackCd = 0.34f;
+                _pulseDamage = pulseShotDamage;
+                _attackCd = 0.374f;
             }
             else
             {
-                projectiles.Add(new Projectile(Position + dir * 18f, dir, 520f, 1.15f, weapon.Color, false, damage));
+                if (weapon.Rarity == ArmorRarity.Legendary && Random.Shared.NextSingle() < TwinShotChance)
+                {
+                    FireStandardShot(projectiles, dir, weapon.Color, damage, -TwinShotSpread);
+                    FireStandardShot(projectiles, dir, weapon.Color, damage, TwinShotSpread);
+                }
+                else
+                {
+                    FireStandardShot(projectiles, dir, weapon.Color, damage);
+                }
+
                 _attackCd = 0.22f;
             }
         }
@@ -154,13 +203,16 @@ public sealed class Player
             var angle = MathF.Atan2(dir.Y, dir.X);
             if (weapon.Pattern == WeaponPattern.EnergySpear)
             {
-                swings.Add(SwingArc.Line(Position + dir * 24f, Position + dir * 125f, 0.14f, weapon.Color));
-                _attackCd = 0.35f;
+                var spearLength = SpearEndDistance - SpearStartDistance;
+                if (weapon.Rarity == ArmorRarity.Legendary) spearLength *= LegendarySpearLengthMultiplier;
+                swings.Add(SwingArc.Line(Position, Position + dir * SpearStartDistance, Position + dir * (SpearStartDistance + spearLength), MeleeSwingLife, weapon.Color));
+                _attackCd = 0.70f;
             }
             else
             {
-                swings.Add(SwingArc.Arc(Position, 78f, angle - 0.64f, angle + 0.64f, 0.14f, weapon.Color));
-                _attackCd = 0.32f;
+                var halfAngle = BladeHalfAngle + (weapon.Rarity == ArmorRarity.Legendary ? LegendaryBladeHalfAngleBonus : 0f);
+                swings.Add(SwingArc.Arc(Position, Position, BladeRadius, angle - halfAngle, angle + halfAngle, MeleeSwingLife, weapon.Color, Random.Shared.NextSingle() < 0.5f));
+                _attackCd = 0.64f;
             }
         }
     }
@@ -174,7 +226,7 @@ public sealed class Player
         {
             FirePulseShot(projectiles, _pulseDir, _pulseColor, _pulseDamage);
             _pulseQueuedShots--;
-            _pulseShotCd += 0.08f;
+            _pulseShotCd += 0.064f;
         }
     }
 
@@ -183,9 +235,15 @@ public sealed class Player
         projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, 1.0f, color, false, damage));
     }
 
+    private void FireStandardShot(List<Projectile> projectiles, Vector2 dir, Color color, float damage, float angleOffset = 0f)
+    {
+        var shotDir = angleOffset == 0f ? dir : VisibilityUtils.Rotate(dir, angleOffset);
+        projectiles.Add(new Projectile(Position + shotDir * 18f, shotDir, 520f, 1.15f, color, false, damage));
+    }
+
     public float GetMeleeDamage()
     {
-        return MeleeWeapon is null ? 0f : GetWeaponDamage(MeleeWeapon);
+        return MeleeWeapon is null ? 0f : GetMeleeHitDamage(MeleeWeapon);
     }
 
     public float GetRangedDamage()
@@ -196,6 +254,7 @@ public sealed class Player
     public float GetWeaponBaseDamage(ItemStack weapon)
     {
         if (weapon.Type != ItemType.Weapon) return 0f;
+        if (weapon.Pattern == WeaponPattern.GrenadeLauncher && weapon.BaseDamage <= 0f) return 150f;
         return MathF.Max(0f, weapon.BaseDamage);
     }
 
@@ -214,6 +273,24 @@ public sealed class Player
     {
         if (weapon.Type != ItemType.Weapon) return 0f;
         return GetWeaponBaseDamage(weapon) + GetWeaponModifierDamage(weapon);
+    }
+
+    public float GetMeleeHitDamage(ItemStack weapon)
+    {
+        if (weapon.Type != ItemType.Weapon || weapon.WeaponKind != WeaponClass.Melee) return 0f;
+        return GetWeaponDamage(weapon) * MeleeDamageMultiplier;
+    }
+
+    public int GetPulseBurstShotCount(ItemStack weapon)
+    {
+        if (weapon.Type != ItemType.Weapon || weapon.Pattern != WeaponPattern.PulseRifle) return 1;
+        return weapon.Rarity == ArmorRarity.Legendary ? 4 : 3;
+    }
+
+    public float GetPulseShotDamage(ItemStack weapon)
+    {
+        if (weapon.Type != ItemType.Weapon || weapon.Pattern != WeaponPattern.PulseRifle) return 0f;
+        return GetWeaponDamage(weapon) * 0.45f;
     }
 
     public float GetMeleeDamageMultiplier() => Str * 0.0025f + Dex * 0.01f;

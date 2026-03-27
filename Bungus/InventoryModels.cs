@@ -14,6 +14,7 @@ public sealed class MetaProfile
     public int BaseGuns { get; set; } = 4;
 
     public List<ItemStack?> StorageSlots { get; } = Enumerable.Repeat<ItemStack?>(null, StorageCapacity).ToList();
+    public List<ItemStack?> RunBackpackSlots { get; } = Enumerable.Repeat<ItemStack?>(null, Inventory.BackpackCapacity).ToList();
     public ItemStack? Armor { get; set; }
     public ItemStack? RangedWeapon { get; set; }
     public ItemStack? MeleeWeapon { get; set; }
@@ -61,6 +62,7 @@ public sealed class MetaProfileSaveData
     public int BaseSpeed { get; set; } = 4;
     public int BaseGuns { get; set; } = 4;
     public List<ItemStackSaveData?> StorageSlots { get; set; } = [];
+    public List<ItemStackSaveData?> RunBackpackSlots { get; set; } = [];
     public ItemStackSaveData? Armor { get; set; }
     public ItemStackSaveData? RangedWeapon { get; set; }
     public ItemStackSaveData? MeleeWeapon { get; set; }
@@ -393,6 +395,7 @@ public enum SlotKind
     Armor,
     Trash,
     Storage,
+    RunBackpack,
     Backpack,
     QuickSlotQ,
     QuickSlotR,

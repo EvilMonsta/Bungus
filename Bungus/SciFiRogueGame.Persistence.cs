@@ -172,6 +172,7 @@ public sealed partial class SciFiRogueGame
             BaseSpeed = _meta.BaseSpeed,
             BaseGuns = _meta.BaseGuns,
             StorageSlots = _meta.StorageSlots.Select(ItemStack.ToSaveData).ToList(),
+            RunBackpackSlots = _meta.RunBackpackSlots.Select(ItemStack.ToSaveData).ToList(),
             Armor = ItemStack.ToSaveData(_meta.Armor),
             RangedWeapon = ItemStack.ToSaveData(_meta.RangedWeapon),
             MeleeWeapon = ItemStack.ToSaveData(_meta.MeleeWeapon),
@@ -190,11 +191,18 @@ public sealed partial class SciFiRogueGame
         _meta.BaseSpeed = Math.Max(0, data?.BaseSpeed ?? 4);
         _meta.BaseGuns = Math.Max(0, data?.BaseGuns ?? 4);
         _meta.StorageSlots.Clear();
+        _meta.RunBackpackSlots.Clear();
 
         var savedSlots = data?.StorageSlots ?? [];
         for (var i = 0; i < MetaProfile.StorageCapacity; i++)
         {
             _meta.StorageSlots.Add(i < savedSlots.Count ? ItemStack.FromSaveData(savedSlots[i]) : null);
+        }
+
+        var runBackpackSlots = data?.RunBackpackSlots ?? [];
+        for (var i = 0; i < Inventory.BackpackCapacity; i++)
+        {
+            _meta.RunBackpackSlots.Add(i < runBackpackSlots.Count ? ItemStack.FromSaveData(runBackpackSlots[i]) : null);
         }
 
         _meta.Armor = ItemStack.FromSaveData(data?.Armor);

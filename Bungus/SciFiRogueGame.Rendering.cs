@@ -44,6 +44,7 @@ public sealed partial class SciFiRogueGame
         }
 
         DrawNotice();
+        DrawLowHealthOverlay();
 
         Raylib.EndDrawing();
     }
@@ -114,7 +115,11 @@ public sealed partial class SciFiRogueGame
             }
         }
 
-        foreach (var portal in _extractPortals) portal.Draw((float)Raylib.GetTime());
+        foreach (var portal in _extractPortals)
+        {
+            var active = !_lastChanceActive || IsLastChancePortalOpen();
+            portal.Draw((float)Raylib.GetTime(), active, _lastChanceActive);
+        }
 
         foreach (var ghost in _dashAfterImages) ghost.Draw();
 
@@ -304,7 +309,7 @@ public sealed partial class SciFiRogueGame
             Raylib.DrawRectangleLines(730, 138, 350, 170, Color.SkyBlue);
             Raylib.DrawText("Chest", 740, 150, 24, Color.White);
             DrawBackpackGrid(new Vector2(760, 190), 5, 1);
-            DrawButton(TakeAllButtonRect, "Take all");
+            DrawButton(TakeAllButtonRect, "Take all [X]");
         }
 
         foreach (var slot in slots)
@@ -340,20 +345,25 @@ public sealed partial class SciFiRogueGame
 
     private static void DrawItemIcon(ItemStack item, Rectangle rect)
     {
+        Raylib.DrawRectangleRec(rect, item.Type == ItemType.Consumable ? Palette.C(130, 210, 120) : item.Color);
+
         if (item.Type == ItemType.Armor)
         {
-            Raylib.DrawRectangleRec(rect, item.Color);
-            Raylib.DrawText("AR", (int)rect.X + 8, (int)rect.Y + 10, 18, Color.Black);
+            DrawArmorIcon(rect);
+            DrawItemTypeLabel(rect, "ar");
         }
         else if (item.Type == ItemType.Weapon)
         {
-            Raylib.DrawRectangleRec(rect, item.Color);
-            Raylib.DrawText(item.WeaponKind == WeaponClass.Ranged ? "RW" : "MW", (int)rect.X + 4, (int)rect.Y + 10, 18, Color.Black);
+            if (item.WeaponKind == WeaponClass.Melee && item.Pattern == WeaponPattern.EnergySpear) DrawSpearIcon(rect);
+            else if (item.WeaponKind == WeaponClass.Melee) DrawBladeIcon(rect);
+            else if (item.Pattern == WeaponPattern.PulseRifle) DrawPulseRifleIcon(rect);
+            else DrawPistolIcon(rect);
+
+            DrawItemTypeLabel(rect, item.WeaponKind == WeaponClass.Ranged ? "rw" : "mw");
         }
         else
         {
-            Raylib.DrawRectangleRec(rect, Palette.C(130, 210, 120));
-            Raylib.DrawText("CS", (int)rect.X + 8, (int)rect.Y + 10, 18, Color.Black);
+            DrawConsumableIcon(rect);
         }
 
         if (item.Rarity == ArmorRarity.Damaged)
@@ -361,6 +371,65 @@ public sealed partial class SciFiRogueGame
             Raylib.DrawLineEx(new Vector2(rect.X + 4, rect.Y + 4), new Vector2(rect.X + rect.Width - 4, rect.Y + rect.Height - 4), 2.2f, Color.Red);
             Raylib.DrawLineEx(new Vector2(rect.X + rect.Width - 4, rect.Y + 4), new Vector2(rect.X + 4, rect.Y + rect.Height - 4), 2.2f, Color.Red);
         }
+    }
+
+    private static void DrawItemTypeLabel(Rectangle rect, string label)
+    {
+        Raylib.DrawText(label, (int)(rect.X + rect.Width - 18), (int)(rect.Y + 3), 10, Color.Black);
+    }
+
+    private static void DrawBladeIcon(Rectangle rect)
+    {
+        var rotation = -42f;
+        var center = new Vector2(rect.X + rect.Width * 0.50f, rect.Y + rect.Height * 0.56f);
+        var blade = new Rectangle(center.X, center.Y, rect.Width * 0.56f, rect.Height * 0.08f);
+        var guard = new Rectangle(center.X - rect.Width * 0.11f, center.Y + rect.Height * 0.10f, rect.Width * 0.10f, rect.Height * 0.30f);
+        Raylib.DrawRectanglePro(blade, new Vector2(blade.Width * 0.5f, blade.Height * 0.5f), rotation, Color.Black);
+        Raylib.DrawRectanglePro(guard, new Vector2(guard.Width * 0.5f, guard.Height * 0.5f), rotation, Color.Black);
+    }
+
+    private static void DrawSpearIcon(Rectangle rect)
+    {
+        var rotation = -42f;
+        var center = new Vector2(rect.X + rect.Width * 0.5f, rect.Y + rect.Height * 0.5f);
+        var shaft = new Rectangle(center.X, center.Y, rect.Width * 0.72f, rect.Height * 0.07f);
+        Raylib.DrawRectanglePro(shaft, new Vector2(shaft.Width * 0.7f, shaft.Height * 0.7f), rotation, Color.Black);
+    }
+
+    private static void DrawPistolIcon(Rectangle rect)
+    {
+        var body = new Rectangle(rect.X + rect.Width * 0.20f, rect.Y + rect.Height * 0.42f, rect.Width * 0.44f, rect.Height * 0.14f);
+        var grip = new Rectangle(rect.X + rect.Width * 0.40f, rect.Y + rect.Height * 0.50f, rect.Width * 0.14f, rect.Height * 0.24f);
+        Raylib.DrawRectangleRec(body, Color.Black);
+        Raylib.DrawRectangleRec(grip, Color.Black);
+    }
+
+    private static void DrawPulseRifleIcon(Rectangle rect)
+    {
+        var barrel = new Rectangle(rect.X + rect.Width * 0.16f, rect.Y + rect.Height * 0.42f, rect.Width * 0.56f, rect.Height * 0.10f);
+        var stock = new Rectangle(rect.X + rect.Width * 0.12f, rect.Y + rect.Height * 0.38f, rect.Width * 0.12f, rect.Height * 0.18f);
+        var grip = new Rectangle(rect.X + rect.Width * 0.42f, rect.Y + rect.Height * 0.50f, rect.Width * 0.10f, rect.Height * 0.18f);
+        var scope = new Rectangle(rect.X + rect.Width * 0.34f, rect.Y + rect.Height * 0.32f, rect.Width * 0.18f, rect.Height * 0.08f);
+        Raylib.DrawRectangleRec(barrel, Color.Black);
+        Raylib.DrawRectangleRec(stock, Color.Black);
+        Raylib.DrawRectangleRec(grip, Color.Black);
+        Raylib.DrawRectangleRec(scope, Color.Black);
+    }
+
+    private static void DrawArmorIcon(Rectangle rect)
+    {
+        var leftShoulder = new Rectangle(rect.X + rect.Width * 0.20f, rect.Y + rect.Height * 0.22f, rect.Width * 0.18f, rect.Height * 0.18f);
+        var rightShoulder = new Rectangle(rect.X + rect.Width * 0.62f, rect.Y + rect.Height * 0.22f, rect.Width * 0.18f, rect.Height * 0.18f);
+        var chest = new Rectangle(rect.X + rect.Width * 0.28f, rect.Y + rect.Height * 0.28f, rect.Width * 0.44f, rect.Height * 0.42f);
+        Raylib.DrawRectangleRec(leftShoulder, Color.Black);
+        Raylib.DrawRectangleRec(rightShoulder, Color.Black);
+        Raylib.DrawRectangleRec(chest, Color.Black);
+    }
+
+    private static void DrawConsumableIcon(Rectangle rect)
+    {
+        Raylib.DrawRectangle((int)(rect.X + rect.Width * 0.20f), (int)(rect.Y + rect.Height * 0.34f), (int)(rect.Width * 0.60f), (int)(rect.Height * 0.30f), Color.Black);
+        Raylib.DrawText("cs", (int)(rect.X + rect.Width - 18), (int)(rect.Y + 3), 10, Color.Black);
     }
 
     private static void DrawTooltip(ItemStack item, Vector2 mouse)
@@ -390,7 +459,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMainMenu()
     {
-        Raylib.DrawText("0.1.3", 86, 150, 24, Palette.C(150, 185, 220));
+        Raylib.DrawText("a0.1.4", 86, 150, 24, Palette.C(150, 185, 220));
         DrawMetaProgressHeader();
 
         DrawButton(MainMenuButtonRect(0), "Play");
@@ -441,17 +510,23 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText("Melee", 72, 372, 18, Color.LightGray);
         Raylib.DrawText("Consumables", 72, 440, 18, Color.LightGray);
 
-        Raylib.DrawRectangle(392, 116, 510, 530, Palette.C(10, 18, 30, 220));
-        Raylib.DrawRectangleLinesEx(new Rectangle(392, 116, 510, 530), 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText("Stash", 414, 132, 24, Color.White);
-        DrawStorageGrid(new Vector2(414, 174), 10, 10);
+        Raylib.DrawRectangle(392, 154, 510, 496, Palette.C(10, 18, 30, 220));
+        Raylib.DrawRectangleLinesEx(new Rectangle(392, 154, 510, 496), 2f, Palette.C(108, 170, 228));
+        Raylib.DrawText("Stash", 414, 170, 24, Color.White);
+        DrawStorageGrid(new Vector2(414, 206), 10, 10);
 
-        var trashPanel = new Rectangle(1028, 170, 180, 220);
+        var trashPanel = new Rectangle(1008, 170, 210, 220);
         Raylib.DrawRectangleRec(trashPanel, Palette.C(10, 18, 30, 220));
         Raylib.DrawRectangleLinesEx(trashPanel, 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText("Trash", 1080, 194, 24, Color.White);
-        Raylib.DrawText("Right click sends", 1052, 338, 20, Color.LightGray);
-        Raylib.DrawText("items here", 1080, 364, 20, Color.LightGray);
+        Raylib.DrawText("Trash", 1072, 194, 24, Color.White);
+        Raylib.DrawText("Right click sends", 1030, 338, 20, Color.LightGray);
+        Raylib.DrawText("items here", 1072, 364, 20, Color.LightGray);
+
+        var runBackpackPanel = new Rectangle(912, 396, 318, 304);
+        Raylib.DrawRectangleRec(runBackpackPanel, Palette.C(10, 18, 30, 220));
+        Raylib.DrawRectangleLinesEx(runBackpackPanel, 2f, Palette.C(108, 170, 228));
+        Raylib.DrawText("Run Backpack", 936, 410, 24, Color.White);
+        DrawStorageGrid(new Vector2(938, 468), 6, 5);
 
         DrawButton(new Rectangle(70, 620, 220, 52), "Back");
 
@@ -525,18 +600,18 @@ public sealed partial class SciFiRogueGame
     private void DrawSettings()
     {
         DrawTitle("Settings", 100, 66);
-        Raylib.DrawText("Video", (Raylib.GetScreenWidth() - Raylib.MeasureText("Video", 28)) / 2, 118, 28, Color.LightGray);
-        DrawButton(CenterRect(0, 156, 360, 56), _displayMode == DisplayMode.Windowed ? "> Windowed <" : "Windowed");
-        DrawButton(CenterRect(0, 220, 360, 56), _displayMode == DisplayMode.Fullscreen ? "> Fullscreen <" : "Fullscreen");
+        Raylib.DrawText("Video", (Raylib.GetScreenWidth() - Raylib.MeasureText("Video", 28)) / 2, 180, 28, Color.LightGray);
+        DrawButton(CenterRect(0, 226, 360, 56), _displayMode == DisplayMode.Windowed ? "> Windowed <" : "Windowed");
+        DrawButton(CenterRect(0, 290, 360, 56), _displayMode == DisplayMode.Fullscreen ? "> Fullscreen <" : "Fullscreen");
 
-        Raylib.DrawText("Choose theme", (Raylib.GetScreenWidth() - Raylib.MeasureText("Choose theme", 28)) / 2, 290, 28, Color.LightGray);
+        Raylib.DrawText("Choose theme", (Raylib.GetScreenWidth() - Raylib.MeasureText("Choose theme", 28)) / 2, 360, 28, Color.LightGray);
         for (var i = 0; i < _themes.Count; i++)
         {
             var name = i == _themeIndex ? $"> {_themes[i].Name} <" : _themes[i].Name;
-            DrawButton(CenterRect(0, 330 + i * 56, 360, 48), name);
+            DrawButton(CenterRect(0, 400 + i * 56, 390, 48), name);
         }
 
-        DrawButton(CenterRect(0, 620, 280, 56), "Back");
+        DrawButton(CenterRect(0, 720, 280, 56), "Back");
     }
 
     private void DrawPause()
@@ -588,7 +663,7 @@ public sealed partial class SciFiRogueGame
         {
             for (var c = 0; c < cols; c++)
             {
-                var rect = new Rectangle(origin.X + c * 48, origin.Y + r * 46, 42, 42);
+                var rect = new Rectangle(origin.X + c * 48, origin.Y + r * 44, 42, 42);
                 Raylib.DrawRectangleLinesEx(rect, 1f, Palette.C(70, 90, 130, 170));
             }
         }
@@ -596,13 +671,48 @@ public sealed partial class SciFiRogueGame
 
     private void DrawExtractionHud()
     {
-        var timerText = _extractPortals.Count == 0
-            ? $"Portals in {FormatTime(_portalUnlockTimer)}"
-            : $"Portals active {FormatTime(_portalActiveTimer)}";
+        string timerText;
+        Color color;
 
-        var color = _extractPortals.Count == 0 ? Color.LightGray : Palette.C(110, 215, 255);
+        if (_lastChanceActive)
+        {
+            timerText = IsLastChancePortalOpen()
+                ? $"Last portal active {FormatTime(_lastChanceTimer)}"
+                : $"Last chance {FormatTime(_lastChanceTimer)}";
+            color = Palette.C(255, 95, 95);
+        }
+        else
+        {
+            timerText = _extractPortals.Count == 0
+                ? $"Portals in {FormatTime(_portalUnlockTimer)}"
+                : $"Portals active {FormatTime(_portalActiveTimer)}";
+            color = _extractPortals.Count == 0 ? Color.LightGray : Palette.C(110, 215, 255);
+        }
+
         Raylib.DrawText(timerText, 20, 138, 22, color);
         Raylib.DrawText($"Map {_selectedMapName}", 20, 168, 20, Palette.C(165, 195, 220));
+    }
+
+    private void DrawLowHealthOverlay()
+    {
+        if (_state is not GameState.Playing and not GameState.Paused) return;
+        if (_player.MaxHealth <= 0f) return;
+
+        var hpRatio = _player.Health / _player.MaxHealth;
+        if (hpRatio >= 0.20f) return;
+
+        var pulse = 0.25f + 0.20f * (0.5f + 0.5f * MathF.Sin((float)Raylib.GetTime() * 5f));
+        var intensity = (0.20f - hpRatio) / 0.20f;
+        var alpha = (byte)(255 * Math.Clamp(pulse * intensity, 0f, 0.45f));
+        var color = Palette.C(220, 40, 40, alpha);
+        var w = Raylib.GetScreenWidth();
+        var h = Raylib.GetScreenHeight();
+        var thick = 12;
+
+        Raylib.DrawRectangle(0, 0, w, thick, color);
+        Raylib.DrawRectangle(0, h - thick, w, thick, color);
+        Raylib.DrawRectangle(0, 0, thick, h, color);
+        Raylib.DrawRectangle(w - thick, 0, thick, h, color);
     }
 
     private Rectangle MainMenuButtonRect(int index)

@@ -342,14 +342,16 @@ public sealed class Player
         Health = MathF.Max(0f, Health - reduced);
     }
 
-    public void RegisterKill()
+    public void RegisterKill(int points = 1)
     {
-        Kills++;
-        if (Kills < KillsTarget) return;
-        Kills = 0;
-        Level++;
-        StatPoints++;
-        Health = MathF.Min(MaxHealth, Health + MaxHealth * 0.25f);
+        Kills += Math.Max(1, points);
+        while (Kills >= KillsTarget)
+        {
+            Kills -= KillsTarget;
+            Level++;
+            StatPoints++;
+            Health = MathF.Min(MaxHealth, Health + MaxHealth * 0.25f);
+        }
     }
 
     public void ApplyPoint(StatType stat)
@@ -382,6 +384,7 @@ public sealed class Enemy
     public bool JustHitByPlayer;
 
     private Vector2 _facing;
+    private Vector2 _baseFacing;
     private float _attackCd;
 
     private Vector2 _patrolA;
@@ -410,6 +413,7 @@ public sealed class Enemy
     {
         Position = pos;
         _facing = new Vector2(1f, 0f);
+        _baseFacing = _facing;
     }
 
     public static Enemy CreatePatrol(Vector2 a, Vector2 b, bool outpost, int zoneId = -1)
@@ -442,13 +446,12 @@ public sealed class Enemy
     {
         if (!Alive) { _deathAnim -= dt; return; }
 
-        // sweep left-right
-        _sweepPhase += dt * 1.2f * _sweepDir;
+        _sweepPhase += dt * 0.70f * _sweepDir;
         if (_sweepPhase > 1f) { _sweepPhase = 1f; _sweepDir = -1f; }
         if (_sweepPhase < -1f) { _sweepPhase = -1f; _sweepDir = 1f; }
 
-        var baseAngle = MathF.Atan2(_facing.Y, _facing.X);
-        var sweepOffset = _sweepPhase * (MathF.PI * 0.18f);
+        var baseAngle = MathF.Atan2(_baseFacing.Y, _baseFacing.X);
+        var sweepOffset = _sweepPhase * (MathF.PI * 0.07f);
         var a = baseAngle + sweepOffset;
         _facing = Vector2.Normalize(new Vector2(MathF.Cos(a), MathF.Sin(a)));
     }
@@ -498,6 +501,7 @@ public sealed class Enemy
             {
                 var dir = Vector2.Normalize(to);
                 _facing = dir;
+                _baseFacing = dir;
                 Position = MovementUtils.MoveWithCollisions(Position, dir * (IsStrong ? 95f : 118f) * dt, 14f, obstacles, worldSize);
             }
 
@@ -516,7 +520,11 @@ public sealed class Enemy
             {
                 _patrolTurnTimer -= dt;
                 var turned = VisibilityUtils.Rotate(_facing, MathF.PI * dt / 2f);
-                if (turned != Vector2.Zero) _facing = Vector2.Normalize(turned);
+                if (turned != Vector2.Zero)
+                {
+                    _facing = Vector2.Normalize(turned);
+                    _baseFacing = _facing;
+                }
                 if (_patrolTurnTimer <= 0f)
                 {
                     _patrolTurning = false;
@@ -536,6 +544,7 @@ public sealed class Enemy
             {
                 var dir = Vector2.Normalize(to);
                 _facing = dir;
+                _baseFacing = dir;
                 Position = MovementUtils.MoveWithCollisions(Position, dir * 86f * dt, 14f, obstacles, worldSize);
             }
         }
@@ -625,8 +634,8 @@ public sealed class Enemy
 public sealed class HexEnemy
 {
     public Vector2 Position;
-    public float MaxHealth = 300f;
-    public float Health = 300f;
+    public float MaxHealth = 200f;
+    public float Health = 200f;
     public bool Alive => Health > 0f;
     public bool KillAwarded;
 
@@ -895,8 +904,8 @@ public sealed class TurretEnemy
 public sealed class MiniBossEnemySquare
 {
     public Vector2 Position;
-    public float MaxHealth = 2000f;
-    public float Health = 2000f;
+    public float MaxHealth = 1750f;
+    public float Health = 1750f;
     public int ZoneId = -1;
     public bool Alive => Health > 0;
     public bool KillAwarded;
@@ -1022,13 +1031,13 @@ public sealed class MiniBossEnemySquare
 public sealed class BossEnemyDestroyer
 {
     public Vector2 Position;
-    public float MaxHealth = 8000f;
-    public float Health = 8000f;
+    public float MaxHealth = 6000f;
+    public float Health = 6000f;
     public bool Alive => Health > 0f;
     public bool KillAwarded;
     public bool PhaseTwo => Health <= MaxHealth * 0.5f;
 
-    private const float ShieldNodeMaxHealth = 200f;
+    private const float ShieldNodeMaxHealth = 175f;
     private const float ShieldNodeSize = 28f;
     private const float DestroyedShieldNodeSize = ShieldNodeSize * 0.5f;
 

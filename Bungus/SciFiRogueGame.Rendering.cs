@@ -250,15 +250,43 @@ public sealed partial class SciFiRogueGame
 
     private void DrawHud()
     {
-        Raylib.DrawText($"HP {_player.Health:0}/{_player.MaxHealth:0} | Level {_player.Level} ({_player.Kills}/{_player.KillsTarget})", 20, 14, 24, Color.White);
+        Raylib.DrawText($"Level {_player.Level} ({_player.Kills}/{_player.KillsTarget})", 20, 14, 24, Color.White);
 
         var activeWeapon = _player.ActiveWeaponClass == WeaponClass.Ranged ? _player.RangedWeapon : _player.MeleeWeapon;
         Raylib.DrawText($"Current: {activeWeapon?.Name ?? "None"} {BuildWeaponDamageText(_player, activeWeapon, _player.ActiveWeaponClass)}", 20, 48, 22, activeWeapon?.Color ?? Color.LightGray);
         Raylib.DrawText($"Consumables: Q [{(_player.Inventory.QuickSlotQ?.Name ?? "-")}]  R [{(_player.Inventory.QuickSlotR?.Name ?? "-")}]", 20, 78, 20, Color.White);
         Raylib.DrawText($"Run score {_runScore}", 20, 108, 20, Color.Gold);
         DrawExtractionHud();
+        DrawVitalBars();
         Raylib.DrawText("WASD move | LMB attack | E switch active weapon | TAB inventory | ESC menu", 20, Raylib.GetScreenHeight() - 28, 18, Color.Gray);
         DrawZoneArrows();
+    }
+
+    private void DrawVitalBars()
+    {
+        var screenWidth = Raylib.GetScreenWidth();
+        var screenHeight = Raylib.GetScreenHeight();
+        var barWidth = 450f;
+        var hpRect = new Rectangle(screenWidth - barWidth - 24f, screenHeight - 58f, barWidth, 18f);
+        var dashRect = new Rectangle(screenWidth - barWidth - 24f, screenHeight - 32f, barWidth, 12f);
+
+        DrawStatusBar(hpRect, Math.Clamp(_player.Health / MathF.Max(_player.MaxHealth, 0.001f), 0f, 1f), Palette.C(196, 48, 48), Color.Black, $"HP {_player.Health:0}/{_player.MaxHealth:0}", 18);
+        DrawStatusBar(dashRect, _player.DashCooldownProgress, Palette.C(72, 210, 96), _player.DashReady ? Palette.C(180, 255, 190) : Color.Black, "", 14);
+    }
+
+    private static void DrawStatusBar(Rectangle rect, float ratio, Color fillColor, Color lineColor, string label, int fontSize)
+    {
+        ratio = Math.Clamp(ratio, 0f, 1f);
+        Raylib.DrawRectangleRec(rect, Palette.C(18, 18, 18, 220));
+
+        var fillRect = new Rectangle(rect.X + 2f, rect.Y + 2f, MathF.Max(0f, (rect.Width - 4f) * ratio), rect.Height - 4f);
+        Raylib.DrawRectangleRec(fillRect, fillColor);
+        Raylib.DrawRectangleLinesEx(rect, 2f, lineColor);
+
+        var textWidth = Raylib.MeasureText(label, fontSize);
+        var textX = (int)(rect.X + rect.Width * 0.5f - textWidth * 0.5f);
+        var textY = (int)(rect.Y + rect.Height * 0.5f - fontSize * 0.5f);
+        Raylib.DrawText(label, textX, textY, fontSize, Color.White);
     }
 
     private void DrawInventory()
@@ -441,7 +469,7 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText(item.Name, x + 8, y + 8, 18, Color.White);
         Raylib.DrawText(item.Description, x + 8, y + 32, 16, Color.LightGray);
         if (item.Type == ItemType.Armor) Raylib.DrawText($"Defense: {item.Defense:0} | {item.Rarity}", x + 8, y + 58, 16, item.Color);
-        if (item.Type == ItemType.Weapon) Raylib.DrawText($"Base damage: {item.BaseDamage:0} | {item.WeaponKind}", x + 8, y + 58, 16, item.Color);
+        if (item.Type == ItemType.Weapon) Raylib.DrawText($"Base damage: {item.BaseDamage:0.0} | {item.WeaponKind}", x + 8, y + 58, 16, item.Color);
         if (item.Type == ItemType.Consumable) Raylib.DrawText("Use by Q/R", x + 8, y + 58, 16, Color.Green);
     }
 

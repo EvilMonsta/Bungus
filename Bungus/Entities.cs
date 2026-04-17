@@ -20,6 +20,7 @@ public sealed class Player
     private const float LegendarySpearLengthMultiplier = 1.2f;
     private const float TwinShotChance = 0.33f;
     private const float TwinShotSpread = 0.06f;
+    private const float DashCooldownDuration = 1.1f;
 
     private readonly float _globalMaxHealthBonus;
     private readonly float _globalDamageBonus;
@@ -39,7 +40,9 @@ public sealed class Player
     public Vector2 Position { get; private set; }
     public float Health { get; private set; }
     public float MaxHealth => BaseMaxHealthValue + _globalMaxHealthBonus + Str * 5f;
-    public float SpeedMultiplier => 1f + Spd * 0.03f;
+    public float SpeedMultiplier => 1f + Spd * 0.04f;
+    public float DashCooldownProgress => 1f - Math.Clamp(_dodgeCd / DashCooldownDuration, 0f, 1f);
+    public bool DashReady => _dodgeCd <= 0f;
 
     public bool InventoryOpen { get; set; }
 
@@ -109,7 +112,7 @@ public sealed class Player
             _dashEchoDir = dir;
             _dashEchoTimer = DashEchoDuration;
             _dashEchoSpawnTimer = 0f;
-            _dodgeCd = 1.1f;
+            _dodgeCd = DashCooldownDuration;
         }
 
         if (d != Vector2.Zero)
@@ -206,13 +209,13 @@ public sealed class Player
                 var spearLength = SpearEndDistance - SpearStartDistance;
                 if (weapon.Rarity == ArmorRarity.Legendary) spearLength *= LegendarySpearLengthMultiplier;
                 swings.Add(SwingArc.Line(Position, Position + dir * SpearStartDistance, Position + dir * (SpearStartDistance + spearLength), MeleeSwingLife, weapon.Color));
-                _attackCd = 0.70f;
+                _attackCd = GetMeleeCooldown(0.70f);
             }
             else
             {
                 var halfAngle = BladeHalfAngle + (weapon.Rarity == ArmorRarity.Legendary ? LegendaryBladeHalfAngleBonus : 0f);
                 swings.Add(SwingArc.Arc(Position, Position, BladeRadius, angle - halfAngle, angle + halfAngle, MeleeSwingLife, weapon.Color, Random.Shared.NextSingle() < 0.5f));
-                _attackCd = 0.64f;
+                _attackCd = GetMeleeCooldown(0.64f);
             }
         }
     }
@@ -265,8 +268,8 @@ public sealed class Player
         var statMultiplier = weapon.WeaponKind == WeaponClass.Melee
             ? GetMeleeDamageMultiplier()
             : GetRangedDamageMultiplier();
-
-        return GetWeaponBaseDamage(weapon) * statMultiplier + _globalDamageBonus;
+        var flatBonus = weapon.WeaponKind == WeaponClass.Ranged ? GetRangedFlatDamageBonus() : 0f;
+        return GetWeaponBaseDamage(weapon) * statMultiplier + _globalDamageBonus + flatBonus;
     }
 
     public float GetWeaponDamage(ItemStack weapon)
@@ -278,7 +281,7 @@ public sealed class Player
     public float GetMeleeHitDamage(ItemStack weapon)
     {
         if (weapon.Type != ItemType.Weapon || weapon.WeaponKind != WeaponClass.Melee) return 0f;
-        return GetWeaponDamage(weapon) * MeleeDamageMultiplier;
+        return GetWeaponDamage(weapon) * MeleeDamageMultiplier + GetMeleeFlatDamageBonus();
     }
 
     public int GetPulseBurstShotCount(ItemStack weapon)
@@ -295,6 +298,15 @@ public sealed class Player
 
     public float GetMeleeDamageMultiplier() => Str * 0.0025f + Dex * 0.01f;
     public float GetRangedDamageMultiplier() => Guns * 0.01f;
+
+    public float GetMeleeFlatDamageBonus() => Str;
+    public float GetRangedFlatDamageBonus() => Guns * 0.3f;
+
+    public float GetMeleeCooldown(float baseCooldown)
+    {
+        var attackSpeedBonus = Dex * 0.02f;
+        return baseCooldown / (1f + attackSpeedBonus);
+    }
 
     public float GetStatusEffectChance(float baseChance)
     {

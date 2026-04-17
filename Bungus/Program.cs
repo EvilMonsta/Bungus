@@ -1621,10 +1621,10 @@ public sealed partial class SciFiRogueGame : IDisposable
         var mouse = Raylib.GetMousePosition();
         var hints = new (Rectangle Rect, string Header, string Body)[]
         {
-            (new Rectangle(54, 176, 220, 24), "STR", "+5 HP and +0.25% melee damage per point."),
-            (new Rectangle(54, 206, 220, 24), "DEX", "+1% melee damage per point."),
-            (new Rectangle(54, 236, 220, 24), "SPD", "+3% move speed multiplier per point."),
-            (new Rectangle(54, 266, 220, 24), "GUN", "+1% ranged damage per point.")
+            (new Rectangle(54, 176, 220, 24), "STR", "+5 HP, +1 melee damage and +0.25% melee damage per point."),
+            (new Rectangle(54, 206, 220, 24), "DEX", "+1% melee damage and +2% melee attack speed per point."),
+            (new Rectangle(54, 236, 220, 24), "SPD", "+4% move speed multiplier per point."),
+            (new Rectangle(54, 266, 220, 24), "GUN", "+0.3 flat and +1% ranged damage per point.")
         };
 
         var hit = hints.FirstOrDefault(h => Raylib.CheckCollisionPointRec(mouse, h.Rect));
@@ -1718,29 +1718,24 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (weapon is null) return string.Empty;
 
         var total = player.GetWeaponDamage(weapon);
-        var roundedTotal = MathF.Round(total, MidpointRounding.AwayFromZero);
-        if (weapon.Pattern == WeaponPattern.GrenadeLauncher) return $"blast {roundedTotal:0} / direct {roundedTotal + 200f:0}";
+        if (weapon.Pattern == WeaponPattern.GrenadeLauncher) return $"blast {total:0.0} / direct {total + 200f:0.0}";
         if (weapon.Pattern == WeaponPattern.PulseRifle)
         {
             var perShot = player.GetPulseShotDamage(weapon);
             var shots = player.GetPulseBurstShotCount(weapon);
-            var roundedPerShot = MathF.Round(perShot, MidpointRounding.AwayFromZero);
-            var roundedBurst = MathF.Round(perShot * shots, MidpointRounding.AwayFromZero);
-            return $"burst {roundedPerShot:0}x{shots}={roundedBurst:0}";
+            return $"burst {perShot:0.0}x{shots}={perShot * shots:0.0}";
         }
 
         if (kind == WeaponClass.Melee)
         {
             var hitDamage = player.GetMeleeHitDamage(weapon);
-            var roundedHit = MathF.Round(hitDamage, MidpointRounding.AwayFromZero);
             return weapon.Pattern == WeaponPattern.EnergySpear
-                ? $"thrust {roundedHit:0}"
-                : $"slash {roundedHit:0}";
+                ? $"thrust {hitDamage:0.0}"
+                : $"slash {hitDamage:0.0}";
         }
 
         var bonus = player.GetWeaponModifierDamage(weapon);
-        var roundedBonus = MathF.Round(bonus, MidpointRounding.AwayFromZero);
-        return $"dmg {roundedTotal:0}(+{roundedBonus:0})";
+        return $"dmg {total:0.0}(+{bonus:0.0})";
     }
 
     private (List<LootZone> buildings, List<LootZone> outposts) GenerateZones(int buildingCount, int outpostCount)

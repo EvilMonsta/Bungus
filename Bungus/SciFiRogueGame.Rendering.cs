@@ -72,6 +72,18 @@ public sealed partial class SciFiRogueGame
             Raylib.DrawRectangleLinesEx(obstacle.Rect, 1.5f, Theme.ObstacleLine);
         }
 
+        foreach (var dome in _protectiveDomes)
+        {
+            if (!dome.Alive) continue;
+            var ratio = Math.Clamp(dome.Health / ProtectiveDome.MaxHealth, 0f, 1f);
+            Raylib.DrawCircleV(dome.Position, ProtectiveDome.Radius, Palette.C(120, 190, 255, 46));
+            Raylib.DrawCircleLines((int)dome.Position.X, (int)dome.Position.Y, ProtectiveDome.Radius, Palette.C(170, 225, 255));
+            Raylib.DrawCircleLines((int)dome.Position.X, (int)dome.Position.Y, ProtectiveDome.Radius - 6f, Palette.C(120, 180, 255, 110));
+            var bar = new Rectangle(dome.Position.X - 40f, dome.Position.Y - ProtectiveDome.Radius - 18f, 80f, 5f);
+            Raylib.DrawRectangleRec(bar, Palette.C(20, 20, 20, 220));
+            Raylib.DrawRectangle((int)bar.X, (int)bar.Y, (int)(bar.Width * ratio), (int)bar.Height, Palette.C(120, 205, 255));
+        }
+
         foreach (var chest in _chests)
         {
             var rect = new Rectangle(chest.Position.X - 14, chest.Position.Y - 10, 28, 20);
@@ -155,8 +167,20 @@ public sealed partial class SciFiRogueGame
         }
 
         Raylib.DrawRectangleLinesEx(new Rectangle(0, 0, World, World), 6f, Palette.C(120, 160, 220));
+        DrawPlayerShieldAura();
         Raylib.DrawCircleV(_player.Position, 16f, Theme.Player);
         Raylib.EndMode2D();
+    }
+
+    private void DrawPlayerShieldAura()
+    {
+        if (_player.ShieldCapacity <= 0f || _player.Shield <= 0f) return;
+
+        var ratio = Math.Clamp(_player.Shield / _player.ShieldCapacity, 0f, 1f);
+        var auraColor = WithAlpha(Palette.C(110, 190, 255), 0.08f + ratio * 0.08f);
+        var lineColor = WithAlpha(Palette.C(155, 220, 255), 0.20f + ratio * 0.15f);
+        Raylib.DrawCircleV(_player.Position, 22f, auraColor);
+        Raylib.DrawCircleLinesV(_player.Position, 22f, lineColor);
     }
 
     private void DrawPlayerSniperAimLine()
@@ -275,6 +299,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawHud()
     {
+        DrawExperienceBar();
         Raylib.DrawText($"Level {_player.Level} ({_player.Kills}/{_player.KillsTarget})", 20, 14, 24, Color.White);
 
         var activeWeapon = _player.ActiveWeaponClass == WeaponClass.Ranged ? _player.RangedWeapon : _player.MeleeWeapon;
@@ -283,8 +308,32 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText($"Run score {_runScore}", 20, 108, 20, Color.Gold);
         DrawExtractionHud();
         DrawVitalBars();
+        DrawLevelUpIndicator();
         Raylib.DrawText("WASD move | LMB attack | E switch active weapon | TAB inventory | ESC menu", 20, Raylib.GetScreenHeight() - 28, 18, Color.Gray);
         DrawZoneArrows();
+    }
+
+    private void DrawExperienceBar()
+    {
+        var width = Raylib.GetScreenWidth();
+        var ratio = Math.Clamp(_player.Kills / (float)Math.Max(1, _player.KillsTarget), 0f, 1f);
+        Raylib.DrawRectangle(0, 0, width, 10, Palette.C(12, 20, 34, 230));
+        Raylib.DrawRectangle(0, 0, (int)(width * ratio), 10, Palette.C(70, 190, 255));
+        Raylib.DrawRectangleLinesEx(new Rectangle(0, 0, width, 10), 1f, Color.Black);
+    }
+
+    private void DrawLevelUpIndicator()
+    {
+        if (_player.StatPoints <= 0) return;
+
+        var x = Raylib.GetScreenWidth() - 156;
+        var y = 24;
+        Raylib.DrawTriangle(
+            new Vector2(x + 12, y),
+            new Vector2(x, y + 20),
+            new Vector2(x + 24, y + 20),
+            Palette.C(80, 230, 110));
+        Raylib.DrawText("Level Up", x + 34, y + 2, 22, Palette.C(120, 255, 140));
     }
 
     private void DrawVitalBars()
@@ -294,6 +343,18 @@ public sealed partial class SciFiRogueGame
         var barWidth = 450f;
         var hpRect = new Rectangle(screenWidth - barWidth - 24f, screenHeight - 64f, barWidth, 22f);
         var dashRect = new Rectangle(screenWidth - barWidth - 24f, screenHeight - 36f, barWidth, 15f);
+        var shieldRect = new Rectangle(screenWidth - barWidth - 24f, screenHeight - 92f, barWidth, 22f);
+
+        if (_player.ShieldCapacity > 0f)
+        {
+            DrawStatusBar(
+                shieldRect,
+                Math.Clamp(_player.Shield / MathF.Max(_player.ShieldCapacity, 0.001f), 0f, 1f),
+                Palette.C(92, 176, 255),
+                Color.Black,
+                $"SHIELD {_player.Shield:0}/{_player.ShieldCapacity:0}",
+                18);
+        }
 
         DrawStatusBar(hpRect, Math.Clamp(_player.Health / MathF.Max(_player.MaxHealth, 0.001f), 0f, 1f), Palette.C(196, 48, 48), Color.Black, $"HP {_player.Health:0}/{_player.MaxHealth:0}", 18);
         DrawStatusBar(dashRect, _player.DashCooldownProgress, Palette.C(72, 210, 96), Color.Black, string.Empty, 14);
@@ -368,6 +429,7 @@ public sealed partial class SciFiRogueGame
             DrawButton(TakeAllButtonRect, "Take all [X]");
         }
 
+        var comparison = new ComparisonContext(_player, _player.Armor, _player.RangedWeapon, _player.MeleeWeapon);
         foreach (var slot in slots)
         {
             Raylib.DrawRectangleRec(slot.Rect, Palette.C(22, 28, 42, 255));
@@ -375,13 +437,13 @@ public sealed partial class SciFiRogueGame
             if (slot.Kind == SlotKind.Trash) Raylib.DrawText("TR", (int)slot.Rect.X + 16, (int)slot.Rect.Y + 18, 20, Color.Orange);
             if (slot.Kind == SlotKind.QuickSlotQ) Raylib.DrawText("Q", (int)slot.Rect.X + 20, (int)slot.Rect.Y - 18, 16, Color.Green);
             if (slot.Kind == SlotKind.QuickSlotR) Raylib.DrawText("R", (int)slot.Rect.X + 20, (int)slot.Rect.Y - 18, 16, Color.Yellow);
-            if (slot.Item is not null) DrawItemIcon(slot.Item, new Rectangle(slot.Rect.X + 8, slot.Rect.Y + 8, 42, 42));
+            if (slot.Item is not null) DrawItemIcon(slot.Item, new Rectangle(slot.Rect.X + 8, slot.Rect.Y + 8, 42, 42), comparison, slot.Kind);
         }
 
         if (_drag is not null)
         {
             var m = Raylib.GetMousePosition();
-            DrawItemIcon(_drag.Item, new Rectangle(m.X + 8, m.Y + 8, 34, 34));
+            DrawItemIcon(_drag.Item, new Rectangle(m.X + 8, m.Y + 8, 34, 34), comparison, _drag.Kind);
         }
 
         if (_hovered is not null) DrawTooltip(_hovered, Raylib.GetMousePosition());
@@ -399,7 +461,7 @@ public sealed partial class SciFiRogueGame
         }
     }
 
-    private static void DrawItemIcon(ItemStack item, Rectangle rect)
+    private void DrawItemIcon(ItemStack item, Rectangle rect, ComparisonContext? comparison = null, SlotKind? sourceKind = null)
     {
         Raylib.DrawRectangleRec(rect, item.Type == ItemType.Consumable ? Palette.C(130, 210, 120) : item.Color);
 
@@ -421,7 +483,9 @@ public sealed partial class SciFiRogueGame
         else
         {
             if (item.ConsumableKind == ConsumableType.Medkit) DrawMedKitIcon(rect);
-            else DrawStimIcon(rect);
+            else if (item.ConsumableKind == ConsumableType.Stim) DrawStimIcon(rect);
+            else if (item.ConsumableKind == ConsumableType.ProtectiveDome) DrawProtectiveDomeIcon(rect);
+            else DrawStickyBulletsIcon(rect);
         }
 
         if (item.Rarity == ArmorRarity.Damaged)
@@ -429,12 +493,110 @@ public sealed partial class SciFiRogueGame
             Raylib.DrawLineEx(new Vector2(rect.X + 4, rect.Y + 4), new Vector2(rect.X + rect.Width - 4, rect.Y + rect.Height - 4), 2.2f, Color.Red);
             Raylib.DrawLineEx(new Vector2(rect.X + rect.Width - 4, rect.Y + 4), new Vector2(rect.X + 4, rect.Y + rect.Height - 4), 2.2f, Color.Red);
         }
+
+        DrawComparisonMarker(item, rect, comparison, sourceKind);
     }
 
     private static void DrawItemTypeLabel(Rectangle rect, string label)
     {
-        Raylib.DrawText(label, (int)(rect.X + rect.Width - 18), (int)(rect.Y + 3), 10, Color.Black);
+        Raylib.DrawText(label, (int)(rect.X + 4), (int)(rect.Y + 3), 10, Color.Black);
     }
+
+    private void DrawComparisonMarker(ItemStack item, Rectangle rect, ComparisonContext? comparison, SlotKind? sourceKind)
+    {
+        var marker = GetComparisonMarker(item, comparison, sourceKind);
+        if (marker == ComparisonMarker.None) return;
+
+        if (marker == ComparisonMarker.Better)
+        {
+            var tip = new Vector2(rect.X + rect.Width - 8f, rect.Y + 4f);
+            var left = new Vector2(rect.X + rect.Width - 14f, rect.Y + 12f);
+            var right = new Vector2(rect.X + rect.Width - 2f, rect.Y + 12f);
+            Raylib.DrawTriangle(tip, left, right, Palette.C(80, 230, 110));
+            return;
+        }
+
+        if (marker == ComparisonMarker.Worse)
+        {
+            var tip = new Vector2(rect.X + rect.Width - 8f, rect.Y + 12f);
+            var left = new Vector2(rect.X + rect.Width - 14f, rect.Y + 4f);
+            var right = new Vector2(rect.X + rect.Width - 2f, rect.Y + 4f);
+            Raylib.DrawTriangle(tip, left, right, Palette.C(230, 70, 70));
+            return;
+        }
+
+        Raylib.DrawRectangle((int)(rect.X + rect.Width - 14f), (int)(rect.Y + 7f), 12, 3, Palette.C(255, 220, 90));
+    }
+
+    private ComparisonMarker GetComparisonMarker(ItemStack item, ComparisonContext? comparison, SlotKind? sourceKind)
+    {
+        if (item.Type == ItemType.Consumable) return ComparisonMarker.None;
+        if (comparison is null) return ComparisonMarker.None;
+        if (sourceKind is SlotKind.Armor or SlotKind.RangedWeapon or SlotKind.MeleeWeapon) return ComparisonMarker.None;
+
+        if (item.Type == ItemType.Weapon)
+        {
+            if (item.WeaponKind is null) return ComparisonMarker.None;
+            var equipped = item.WeaponKind == WeaponClass.Ranged ? comparison.RangedWeapon : comparison.MeleeWeapon;
+            if (equipped is null || equipped.Type != ItemType.Weapon || equipped.WeaponKind != item.WeaponKind) return ComparisonMarker.Better;
+
+            var candidateDamage = GetComparableWeaponDamage(comparison.StatsPlayer, item);
+            var equippedDamage = GetComparableWeaponDamage(comparison.StatsPlayer, equipped);
+            return CompareSingleValue(candidateDamage, equippedDamage);
+        }
+
+        var equippedArmor = comparison.Armor;
+        if (equippedArmor is null || equippedArmor.Type != ItemType.Armor) return ComparisonMarker.Better;
+
+        return CompareArmor(item, equippedArmor);
+    }
+
+    private static float GetComparableWeaponDamage(Player player, ItemStack weapon)
+    {
+        if (weapon.Pattern == WeaponPattern.SniperRifle) return player.GetSniperShotDamage(weapon);
+        if (weapon.Pattern == WeaponPattern.PulseRifle) return player.GetPulseShotDamage(weapon) * player.GetPulseBurstShotCount(weapon);
+        if (weapon.Pattern == WeaponPattern.GrenadeLauncher) return player.GetWeaponDamage(weapon) + 200f;
+        if (weapon.WeaponKind == WeaponClass.Melee) return player.GetMeleeHitDamage(weapon);
+        return player.GetWeaponDamage(weapon);
+    }
+
+    private static ComparisonMarker CompareSingleValue(float candidate, float equipped)
+    {
+        const float epsilon = 0.001f;
+        if (candidate > equipped + epsilon) return ComparisonMarker.Better;
+        if (candidate < equipped - epsilon) return ComparisonMarker.Worse;
+        return ComparisonMarker.Neutral;
+    }
+
+    private static ComparisonMarker CompareArmor(ItemStack candidate, ItemStack equipped)
+    {
+        const float epsilon = 0.001f;
+        var armorDiff = candidate.Defense - equipped.Defense;
+        var resilienceDiff = candidate.ResiliencePercent - equipped.ResiliencePercent;
+
+        var armorBetter = armorDiff > epsilon;
+        var armorWorse = armorDiff < -epsilon;
+        var resilienceBetter = resilienceDiff > epsilon;
+        var resilienceWorse = resilienceDiff < -epsilon;
+
+        if ((armorBetter || MathF.Abs(armorDiff) <= epsilon) && (resilienceBetter || MathF.Abs(resilienceDiff) <= epsilon) && (armorBetter || resilienceBetter))
+            return ComparisonMarker.Better;
+
+        if ((armorWorse || MathF.Abs(armorDiff) <= epsilon) && (resilienceWorse || MathF.Abs(resilienceDiff) <= epsilon) && (armorWorse || resilienceWorse))
+            return ComparisonMarker.Worse;
+
+        return ComparisonMarker.Neutral;
+    }
+
+    private enum ComparisonMarker
+    {
+        None,
+        Better,
+        Worse,
+        Neutral
+    }
+
+    private sealed record ComparisonContext(Player StatsPlayer, ItemStack? Armor, ItemStack? RangedWeapon, ItemStack? MeleeWeapon);
 
     private static void DrawBladeIcon(Rectangle rect)
     {
@@ -511,17 +673,64 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText("cs", (int)(rect.X + rect.Width - 18), (int)(rect.Y + 3), 10, Color.Black);
     }
 
+    private static void DrawProtectiveDomeIcon(Rectangle rect)
+    {
+        Raylib.DrawCircle((int)(rect.X + rect.Width * 0.5f), (int)(rect.Y + rect.Height * 0.55f), rect.Width * 0.22f, Color.Black);
+        Raylib.DrawCircle((int)(rect.X + rect.Width * 0.5f), (int)(rect.Y + rect.Height * 0.55f), rect.Width * 0.12f, Color.White);
+        Raylib.DrawRectangle((int)(rect.X + rect.Width * 0.36f), (int)(rect.Y + rect.Height * 0.18f), (int)(rect.Width * 0.28f), (int)(rect.Height * 0.08f), Color.Black);
+        Raylib.DrawRectangle((int)(rect.X + rect.Width * 0.36f), (int)(rect.Y + rect.Height * 0.80f), (int)(rect.Width * 0.28f), (int)(rect.Height * 0.08f), Color.Black);
+    }
+
+    private static void DrawStickyBulletsIcon(Rectangle rect)
+    {
+        Raylib.DrawRectangle((int)(rect.X + rect.Width * 0.24f), (int)(rect.Y + rect.Height * 0.24f), (int)(rect.Width * 0.52f), (int)(rect.Height * 0.52f), Color.Black);
+        var tip = new Vector2(rect.X + rect.Width * 0.5f, rect.Y + rect.Height * 0.32f);
+        var left = new Vector2(rect.X + rect.Width * 0.34f, rect.Y + rect.Height * 0.66f);
+        var right = new Vector2(rect.X + rect.Width * 0.66f, rect.Y + rect.Height * 0.66f);
+        Raylib.DrawTriangle(tip, left, right, Color.White);
+    }
+
     private static void DrawTooltip(ItemStack item, Vector2 mouse)
     {
+        var detailLines = BuildTooltipDetails(item);
         var x = (int)mouse.X + 20;
         var y = (int)mouse.Y + 14;
-        Raylib.DrawRectangle(x, y, 300, 96, Palette.C(0, 0, 0, 220));
-        Raylib.DrawRectangleLines(x, y, 300, 96, Color.SkyBlue);
+        var height = 62 + detailLines.Count * 22;
+        Raylib.DrawRectangle(x, y, 360, height, Palette.C(0, 0, 0, 220));
+        Raylib.DrawRectangleLines(x, y, 360, height, Color.SkyBlue);
         Raylib.DrawText(item.Name, x + 8, y + 8, 18, Color.White);
         Raylib.DrawText(item.Description, x + 8, y + 32, 16, Color.LightGray);
-        if (item.Type == ItemType.Armor) Raylib.DrawText($"Defense: {item.Defense:0} | {item.Rarity}", x + 8, y + 58, 16, item.Color);
-        if (item.Type == ItemType.Weapon) Raylib.DrawText($"Base damage: {item.BaseDamage:0.0} | {item.WeaponKind}", x + 8, y + 58, 16, item.Color);
-        if (item.Type == ItemType.Consumable) Raylib.DrawText("Use by Q/R", x + 8, y + 58, 16, Color.Green);
+        for (var i = 0; i < detailLines.Count; i++)
+        {
+            var (text, color) = detailLines[i];
+            Raylib.DrawText(text, x + 8, y + 58 + i * 22, 16, color);
+        }
+    }
+
+    private static List<(string Text, Color Color)> BuildTooltipDetails(ItemStack item)
+    {
+        var lines = new List<(string Text, Color Color)>();
+
+        if (item.Type == ItemType.Armor)
+        {
+            lines.Add(($"Armor {item.Defense:0} | Resilience {item.ResiliencePercent * 100f:0}% | {item.Rarity}", item.Color));
+            if (item.SpeedBonusPercent > 0f) lines.Add(($"Speed +{item.SpeedBonusPercent * 100f:0}%", Palette.C(170, 220, 255)));
+            if (item.ExplosionResistancePercent > 0f) lines.Add(($"Explosion resist +{item.ExplosionResistancePercent * 100f:0}%", Palette.C(255, 170, 120)));
+            if (item.HealingBonusPercent > 0f) lines.Add(($"Healing +{item.HealingBonusPercent * 100f:0}%", Palette.C(135, 230, 150)));
+            if (item.DashRecoveryPercent > 0f) lines.Add(($"Dash recovery +{item.DashRecoveryPercent * 100f:0}%", Palette.C(120, 230, 180)));
+            if (item.ShieldMax > 0f) lines.Add(($"Shield {item.ShieldMax:0}", Palette.C(120, 205, 255)));
+            if (item.RegenPercentPerSecond > 0f) lines.Add(($"Regen {item.RegenPercentPerSecond * 100f:0.0}%/sec", Palette.C(160, 255, 170)));
+            return lines;
+        }
+
+        if (item.Type == ItemType.Weapon)
+        {
+            lines.Add(($"Base damage: {item.BaseDamage:0.0} | {item.WeaponKind}", item.Color));
+            return lines;
+        }
+
+        lines.Add(("Use by Q/R", Color.Green));
+        return lines;
     }
 
     private static void DrawPlus(Rectangle r)
@@ -538,7 +747,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMainMenu()
     {
-        Raylib.DrawText("a0.1.5", 86, 150, 24, Palette.C(150, 185, 220));
+        Raylib.DrawText("a0.1.6", 86, 150, 24, Palette.C(150, 185, 220));
         DrawMetaProgressHeader();
 
         DrawButton(MainMenuButtonRect(0), "Play");
@@ -612,6 +821,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawStorage()
     {
+        var previewPlayer = CreateLandingPreviewPlayer();
         Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(8, 12, 20));
         DrawTitle("Storage", 48, 56);
         Raylib.DrawText("Equip items here before deployment. Extracted loot returns to this stash.", 70, 106, 24, Color.LightGray);
@@ -646,6 +856,7 @@ public sealed partial class SciFiRogueGame
         DrawButton(new Rectangle(70, 620, 220, 52), "Back");
 
         var slots = BuildStorageSlots();
+        var comparison = new ComparisonContext(previewPlayer, _meta.Armor, _meta.RangedWeapon, _meta.MeleeWeapon);
         foreach (var slot in slots)
         {
             Raylib.DrawRectangleRec(slot.Rect, Palette.C(22, 28, 42, 255));
@@ -653,13 +864,13 @@ public sealed partial class SciFiRogueGame
             if (slot.Kind == SlotKind.Trash) Raylib.DrawText("TR", (int)slot.Rect.X + 14, (int)slot.Rect.Y + 14, 18, Color.Orange);
             if (slot.Kind == SlotKind.QuickSlotQ) Raylib.DrawText("Q", (int)slot.Rect.X + 15, (int)slot.Rect.Y - 18, 16, Color.Green);
             if (slot.Kind == SlotKind.QuickSlotR) Raylib.DrawText("R", (int)slot.Rect.X + 15, (int)slot.Rect.Y - 18, 16, Color.Yellow);
-            if (slot.Item is not null) DrawItemIcon(slot.Item, new Rectangle(slot.Rect.X + 6, slot.Rect.Y + 6, slot.Rect.Width - 12, slot.Rect.Height - 12));
+            if (slot.Item is not null) DrawItemIcon(slot.Item, new Rectangle(slot.Rect.X + 6, slot.Rect.Y + 6, slot.Rect.Width - 12, slot.Rect.Height - 12), comparison, slot.Kind);
         }
 
         if (_drag is not null)
         {
             var m = Raylib.GetMousePosition();
-            DrawItemIcon(_drag.Item, new Rectangle(m.X + 8, m.Y + 8, 32, 32));
+            DrawItemIcon(_drag.Item, new Rectangle(m.X + 8, m.Y + 8, 32, 32), comparison, _drag.Kind);
         }
 
         if (_hovered is not null) DrawTooltip(_hovered, Raylib.GetMousePosition());

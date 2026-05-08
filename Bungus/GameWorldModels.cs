@@ -1,12 +1,14 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Raylib_cs;
 
 namespace Bungus.Game;
 
-public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life, Color color, bool ownerEnemy, float damage, ProjectileKind kind = ProjectileKind.Bullet, float explosionRadius = 0f, float explosionDamage = 0f, float drawRadius = 4f, bool highlighted = false)
+public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life, Color color, bool ownerEnemy, float damage, ProjectileKind kind = ProjectileKind.Bullet, float explosionRadius = 0f, float explosionDamage = 0f, float drawRadius = 4f, bool highlighted = false, Vector2? sourcePosition = null)
 {
     public Vector2 Position { get; private set; } = pos;
     public Vector2 PreviousPosition { get; private set; } = pos;
+    public Vector2 SourcePosition { get; } = sourcePosition ?? pos;
     public Color Color { get; } = color;
     public bool OwnerEnemy { get; } = ownerEnemy;
     public float Damage { get; } = damage;
@@ -124,6 +126,49 @@ public sealed class Obstacle(Rectangle rect)
     public Rectangle Rect { get; } = rect;
 }
 
+public sealed class ProtectiveDome(Vector2 position)
+{
+    public const float Radius = 80f;
+    public const float MaxHealth = 200f;
+
+    private readonly Dictionary<int, float> _contactCooldowns = [];
+
+    public Vector2 Position { get; } = position;
+    public float Health { get; private set; } = MaxHealth;
+    public bool Alive => Health > 0f;
+
+    public void Update(float dt)
+    {
+        if (_contactCooldowns.Count == 0) return;
+
+        var keys = _contactCooldowns.Keys.ToArray();
+        foreach (var key in keys)
+        {
+            var value = _contactCooldowns[key] - dt;
+            if (value <= 0f) _contactCooldowns.Remove(key);
+            else _contactCooldowns[key] = value;
+        }
+    }
+
+    public void Damage(float amount)
+    {
+        if (amount <= 0f || !Alive) return;
+        Health = MathF.Max(0f, Health - amount);
+    }
+
+    public bool TryApplyContactDamage(object source, float amount, float cooldown)
+    {
+        if (!Alive) return false;
+
+        var key = RuntimeHelpers.GetHashCode(source);
+        if (_contactCooldowns.TryGetValue(key, out var timeLeft) && timeLeft > 0f) return false;
+
+        Damage(amount);
+        _contactCooldowns[key] = cooldown;
+        return true;
+    }
+}
+
 public static class MovementUtils
 {
     public static Vector2 MoveWithCollisions(Vector2 position, Vector2 delta, float radius, List<Obstacle> obstacles, int worldSize)
@@ -140,6 +185,20 @@ public static class MovementUtils
         return next;
     }
 
+    public static Vector2 MoveWithCollisions(Vector2 position, Vector2 delta, float radius, List<Obstacle> obstacles, List<ProtectiveDome> domes, int worldSize)
+    {
+        var next = position;
+        var xTry = new Vector2(position.X + delta.X, position.Y);
+        if (!CircleHitsObstacle(xTry, radius, obstacles, domes)) next.X = xTry.X;
+
+        var yTry = new Vector2(next.X, position.Y + delta.Y);
+        if (!CircleHitsObstacle(yTry, radius, obstacles, domes)) next.Y = yTry.Y;
+
+        next.X = Math.Clamp(next.X, radius, worldSize - radius);
+        next.Y = Math.Clamp(next.Y, radius, worldSize - radius);
+        return next;
+    }
+
     public static bool CircleHitsObstacle(Vector2 center, float radius, List<Obstacle> obstacles)
     {
         foreach (var o in obstacles)
@@ -149,6 +208,20 @@ public static class MovementUtils
             var dx = center.X - nx;
             var dy = center.Y - ny;
             if (dx * dx + dy * dy < radius * radius) return true;
+        }
+
+        return false;
+    }
+
+    public static bool CircleHitsObstacle(Vector2 center, float radius, List<Obstacle> obstacles, List<ProtectiveDome> domes)
+    {
+        if (CircleHitsObstacle(center, radius, obstacles)) return true;
+
+        foreach (var dome in domes)
+        {
+            if (!dome.Alive) continue;
+            var limit = radius + ProtectiveDome.Radius;
+            if (Vector2.DistanceSquared(center, dome.Position) < limit * limit) return true;
         }
 
         return false;

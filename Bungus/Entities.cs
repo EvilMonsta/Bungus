@@ -20,13 +20,20 @@ public sealed class Player
     private const float LegendarySpearLengthMultiplier = 1.2f;
     private const float TwinShotChance = 0.33f;
     private const float TwinShotSpread = 0.06f;
-    private const float DashCooldownDuration = 1.1f;
+    private const float BaseDashCooldownDuration = 1.1f;
+    private const float MedkitHealAmount = 36f;
+    private const float ShieldDamageMultiplier = 1.25f;
+    private const float ShieldRechargeDelay = 5f;
+    private const float ShieldRechargeRatePerSecond = 0.0333f;
+    private const float RegenTickInterval = 1f;
+    private const float StickyBulletsDuration = 15f;
     private const float MovingRangedSpreadAngle = MathF.PI / 90f;
-    private const float SniperDamageMultiplier = 6f;
-    private const float EmpoweredSniperDamageMultiplier = 15f;
+    private const float SniperDamageMultiplier = 5.55f;
+    private const float EmpoweredSniperDamageMultiplier = 13.875f;
     private const float SniperCooldown = 1.75f;
     private const float SniperProjectileSpeed = 2100f;
     private const float SniperProjectileLifetime = 1.3f;
+    private const float PulseProjectileLifetime = 1.15f;
     private const float SniperIdleRequirement = 1f;
     private const float LegendarySniperChargeDuration = 2.5f;
 
@@ -47,13 +54,21 @@ public sealed class Player
     private float _sniperStillTimer;
     private float _legendarySniperChargeTimer;
     private bool _legendarySniperChargePrimed;
+    private float _timeSinceLastDamage = float.MaxValue;
+    private float _regenTickTimer;
+    private float _shield;
+    private float _lastShieldMax = -1f;
+    private float _stickyBulletsTimer;
 
     public Vector2 Position { get; private set; }
     public float Health { get; private set; }
     public float MaxHealth => BaseMaxHealthValue + _globalMaxHealthBonus + Str * 5f;
-    public float SpeedMultiplier => 1f + Spd * 0.04f;
-    public float DashCooldownProgress => 1f - Math.Clamp(_dodgeCd / DashCooldownDuration, 0f, 1f);
+    public float SpeedMultiplier => 1f + Spd * 0.04f + (Armor?.SpeedBonusPercent ?? 0f);
+    public float DashCooldownProgress => 1f - Math.Clamp(_dodgeCd / GetDashCooldownDuration(), 0f, 1f);
     public bool DashReady => _dodgeCd <= 0f;
+    public float Shield => _shield;
+    public float ShieldCapacity => Armor?.ShieldMax ?? 0f;
+    public bool StickyBulletsActive => _stickyBulletsTimer > 0f;
     public bool IsMoving { get; private set; }
     public bool IsSniperEquipped => ActiveWeaponClass == WeaponClass.Ranged && RangedWeapon?.Pattern == WeaponPattern.SniperRifle;
     public bool IsLegendarySniperEquipped => IsSniperEquipped && RangedWeapon?.Rarity == ArmorRarity.Legendary;
@@ -97,6 +112,7 @@ public sealed class Player
         Inventory.QuickSlotQ = quickSlotQ;
         Inventory.QuickSlotR = quickSlotR;
         Health = MaxHealth;
+        SyncArmorState();
     }
 
     public static Player Create(Vector2 p, float globalMaxHealthBonus, float globalDamageBonus, int baseStrength, int baseDexterity, int baseSpeed, int baseGuns, ItemStack? rangedWeapon, ItemStack? meleeWeapon, ItemStack? armor, ItemStack? quickSlotQ, ItemStack? quickSlotR)
@@ -104,13 +120,18 @@ public sealed class Player
 
     public void Update(float dt, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages)
     {
+        SyncArmorState();
         _attackCd -= dt;
         _dodgeCd -= dt;
         _stim -= dt;
+        _stickyBulletsTimer = MathF.Max(0f, _stickyBulletsTimer - dt);
+        _timeSinceLastDamage += dt;
 
         if (_bleed > 0)
         {
             _bleed -= dt;
+            _timeSinceLastDamage = 0f;
+            _regenTickTimer = 0f;
             Health = MathF.Max(0f, Health - 2.4f * dt);
         }
 
@@ -129,7 +150,7 @@ public sealed class Player
             _dashEchoDir = dir;
             _dashEchoTimer = DashEchoDuration;
             _dashEchoSpawnTimer = 0f;
-            _dodgeCd = DashCooldownDuration;
+            _dodgeCd = GetDashCooldownDuration();
         }
 
         IsMoving = d != Vector2.Zero;
@@ -141,6 +162,8 @@ public sealed class Player
             Position = MovementUtils.MoveWithCollisions(Position, delta, 16f, obstacles, worldSize);
         }
 
+        UpdateShieldRecharge(dt);
+        UpdateHealthRegen(dt);
         UpdateLegendarySniperCharge(dt);
         UpdateDashEcho(dt, afterImages);
     }
@@ -192,7 +215,9 @@ public sealed class Player
                     ProjectileKind.Grenade,
                     120f,
                     damage,
-                    7f));
+                    7f,
+                    false,
+                    Position));
                 _attackCd = 1f;
                 return true;
             }
@@ -225,7 +250,8 @@ public sealed class Player
                     0f,
                     0f,
                     empowered ? 5.5f : 4.5f,
-                    empowered));
+                    empowered,
+                    Position));
                 _attackCd = SniperCooldown;
                 ResetLegendarySniperChargeAfterShot();
                 return true;
@@ -283,14 +309,14 @@ public sealed class Player
     private void FirePulseShot(List<Projectile> projectiles, Vector2 dir, Color color, float damage)
     {
         dir = ApplyMovementSpread(dir);
-        projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, 1.0f, color, false, damage));
+        projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, PulseProjectileLifetime, color, false, damage, sourcePosition: Position));
     }
 
     private void FireStandardShot(List<Projectile> projectiles, Vector2 dir, Color color, float damage, float angleOffset = 0f)
     {
         var shotDir = angleOffset == 0f ? dir : VisibilityUtils.Rotate(dir, angleOffset);
         shotDir = ApplyMovementSpread(shotDir);
-        projectiles.Add(new Projectile(Position + shotDir * 18f, shotDir, 520f, 1.15f, color, false, damage));
+        projectiles.Add(new Projectile(Position + shotDir * 18f, shotDir, 520f, 1.15f, color, false, damage, sourcePosition: Position));
     }
 
     public float GetMeleeDamage()
@@ -369,6 +395,12 @@ public sealed class Player
         return baseChance;
     }
 
+    private float GetDashCooldownDuration()
+    {
+        var recovery = Armor?.DashRecoveryPercent ?? 0f;
+        return MathF.Max(0.1f, BaseDashCooldownDuration * (1f - recovery));
+    }
+
     private Vector2 ApplyMovementSpread(Vector2 dir)
     {
         if (!IsMoving) return dir;
@@ -425,42 +457,69 @@ public sealed class Player
 
     public void SwitchActiveWeapon() => ActiveWeaponClass = ActiveWeaponClass == WeaponClass.Ranged ? WeaponClass.Melee : WeaponClass.Ranged;
 
-    public void UseQuickSlotQ()
+    public ConsumableType? UseQuickSlotQ()
     {
-        if (!TryUseConsumable(Inventory.QuickSlotQ)) return;
+        var used = TryUseConsumable(Inventory.QuickSlotQ);
+        if (used is null) return null;
         Inventory.QuickSlotQ = null;
         Inventory.AutoFillConsumableSlots();
+        return used;
     }
 
-    public void UseQuickSlotR()
+    public ConsumableType? UseQuickSlotR()
     {
-        if (!TryUseConsumable(Inventory.QuickSlotR)) return;
+        var used = TryUseConsumable(Inventory.QuickSlotR);
+        if (used is null) return null;
         Inventory.QuickSlotR = null;
         Inventory.AutoFillConsumableSlots();
+        return used;
     }
 
-    private bool TryUseConsumable(ItemStack? slot)
+    private ConsumableType? TryUseConsumable(ItemStack? slot)
     {
-        if (slot?.Type != ItemType.Consumable || slot.ConsumableKind is null) return false;
+        if (slot?.Type != ItemType.Consumable || slot.ConsumableKind is null) return null;
 
         if (slot.ConsumableKind == ConsumableType.Medkit)
         {
-            if (Health >= MaxHealth) return false;
-            Health = MathF.Min(MaxHealth, Health + 36f);
-            return true;
+            if (Health >= MaxHealth) return null;
+            ApplyHealing(MedkitHealAmount);
+            return slot.ConsumableKind;
         }
 
-        _stim = 6f;
-        return true;
+        if (slot.ConsumableKind == ConsumableType.Stim)
+        {
+            _stim = 6f;
+            return slot.ConsumableKind;
+        }
+
+        if (slot.ConsumableKind == ConsumableType.StickyBullets)
+        {
+            _stickyBulletsTimer = StickyBulletsDuration;
+            return slot.ConsumableKind;
+        }
+
+        return slot.ConsumableKind;
     }
 
     public void ApplyBleed(float duration) => _bleed = MathF.Max(_bleed, duration);
     public void TickEffects(float dt) { }
 
-    public void TakeDamage(float value)
+    public void TakeDamage(float value, bool isExplosion = false)
     {
+        if (value <= 0f) return;
+
+        SyncArmorState();
+        _timeSinceLastDamage = 0f;
+        _regenTickTimer = 0f;
+
+        var remainingDamage = ApplyShieldDamage(value);
+        if (remainingDamage <= 0f) return;
+
+        var resilience = Armor?.ResiliencePercent ?? 0f;
+        var explosionResistance = isExplosion ? Armor?.ExplosionResistancePercent ?? 0f : 0f;
         var armor = Armor?.Defense ?? 0f;
-        var reduced = MathF.Max(1f, value - armor * 0.75f);
+        var reduced = remainingDamage * (1f - resilience) * (1f - explosionResistance) - armor;
+        reduced = MathF.Max(1f, reduced);
         Health = MathF.Max(0f, Health - reduced);
     }
 
@@ -472,7 +531,7 @@ public sealed class Player
             Kills -= KillsTarget;
             Level++;
             StatPoints++;
-            Health = MathF.Min(MaxHealth, Health + MaxHealth * 0.25f);
+            ApplyHealing(MaxHealth * 0.25f);
         }
     }
 
@@ -484,11 +543,61 @@ public sealed class Player
         if (stat == StatType.Strength)
         {
             Str++;
-            Health = MathF.Min(MaxHealth, Health + 5f);
+            ApplyHealing(5f);
         }
         if (stat == StatType.Dexterity) Dex++;
         if (stat == StatType.Speed) Spd++;
         if (stat == StatType.Gunsmith) Guns++;
+    }
+
+    private void SyncArmorState()
+    {
+        var shieldMax = Armor?.ShieldMax ?? 0f;
+        if (MathF.Abs(shieldMax - _lastShieldMax) <= 0.001f)
+        {
+            _shield = Math.Clamp(_shield, 0f, shieldMax);
+            return;
+        }
+
+        _lastShieldMax = shieldMax;
+        _shield = shieldMax;
+    }
+
+    private float ApplyShieldDamage(float incomingDamage)
+    {
+        if (_shield <= 0f) return incomingDamage;
+
+        var blockedDamage = MathF.Min(incomingDamage, _shield / ShieldDamageMultiplier);
+        _shield = MathF.Max(0f, _shield - incomingDamage * ShieldDamageMultiplier);
+        return incomingDamage - blockedDamage;
+    }
+
+    private void UpdateShieldRecharge(float dt)
+    {
+        var shieldMax = ShieldCapacity;
+        if (shieldMax <= 0f || _shield >= shieldMax || _timeSinceLastDamage < ShieldRechargeDelay) return;
+        _shield = MathF.Min(shieldMax, _shield + shieldMax * ShieldRechargeRatePerSecond * dt);
+    }
+
+    private void UpdateHealthRegen(float dt)
+    {
+        var regenPerSecond = Armor?.RegenPercentPerSecond ?? 0f;
+        if (regenPerSecond <= 0f || Health <= 0f || Health >= MaxHealth) return;
+
+        _regenTickTimer += dt;
+        while (_regenTickTimer >= RegenTickInterval)
+        {
+            _regenTickTimer -= RegenTickInterval;
+            ApplyHealing(MaxHealth * regenPerSecond);
+            if (Health >= MaxHealth) break;
+        }
+    }
+
+    private void ApplyHealing(float amount)
+    {
+        if (amount <= 0f || Health <= 0f) return;
+        var healingBonus = Armor?.HealingBonusPercent ?? 0f;
+        Health = MathF.Min(MaxHealth, Health + amount * (1f + healingBonus));
     }
 }
 
@@ -515,6 +624,11 @@ public sealed class Enemy
 
     private bool _alert;
     private Vector2 _target;
+    private bool _investigating;
+    private bool _returningFromInvestigation;
+    private Vector2 _investigateTarget;
+    private Vector2 _investigateReturnPoint;
+    private float _investigateWait;
 
     private float _sweepPhase;
     private float _sweepDir = 1f;
@@ -526,9 +640,11 @@ public sealed class Enemy
     private float _burstShotCd;
 
     private float _deathAnim = 0.45f;
+    private float _slowTimer;
 
-    private const float BaseView = 290f;
-    private const float StrongView = 360f;
+    private const float BaseView = 435f;
+    private const float StrongView = 540f;
+    private const float AlertViewMultiplier = 1.25f;
     private const float FovHalf = MathF.PI / 3f; // 120 total
 
     private Enemy(Vector2 pos)
@@ -582,14 +698,21 @@ public sealed class Enemy
     {
         if (!Alive) return;
 
+        if (_alert)
+        {
+            if (Vector2.Distance(Position, playerPos) <= GetAlertViewDistance())
+            {
+                _target = playerPos;
+                return;
+            }
+
+            _alert = false;
+            return;
+        }
+
         if (CanSeePoint(playerPos, obstacles))
         {
-            _alert = true;
-            _target = playerPos;
-        }
-        else if (_alert && Vector2.Distance(Position, playerPos) > GetViewDistance() * 1.8f)
-        {
-            _alert = false;
+            ForceAggro(playerPos);
         }
     }
 
@@ -604,15 +727,51 @@ public sealed class Enemy
         return angle <= FovHalf && VisibilityUtils.HasLineOfSight(Position, point, obstacles);
     }
 
+    public bool CanNoticeCombatPoint(Vector2 point, List<Obstacle> obstacles)
+    {
+        var to = point - Position;
+        if (to.LengthSquared() < 0.01f) return false;
+
+        var dir = Vector2.Normalize(to);
+        var angle = MathF.Acos(Math.Clamp(Vector2.Dot(_facing, dir), -1f, 1f));
+        return angle <= FovHalf && VisibilityUtils.HasLineOfSight(Position, point, obstacles);
+    }
+
     public void ForceAggro(Vector2 target)
     {
         _alert = true;
+        _investigating = false;
+        _returningFromInvestigation = false;
         _target = target;
+    }
+
+    public bool ReactToShot(Vector2 shotSource, List<Obstacle> obstacles)
+    {
+        if (CanSeePoint(shotSource, obstacles))
+        {
+            ForceAggro(shotSource);
+            return true;
+        }
+
+        StartInvestigation(shotSource);
+        return false;
+    }
+
+    private void StartInvestigation(Vector2 target)
+    {
+        if (_alert) return;
+
+        if (!_investigating) _investigateReturnPoint = Position;
+        _investigating = true;
+        _returningFromInvestigation = false;
+        _investigateTarget = target;
+        _investigateWait = 0f;
     }
 
     public void UpdateMovement(float dt, Vector2 playerPos, List<Obstacle> obstacles, int worldSize)
     {
         _attackCd -= dt;
+        _slowTimer = MathF.Max(0f, _slowTimer - dt);
 
         if (!Alive) return;
 
@@ -624,15 +783,18 @@ public sealed class Enemy
                 var dir = Vector2.Normalize(to);
                 _facing = dir;
                 _baseFacing = dir;
-                Position = MovementUtils.MoveWithCollisions(Position, dir * (IsStrong ? 95f : 118f) * dt, 14f, obstacles, worldSize);
+                Position = MovementUtils.MoveWithCollisions(Position, dir * (IsStrong ? 118.75f : 147.5f) * GetMovementSpeedMultiplier() * dt, 14f, obstacles, worldSize);
             }
 
-            if (IsStrong)
-            {
-                _burstCd -= dt;
-                _burstShotCd -= dt;
-            }
+            _burstCd -= dt;
+            if (IsStrong) _burstShotCd -= dt;
 
+            return;
+        }
+
+        if (_investigating)
+        {
+            UpdateInvestigation(dt, obstacles, worldSize);
             return;
         }
 
@@ -667,14 +829,60 @@ public sealed class Enemy
                 var dir = Vector2.Normalize(to);
                 _facing = dir;
                 _baseFacing = dir;
-                Position = MovementUtils.MoveWithCollisions(Position, dir * 86f * dt, 14f, obstacles, worldSize);
+                Position = MovementUtils.MoveWithCollisions(Position, dir * 107.5f * GetMovementSpeedMultiplier() * dt, 14f, obstacles, worldSize);
             }
         }
     }
 
+    private void UpdateInvestigation(float dt, List<Obstacle> obstacles, int worldSize)
+    {
+        if (!_returningFromInvestigation && _investigateWait > 0f)
+        {
+            _investigateWait -= dt;
+            if (_investigateWait <= 0f) _returningFromInvestigation = true;
+            return;
+        }
+
+        var target = _returningFromInvestigation ? _investigateReturnPoint : _investigateTarget;
+        var to = target - Position;
+        if (to.Length() < 10f)
+        {
+            if (_returningFromInvestigation)
+            {
+                _investigating = false;
+                return;
+            }
+
+            _investigateWait = 3f;
+            return;
+        }
+
+        var dir = Vector2.Normalize(to);
+        _baseFacing = dir;
+        Position = MovementUtils.MoveWithCollisions(Position, dir * (IsStrong ? 102.5f : 120f) * GetMovementSpeedMultiplier() * dt, 14f, obstacles, worldSize);
+    }
+
+    public void ApplyStickySlow(float duration = 1f)
+    {
+        _slowTimer = MathF.Max(_slowTimer, duration);
+    }
+
+    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.7f : 1f;
+
     public void TryShootBurst(Vector2 playerPos, List<Projectile> projectiles)
     {
-        if (!Alive || !IsStrong || !_alert) return;
+        if (!Alive || !_alert) return;
+
+        if (!IsStrong)
+        {
+            if (_burstCd > 0f) return;
+
+            var dir = playerPos - Position;
+            if (dir != Vector2.Zero) dir = Vector2.Normalize(dir);
+            projectiles.Add(new Projectile(Position + dir * 16f, dir, 420f, 1.68f, Palette.C(255, 120, 120), true, 8f));
+            _burstCd = 2.8f;
+            return;
+        }
 
         if (_burstCd <= 0f && _burstShotsLeft <= 0)
         {
@@ -687,7 +895,7 @@ public sealed class Enemy
         {
             var dir = playerPos - Position;
             if (dir != Vector2.Zero) dir = Vector2.Normalize(dir);
-            projectiles.Add(new Projectile(Position + dir * 16f, dir, 420f, 1.4f, Palette.C(255, 120, 120), true, 10f));
+            projectiles.Add(new Projectile(Position + dir * 16f, dir, 420f, 1.68f, Palette.C(255, 120, 120), true, 10f));
             _burstShotsLeft--;
             _burstShotCd = 0.13f;
         }
@@ -702,6 +910,8 @@ public sealed class Enemy
     }
 
     public float GetViewDistance() => IsStrong ? StrongView : BaseView;
+
+    private float GetAlertViewDistance() => GetViewDistance() * AlertViewMultiplier;
 
     public void Damage(float amount)
     {
@@ -744,12 +954,12 @@ public sealed class Enemy
         if (!Alive) return;
 
         var c = Palette.C(120, 140, 160, 26);
-        VisibilityUtils.DrawDashedCircle(Position, GetViewDistance(), 28, c);
 
         var left = VisibilityUtils.Rotate(_facing, -FovHalf);
         var right = VisibilityUtils.Rotate(_facing, FovHalf);
-        VisibilityUtils.DrawDashedLine(Position, Position + left * GetViewDistance(), 22, c);
-        VisibilityUtils.DrawDashedLine(Position, Position + right * GetViewDistance(), 22, c);
+        var sightLineLength = GetViewDistance() * 0.75f;
+        VisibilityUtils.DrawDashedLine(Position, Position + left * sightLineLength, 22, c);
+        VisibilityUtils.DrawDashedLine(Position, Position + right * sightLineLength, 22, c);
     }
 }
 
@@ -768,6 +978,7 @@ public sealed class HexEnemy
     private int _burstLeft;
     private float _burstShotCd;
     private readonly bool _burstMode;
+    private float _slowTimer;
 
     private const float DesiredDistance = 290f;
 
@@ -782,6 +993,7 @@ public sealed class HexEnemy
     public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, List<Obstacle> obstacles, int worldSize)
     {
         if (!Alive) return;
+        _slowTimer = MathF.Max(0f, _slowTimer - dt);
 
         var toPlayer = playerPos - Position;
         if (toPlayer == Vector2.Zero) toPlayer = new Vector2(1f, 0f);
@@ -790,15 +1002,15 @@ public sealed class HexEnemy
         _facing = dir;
 
         var radial = 0f;
-        if (dist > DesiredDistance + 20f) radial = 140f;
-        else if (dist < DesiredDistance - 20f) radial = -110f;
+        if (dist > DesiredDistance + 20f) radial = 175f;
+        else if (dist < DesiredDistance - 20f) radial = -137.5f;
 
         _strafeSwitch -= dt;
         if (_strafeSwitch <= 0f) _strafeSwitch = 0.25f + Random.Shared.NextSingle() * 0.65f;
         var strafeSign = MathF.Sin(_strafeSwitch * 8f + Position.X * 0.01f) > 0f ? 1f : -1f;
         var strafeDir = new Vector2(-dir.Y, dir.X) * strafeSign;
-        var move = dir * radial + strafeDir * 80f;
-        Position = MovementUtils.MoveWithCollisions(Position, move * dt, 16f, obstacles, worldSize);
+        var move = dir * radial + strafeDir * 100f;
+        Position = MovementUtils.MoveWithCollisions(Position, move * GetMovementSpeedMultiplier() * dt, 16f, obstacles, worldSize);
 
         if (_burstMode)
         {
@@ -813,7 +1025,7 @@ public sealed class HexEnemy
             _burstShotCd -= dt;
             while (_burstLeft > 0 && _burstShotCd <= 0f)
             {
-                projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, 1.2f, Palette.C(255, 110, 180), true, 4f));
+                projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, 1.44f, Palette.C(255, 110, 180), true, 4f));
                 _burstLeft--;
                 _burstShotCd += 0.06f;
             }
@@ -823,7 +1035,7 @@ public sealed class HexEnemy
             _fireCd -= dt;
             if (_fireCd <= 0f)
             {
-                projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, 1.2f, Palette.C(255, 110, 180), true, 10f));
+                projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, 1.44f, Palette.C(255, 110, 180), true, 10f));
                 _fireCd = 0.5f;
             }
         }
@@ -835,10 +1047,15 @@ public sealed class HexEnemy
         Health = MathF.Max(0f, Health - amount);
     }
 
+    public void ApplyStickySlow(float duration = 1f)
+    {
+        _slowTimer = MathF.Max(_slowTimer, duration);
+    }
+
+    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.7f : 1f;
+
     public void DrawSight()
     {
-        if (!Alive) return;
-        VisibilityUtils.DrawDashedCircle(Position, DesiredDistance, 30, Palette.C(255, 120, 190, 18));
     }
 
     public void Draw()
@@ -871,26 +1088,28 @@ public sealed class TurretEnemy
     public bool KillAwarded;
 
     private Vector2 _facing;
-    private bool _scanWide;
-    private float _scanRotateLeft = 3f;
-    private float _scanWaitLeft = 1f;
-    private float _scanAngularSpeed;
+    private readonly float _baseFacingAngle;
+    private float _scanOffset;
+    private float _scanTargetOffset = TurretScanHalfAngle;
+    private float _scanWaitLeft;
     private float _shootCd;
     private bool _alert;
+    private float _longRangeAlertTimer;
     private Vector2 _lastSeenPlayerPos;
     private bool _hasAim;
     private Vector2 _aimAt;
 
-    private const float ViewDistance = 980f;
+    private const float ViewDistance = 735f;
     private const float FovHalf = MathF.PI / 3f;
+    private const float TurretScanHalfAngle = MathF.PI / 3f;
+    private const float TurretScanSpeed = MathF.PI / 9f;
 
     public TurretEnemy(Vector2 pos, float angle, int zoneId = -1)
     {
         Position = pos;
         ZoneId = zoneId;
+        _baseFacingAngle = angle;
         _facing = new Vector2(MathF.Cos(angle), MathF.Sin(angle));
-        var initialDelta = 60f * (MathF.PI / 180f);
-        _scanAngularSpeed = initialDelta / 3f;
     }
 
     public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, List<Obstacle> obstacles)
@@ -900,20 +1119,22 @@ public sealed class TurretEnemy
         var toPlayer = playerPos - Position;
         var distToPlayer = toPlayer.Length();
         _shootCd -= dt;
+        _longRangeAlertTimer = MathF.Max(0f, _longRangeAlertTimer - dt);
         if (!_alert)
         {
             UpdateScanRotation(dt);
         }
 
-        if (_alert && distToPlayer > ViewDistance)
+        if (_alert && distToPlayer > ViewDistance && _longRangeAlertTimer <= 0f)
         {
             _alert = false;
             var toLast = _lastSeenPlayerPos - Position;
             if (toLast != Vector2.Zero) _facing = Vector2.Normalize(toLast);
         }
 
-        if (CanSee(playerPos, obstacles, _alert))
+        if (CanSee(playerPos, obstacles, _longRangeAlertTimer > 0f))
         {
+            if (!_alert) _shootCd = 3f;
             _alert = true;
             _lastSeenPlayerPos = playerPos;
             _hasAim = true;
@@ -923,7 +1144,7 @@ public sealed class TurretEnemy
             if (_shootCd <= 0f)
             {
                 var dir = Vector2.Normalize(playerPos - Position);
-                projectiles.Add(new Projectile(Position + dir * 20f, dir, 2100f, 1.3f, Palette.C(255, 40, 40), true, 56f));
+                projectiles.Add(new Projectile(Position + dir * 20f, dir, 1785f, 1.84f, Palette.C(255, 40, 40), true, 56f));
                 _shootCd = 3f;
             }
         }
@@ -935,50 +1156,73 @@ public sealed class TurretEnemy
 
     private void UpdateScanRotation(float dt)
     {
-        if (_scanRotateLeft > 0f)
+        if (_scanWaitLeft > 0f)
         {
-            var step = MathF.Min(dt, _scanRotateLeft);
-            _facing = Vector2.Normalize(VisibilityUtils.Rotate(_facing, _scanAngularSpeed * step));
-            _scanRotateLeft -= step;
+            _scanWaitLeft -= dt;
             return;
         }
 
-        _scanWaitLeft -= dt;
-        if (_scanWaitLeft > 0f) return;
+        var delta = _scanTargetOffset - _scanOffset;
+        var step = MathF.Sign(delta) * MathF.Min(MathF.Abs(delta), TurretScanSpeed * dt);
+        _scanOffset += step;
+        SetFacingFromScan();
 
-        var deltaDeg = _scanWide ? 120f : 60f;
-        var sign = _scanWide ? -1f : 1f;
-        _scanWide = !_scanWide;
+        if (MathF.Abs(_scanTargetOffset - _scanOffset) > 0.001f) return;
 
-        _scanAngularSpeed = deltaDeg * (MathF.PI / 180f) * sign / 3f;
-        _scanRotateLeft = 3f;
+        _scanTargetOffset = _scanTargetOffset > 0f ? -TurretScanHalfAngle : TurretScanHalfAngle;
         _scanWaitLeft = 1f;
     }
 
-    private bool CanSee(Vector2 point, List<Obstacle> obstacles, bool fullCircleVision)
+    private void SetFacingFromScan()
+    {
+        var angle = _baseFacingAngle + _scanOffset;
+        _facing = new Vector2(MathF.Cos(angle), MathF.Sin(angle));
+    }
+
+    private bool CanSee(Vector2 point, List<Obstacle> obstacles, bool allowLongRange)
     {
         var to = point - Position;
         var dist = to.Length();
-        if (dist < 110f || dist > ViewDistance) return false;
+        if (dist < 110f || (!allowLongRange && dist > ViewDistance)) return false;
 
         if (!VisibilityUtils.HasLineOfSight(Position, point, obstacles)) return false;
-        if (fullCircleVision) return true;
 
         var dir = Vector2.Normalize(to);
         var angle = MathF.Acos(Math.Clamp(Vector2.Dot(_facing, dir), -1f, 1f));
         return angle <= FovHalf;
     }
 
-    public bool CanSeePoint(Vector2 point, List<Obstacle> obstacles) => CanSee(point, obstacles, _alert);
+    public bool CanSeePoint(Vector2 point, List<Obstacle> obstacles) => CanSee(point, obstacles, _longRangeAlertTimer > 0f);
+
+    public bool CanNoticeCombatPoint(Vector2 point, List<Obstacle> obstacles)
+    {
+        var to = point - Position;
+        if (to.LengthSquared() < 0.01f) return false;
+        if (!VisibilityUtils.HasLineOfSight(Position, point, obstacles)) return false;
+
+        var dir = Vector2.Normalize(to);
+        var angle = MathF.Acos(Math.Clamp(Vector2.Dot(_facing, dir), -1f, 1f));
+        return angle <= FovHalf;
+    }
 
     public void ForceAggro(Vector2 target)
     {
+        if (!_alert) _shootCd = 3f;
         _alert = true;
         _lastSeenPlayerPos = target;
-        _hasAim = true;
+        _hasAim = false;
         _aimAt = target;
         var aimDir = target - Position;
         if (aimDir != Vector2.Zero) _facing = Vector2.Normalize(aimDir);
+    }
+
+    public bool ReactToShot(Vector2 shotSource, Vector2 playerPos, List<Obstacle> obstacles)
+    {
+        if (!CanSee(shotSource, obstacles, true)) return false;
+
+        ForceAggro(playerPos);
+        if (Vector2.Distance(Position, shotSource) > ViewDistance) _longRangeAlertTimer = 5f;
+        return true;
     }
 
     public void Damage(float amount)
@@ -987,16 +1231,18 @@ public sealed class TurretEnemy
         Health = MathF.Max(0f, Health - amount);
     }
 
+    public void ApplyStickySlow(float duration = 1f) { }
+
     public void DrawSight()
     {
         if (!Alive) return;
-        VisibilityUtils.DrawDashedCircle(Position, ViewDistance, 34, Palette.C(250, 80, 80, 12));
         if (_alert) return;
 
         var left = VisibilityUtils.Rotate(_facing, -FovHalf);
         var right = VisibilityUtils.Rotate(_facing, FovHalf);
-        VisibilityUtils.DrawDashedLine(Position, Position + left * ViewDistance, 24, Palette.C(250, 80, 80, 24));
-        VisibilityUtils.DrawDashedLine(Position, Position + right * ViewDistance, 24, Palette.C(250, 80, 80, 24));
+        var sightLineLength = ViewDistance * 0.75f;
+        VisibilityUtils.DrawDashedLine(Position, Position + left * sightLineLength, 24, Palette.C(250, 80, 80, 24));
+        VisibilityUtils.DrawDashedLine(Position, Position + right * sightLineLength, 24, Palette.C(250, 80, 80, 24));
     }
 
     public void DrawAimLine()
@@ -1051,9 +1297,16 @@ public sealed class MiniBossEnemySquare
     private float _slamCd = 3.5f;
     private float _slamVisual;
     private bool _alert;
+    private bool _investigating;
+    private bool _returningFromInvestigation;
+    private Vector2 _investigateTarget;
+    private Vector2 _investigateReturnPoint;
+    private float _investigateWait;
     private Vector2 _facing = new(1f, 0f);
+    private float _slowTimer;
 
-    private const float ViewDistance = 460f;
+    private const float ViewDistance = 690f;
+    private const float AlertViewMultiplier = 1.25f;
     private const float FovHalf = MathF.PI / 3f;
 
     public MiniBossEnemySquare(Vector2 pos, int zoneId = -1) { Position = pos; ZoneId = zoneId; }
@@ -1062,26 +1315,40 @@ public sealed class MiniBossEnemySquare
     {
         if (!Alive) return;
 
+        _slowTimer = MathF.Max(0f, _slowTimer - dt);
         _ramCd -= dt;
         _shootCd -= dt;
         _slamCd -= dt;
         _slamVisual -= dt;
 
         var toPlayer = playerPos - Position;
-        if (toPlayer != Vector2.Zero) _facing = Vector2.Normalize(toPlayer);
+        var distanceToPlayer = toPlayer.Length();
 
-        if (CanSeePoint(playerPos, obstacles)) _alert = true;
-        else if (_alert && Vector2.Distance(Position, playerPos) > ViewDistance * 1.6f) _alert = false;
+        if (_alert)
+        {
+            if (distanceToPlayer > GetAlertViewDistance()) _alert = false;
+        }
+        else if (CanSeePoint(playerPos, obstacles))
+        {
+            ForceAggro(playerPos);
+        }
 
-        if (!_alert || toPlayer == Vector2.Zero) return;
+        if (!_alert)
+        {
+            if (_investigating) UpdateInvestigation(dt, obstacles, worldSize);
+            return;
+        }
+
+        if (toPlayer == Vector2.Zero) return;
 
         var dir = Vector2.Normalize(toPlayer);
-        Position = MovementUtils.MoveWithCollisions(Position, dir * 42f * dt, 28f, obstacles, worldSize);
+        _facing = dir;
+        Position = MovementUtils.MoveWithCollisions(Position, dir * 52.5f * GetMovementSpeedMultiplier() * dt, 28f, obstacles, worldSize);
 
         if (_ramCd <= 0f)
         {
-            Position = MovementUtils.MoveWithCollisions(Position, dir * 120f, 28f, obstacles, worldSize);
-            DashAfterImage.Spawn(afterImages, Position, dir, 120f, Palette.C(230, 100, 100), true);
+            Position = MovementUtils.MoveWithCollisions(Position, dir * 150f * GetMovementSpeedMultiplier(), 28f, obstacles, worldSize);
+            DashAfterImage.Spawn(afterImages, Position, dir, 150f, Palette.C(230, 100, 100), true);
             _ramCd = 4f;
             if (Vector2.Distance(Position, playerPos) < 56f) player.TakeDamage(24f);
         }
@@ -1100,7 +1367,7 @@ public sealed class MiniBossEnemySquare
             {
                 var spread = ((Random.Shared.NextSingle() * 4f) - 2f) * (MathF.PI / 180f);
                 var shotDir = VisibilityUtils.Rotate(dir, spread);
-                projectiles.Add(new Projectile(Position + shotDir * 28f, shotDir, 560f, 1.35f, Palette.C(255, 150, 120), true, 13f));
+                projectiles.Add(new Projectile(Position + shotDir * 28f, shotDir, 560f, 1.62f, Palette.C(255, 150, 120), true, 13f));
                 _burstShotsLeft--;
                 _burstShotCd += 0.08f;
             }
@@ -1125,11 +1392,74 @@ public sealed class MiniBossEnemySquare
         return angle <= FovHalf && VisibilityUtils.HasLineOfSight(Position, point, obstacles);
     }
 
+    public bool CanNoticeCombatPoint(Vector2 point, List<Obstacle> obstacles)
+    {
+        var to = point - Position;
+        if (to.LengthSquared() < 0.01f) return false;
+
+        var dir = Vector2.Normalize(to);
+        var angle = MathF.Acos(Math.Clamp(Vector2.Dot(_facing, dir), -1f, 1f));
+        return angle <= FovHalf && VisibilityUtils.HasLineOfSight(Position, point, obstacles);
+    }
+
     public void ForceAggro(Vector2 target)
     {
         _alert = true;
+        _investigating = false;
+        _returningFromInvestigation = false;
         var dir = target - Position;
         if (dir != Vector2.Zero) _facing = Vector2.Normalize(dir);
+    }
+
+    public bool ReactToShot(Vector2 shotSource, List<Obstacle> obstacles)
+    {
+        if (CanSeePoint(shotSource, obstacles))
+        {
+            ForceAggro(shotSource);
+            return true;
+        }
+
+        StartInvestigation(shotSource);
+        return false;
+    }
+
+    private void StartInvestigation(Vector2 target)
+    {
+        if (_alert) return;
+
+        if (!_investigating) _investigateReturnPoint = Position;
+        _investigating = true;
+        _returningFromInvestigation = false;
+        _investigateTarget = target;
+        _investigateWait = 0f;
+    }
+
+    private void UpdateInvestigation(float dt, List<Obstacle> obstacles, int worldSize)
+    {
+        if (!_returningFromInvestigation && _investigateWait > 0f)
+        {
+            _investigateWait -= dt;
+            if (_investigateWait <= 0f) _returningFromInvestigation = true;
+            return;
+        }
+
+        var target = _returningFromInvestigation ? _investigateReturnPoint : _investigateTarget;
+        var to = target - Position;
+        if (to.Length() < 14f)
+        {
+            if (_returningFromInvestigation)
+            {
+                _investigating = false;
+                return;
+            }
+
+            _investigateWait = 3f;
+            return;
+        }
+
+        var dir = Vector2.Normalize(to);
+        _facing = dir;
+        Position = MovementUtils.MoveWithCollisions(Position, dir * 47.5f * GetMovementSpeedMultiplier() * dt, 28f, obstacles, worldSize);
     }
 
     public void Damage(float amount)
@@ -1138,14 +1468,23 @@ public sealed class MiniBossEnemySquare
         Health = MathF.Max(0f, Health - amount);
     }
 
+    public void ApplyStickySlow(float duration = 1f)
+    {
+        _slowTimer = MathF.Max(_slowTimer, duration);
+    }
+
+    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.85f : 1f;
+
+    private static float GetAlertViewDistance() => ViewDistance * AlertViewMultiplier;
+
     public void DrawSight()
     {
         if (!Alive) return;
 
         var c = Palette.C(255, 130, 110, 24);
-        VisibilityUtils.DrawDashedCircle(Position, ViewDistance, 32, c);
-        VisibilityUtils.DrawDashedLine(Position, Position + VisibilityUtils.Rotate(_facing, -FovHalf) * ViewDistance, 24, c);
-        VisibilityUtils.DrawDashedLine(Position, Position + VisibilityUtils.Rotate(_facing, FovHalf) * ViewDistance, 24, c);
+        var sightLineLength = ViewDistance * 0.75f;
+        VisibilityUtils.DrawDashedLine(Position, Position + VisibilityUtils.Rotate(_facing, -FovHalf) * sightLineLength, 24, c);
+        VisibilityUtils.DrawDashedLine(Position, Position + VisibilityUtils.Rotate(_facing, FovHalf) * sightLineLength, 24, c);
     }
 
     public void Draw(VisualTheme theme)
@@ -1193,12 +1532,14 @@ public sealed class BossEnemyDestroyer
     private float _burstShotCd;
     private bool _alert;
     private bool _phaseTwoShieldReset;
+    private float _slowTimer;
 
-    private const float ViewDistance = 980f;
-    private const float PhaseOneSpeed = 58f;
-    private const float PhaseTwoSpeed = 212.5f;
+    private const float ViewDistance = 1176f;
+    private const float AlertViewMultiplier = 1.25f;
+    private const float PhaseOneSpeed = 72.5f;
+    private const float PhaseTwoSpeed = 265.625f;
     private const float DesiredDistance = 270f;
-    private const float DashDistance = 130f;
+    private const float DashDistance = 162.5f;
     private const float SideDashDistance = DashDistance * 0.5f;
     private const float CollisionRadius = 52f;
     private const float BulletSpeed = 620f;
@@ -1216,6 +1557,7 @@ public sealed class BossEnemyDestroyer
     {
         if (!Alive) return;
 
+        _slowTimer = MathF.Max(0f, _slowTimer - dt);
         _forwardDashCd -= dt;
         _sideDashCd -= dt;
         _shootCd -= dt;
@@ -1235,8 +1577,14 @@ public sealed class BossEnemyDestroyer
             _phaseTwoShieldReset = true;
         }
 
-        if (VisibilityUtils.HasLineOfSight(Position, playerPos, obstacles) && distance <= ViewDistance) _alert = true;
-        else if (_alert && distance > ViewDistance * 1.35f) _alert = false;
+        if (_alert)
+        {
+            if (distance > GetAlertViewDistance()) _alert = false;
+        }
+        else if (VisibilityUtils.HasLineOfSight(Position, playerPos, obstacles) && distance <= ViewDistance)
+        {
+            _alert = true;
+        }
 
         if (!_alert) return;
 
@@ -1246,7 +1594,7 @@ public sealed class BossEnemyDestroyer
         }
         else
         {
-            Position = MovementUtils.MoveWithCollisions(Position, dir * PhaseOneSpeed * dt, CollisionRadius, obstacles, worldSize);
+            Position = MovementUtils.MoveWithCollisions(Position, dir * PhaseOneSpeed * GetMovementSpeedMultiplier() * dt, CollisionRadius, obstacles, worldSize);
         }
 
         if (_forwardDashCd <= 0f)
@@ -1312,7 +1660,7 @@ public sealed class BossEnemyDestroyer
         var strafeSign = MathF.Sin(_strafeSwitch * 8f + Position.X * 0.015f) > 0f ? 1f : -1f;
         var strafeDir = new Vector2(-dir.Y, dir.X) * strafeSign;
         var move = dir * radial + strafeDir * (PhaseTwoSpeed * 0.75f);
-        Position = MovementUtils.MoveWithCollisions(Position, move * dt, CollisionRadius, obstacles, worldSize);
+        Position = MovementUtils.MoveWithCollisions(Position, move * GetMovementSpeedMultiplier() * dt, CollisionRadius, obstacles, worldSize);
     }
 
     private void ExecuteDash(Player player, Vector2 dashDir, float distance, float damage, List<DashAfterImage> afterImages, List<Obstacle> obstacles, int worldSize)
@@ -1352,6 +1700,10 @@ public sealed class BossEnemyDestroyer
         return new Projectile(Position + dir * 40f, dir, BulletSpeed, lifetime, Palette.C(255, 140, 110), true, BulletDamage);
     }
 
+    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.95f : 1f;
+
+    private static float GetAlertViewDistance() => ViewDistance * AlertViewMultiplier;
+
     public bool CanSeePoint(Vector2 point, List<Obstacle> obstacles)
     {
         var to = point - Position;
@@ -1364,6 +1716,11 @@ public sealed class BossEnemyDestroyer
         _alert = true;
         var dir = target - Position;
         if (dir != Vector2.Zero) _facing = Vector2.Normalize(dir);
+    }
+
+    public void ApplyStickySlow(float duration = 1f)
+    {
+        _slowTimer = MathF.Max(_slowTimer, duration);
     }
 
     public bool IntersectsAnyHitZone(Vector2 point, float radius)
@@ -1455,7 +1812,6 @@ public sealed class BossEnemyDestroyer
     public void DrawSight()
     {
         if (!Alive) return;
-        VisibilityUtils.DrawDashedCircle(Position, ViewDistance, 42, Palette.C(255, 60, 60, 24));
     }
 
     public void Draw()

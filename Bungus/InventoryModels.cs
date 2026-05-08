@@ -87,6 +87,13 @@ public sealed class ItemStackSaveData
     public ConsumableType? ConsumableKind { get; set; }
     public bool IsStarter { get; set; }
     public float Defense { get; set; }
+    public float ResiliencePercent { get; set; }
+    public float SpeedBonusPercent { get; set; }
+    public float ExplosionResistancePercent { get; set; }
+    public float HealingBonusPercent { get; set; }
+    public float DashRecoveryPercent { get; set; }
+    public float ShieldMax { get; set; }
+    public float RegenPercentPerSecond { get; set; }
     public float WeaponDamage { get; set; }
     public float PowerBonus { get; set; }
 }
@@ -181,9 +188,34 @@ public sealed class ItemStack
     public bool IsStarter { get; }
 
     public float Defense { get; }
+    public float ResiliencePercent { get; }
+    public float SpeedBonusPercent { get; }
+    public float ExplosionResistancePercent { get; }
+    public float HealingBonusPercent { get; }
+    public float DashRecoveryPercent { get; }
+    public float ShieldMax { get; }
+    public float RegenPercentPerSecond { get; }
     public float BaseDamage { get; }
 
-    private ItemStack(ItemType type, string name, string description, ArmorRarity rarity, Color color, WeaponClass? weaponClass, WeaponPattern pattern, ConsumableType? consumableType, float defense, float baseDamage, bool isStarter)
+    private ItemStack(
+        ItemType type,
+        string name,
+        string description,
+        ArmorRarity rarity,
+        Color color,
+        WeaponClass? weaponClass,
+        WeaponPattern pattern,
+        ConsumableType? consumableType,
+        float defense,
+        float resiliencePercent,
+        float speedBonusPercent,
+        float explosionResistancePercent,
+        float healingBonusPercent,
+        float dashRecoveryPercent,
+        float shieldMax,
+        float regenPercentPerSecond,
+        float baseDamage,
+        bool isStarter)
     {
         Type = type;
         Name = name;
@@ -195,6 +227,13 @@ public sealed class ItemStack
         ConsumableKind = consumableType;
         IsStarter = isStarter;
         Defense = defense;
+        ResiliencePercent = resiliencePercent;
+        SpeedBonusPercent = speedBonusPercent;
+        ExplosionResistancePercent = explosionResistancePercent;
+        HealingBonusPercent = healingBonusPercent;
+        DashRecoveryPercent = dashRecoveryPercent;
+        ShieldMax = shieldMax;
+        RegenPercentPerSecond = regenPercentPerSecond;
         BaseDamage = baseDamage;
     }
 
@@ -217,6 +256,13 @@ public sealed class ItemStack
             ConsumableKind = item.ConsumableKind,
             IsStarter = item.IsStarter,
             Defense = item.Defense,
+            ResiliencePercent = item.ResiliencePercent,
+            SpeedBonusPercent = item.SpeedBonusPercent,
+            ExplosionResistancePercent = item.ExplosionResistancePercent,
+            HealingBonusPercent = item.HealingBonusPercent,
+            DashRecoveryPercent = item.DashRecoveryPercent,
+            ShieldMax = item.ShieldMax,
+            RegenPercentPerSecond = item.RegenPercentPerSecond,
             WeaponDamage = item.BaseDamage,
             PowerBonus = item.BaseDamage
         };
@@ -236,21 +282,45 @@ public sealed class ItemStack
             data.Pattern,
             data.ConsumableKind,
             data.Defense,
+            data.ResiliencePercent,
+            data.SpeedBonusPercent,
+            data.ExplosionResistancePercent,
+            data.HealingBonusPercent,
+            data.DashRecoveryPercent,
+            data.ShieldMax,
+            data.RegenPercentPerSecond,
             data.WeaponDamage > 0f ? data.WeaponDamage : data.PowerBonus,
             data.IsStarter);
     }
 
     public static ItemStack Armor(ArmorRarity rarity, Random rng)
     {
-        var (baseDef, variance) = rarity switch
+        var defense = rarity switch
         {
-            ArmorRarity.Damaged => (5f, 2f),
-            ArmorRarity.Common => (8f, 4f),
-            ArmorRarity.Rare => (13f, 3f),
-            ArmorRarity.Epic => (18f, 4f),
-            ArmorRarity.Legendary => (25f, 3f),
-            _ => (33f, 4f)
+            ArmorRarity.Damaged => 1f,
+            ArmorRarity.Common => rng.Next(3, 5),
+            ArmorRarity.Rare => rng.Next(5, 7),
+            ArmorRarity.Epic => rng.Next(7, 9),
+            ArmorRarity.Legendary => rng.Next(10, 13),
+            _ => 15f
         };
+
+        var resiliencePercent = rarity switch
+        {
+            ArmorRarity.Common => RollPercentRange(rng, 2, 4),
+            ArmorRarity.Rare => RollPercentRange(rng, 3, 5),
+            ArmorRarity.Epic => RollPercentRange(rng, 5, 12),
+            ArmorRarity.Legendary => RollPercentRange(rng, 12, 20),
+            ArmorRarity.Red => RollPercentRange(rng, 15, 25),
+            _ => 0f
+        };
+
+        var speedBonusPercent = 0f;
+        var explosionResistancePercent = 0f;
+        var healingBonusPercent = 0f;
+        var dashRecoveryPercent = 0f;
+        var shieldMax = 0f;
+        var regenPercentPerSecond = 0f;
 
         var name = rarity switch
         {
@@ -262,7 +332,100 @@ public sealed class ItemStack
             _ => "Crimson Bastion"
         };
 
-        return new ItemStack(ItemType.Armor, name, "Armor. Drag into armor slot.", rarity, Palette.Rarity(rarity), null, WeaponPattern.Standard, null, baseDef + rng.NextSingle() * variance, 0f, rarity == ArmorRarity.Damaged);
+        var modifierPool = new List<int> { 0, 1, 2, 3, 4, 5 };
+        var modifierCount = rarity switch
+        {
+            ArmorRarity.Damaged => 0,
+            ArmorRarity.Common => 0,
+            ArmorRarity.Rare => rng.Next(0, 2),
+            ArmorRarity.Epic => rng.Next(0, 3),
+            ArmorRarity.Legendary => rng.Next(1, 4),
+            _ => rng.Next(2, 4)
+        };
+
+        for (var i = 0; i < modifierCount && modifierPool.Count > 0; i++)
+        {
+            var selectedIndex = rng.Next(modifierPool.Count);
+            var modifier = modifierPool[selectedIndex];
+            modifierPool.RemoveAt(selectedIndex);
+
+            switch (modifier)
+            {
+                case 0:
+                    speedBonusPercent = rarity == ArmorRarity.Red ? 0.10f : rarity switch
+                    {
+                        ArmorRarity.Rare => RollPercentRange(rng, 1, 4),
+                        ArmorRarity.Epic => RollPercentRange(rng, 2, 5),
+                        _ => RollPercentRange(rng, 3, 7)
+                    };
+                    break;
+                case 1:
+                    explosionResistancePercent = rarity switch
+                    {
+                        ArmorRarity.Rare => RollPercentRange(rng, 10, 12),
+                        ArmorRarity.Epic => RollPercentRange(rng, 10, 15),
+                        ArmorRarity.Legendary => RollPercentRange(rng, 13, 25),
+                        _ => RollPercentRange(rng, 20, 30)
+                    };
+                    break;
+                case 2:
+                    healingBonusPercent = rarity switch
+                    {
+                        ArmorRarity.Rare => RollPercentRange(rng, 10, 12),
+                        ArmorRarity.Epic => RollPercentRange(rng, 10, 15),
+                        ArmorRarity.Legendary => RollPercentRange(rng, 13, 25),
+                        _ => RollPercentRange(rng, 20, 30)
+                    };
+                    break;
+                case 3:
+                    dashRecoveryPercent = rarity switch
+                    {
+                        ArmorRarity.Rare => RollPercentRange(rng, 10, 12),
+                        ArmorRarity.Epic => RollPercentRange(rng, 10, 15),
+                        ArmorRarity.Legendary => RollPercentRange(rng, 10, 18),
+                        _ => RollPercentRange(rng, 10, 20)
+                    };
+                    break;
+                case 4:
+                    shieldMax = rarity switch
+                    {
+                        ArmorRarity.Rare => rng.Next(50, 101),
+                        ArmorRarity.Epic => rng.Next(50, 121),
+                        ArmorRarity.Legendary => rng.Next(75, 151),
+                        _ => rng.Next(100, 151)
+                    };
+                    break;
+                case 5:
+                    regenPercentPerSecond = rarity switch
+                    {
+                        ArmorRarity.Rare => RollTenthPercentRange(rng, 1, 3),
+                        ArmorRarity.Epic => RollTenthPercentRange(rng, 1, 5),
+                        ArmorRarity.Legendary => RollTenthPercentRange(rng, 3, 5),
+                        _ => 0.005f
+                    };
+                    break;
+            }
+        }
+
+        return new ItemStack(
+            ItemType.Armor,
+            name,
+            "Armor. Drag into armor slot.",
+            rarity,
+            Palette.Rarity(rarity),
+            null,
+            WeaponPattern.Standard,
+            null,
+            defense,
+            resiliencePercent,
+            speedBonusPercent,
+            explosionResistancePercent,
+            healingBonusPercent,
+            dashRecoveryPercent,
+            shieldMax,
+            regenPercentPerSecond,
+            0f,
+            rarity == ArmorRarity.Damaged);
     }
 
     public static ItemStack Weapon(WeaponClass kind, ArmorRarity rarity, Random rng)
@@ -342,7 +505,7 @@ public sealed class ItemStack
                     : "Weapon. Drag to matching slot.";
         }
 
-        return new ItemStack(ItemType.Weapon, name, description, rarity, Palette.Rarity(rarity), kind, pattern, null, 0f, baseDamage, rarity == ArmorRarity.Damaged);
+        return new ItemStack(ItemType.Weapon, name, description, rarity, Palette.Rarity(rarity), kind, pattern, null, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, baseDamage, rarity == ArmorRarity.Damaged);
     }
 
     public static ItemStack StartingPistol()
@@ -356,6 +519,13 @@ public sealed class ItemStack
             WeaponClass.Ranged,
             WeaponPattern.Standard,
             null,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
             0f,
             4f,
             true);
@@ -373,6 +543,13 @@ public sealed class ItemStack
             WeaponPattern.Standard,
             null,
             0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
             4f,
             true);
     }
@@ -388,7 +565,14 @@ public sealed class ItemStack
             null,
             WeaponPattern.Standard,
             null,
-            6f,
+            1f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
             0f,
             true);
     }
@@ -405,16 +589,33 @@ public sealed class ItemStack
             WeaponPattern.GrenadeLauncher,
             null,
             0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
             150f,
             false);
     }
 
     public static ItemStack Consumable(ConsumableType t)
     {
-        return t == ConsumableType.Medkit
-            ? new ItemStack(ItemType.Consumable, "Medkit", "Restore HP. Hotkey Q/R.", ArmorRarity.Common, Palette.C(130, 210, 120), null, WeaponPattern.Standard, t, 0f, 0f, false)
-            : new ItemStack(ItemType.Consumable, "Stim", "Move speed boost. Hotkey Q/R.", ArmorRarity.Common, Palette.C(220, 220, 120), null, WeaponPattern.Standard, t, 0f, 0f, false);
+        return t switch
+        {
+            ConsumableType.Medkit => new ItemStack(ItemType.Consumable, "Medkit", "Restore HP. Hotkey Q/R.", ArmorRarity.Common, Palette.C(130, 210, 120), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
+            ConsumableType.Stim => new ItemStack(ItemType.Consumable, "Stim", "Move speed boost. Hotkey Q/R.", ArmorRarity.Common, Palette.C(220, 220, 120), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
+            ConsumableType.ProtectiveDome => new ItemStack(ItemType.Consumable, "Protective Dome", "Deploy a dome that blocks enemy shots and absorbs 200 damage. Hotkey Q/R.", ArmorRarity.Common, Palette.C(120, 190, 255), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
+            _ => new ItemStack(ItemType.Consumable, "Sticky Bullets", "For 15 seconds your damage slows enemies by 30% for 1 second. Hotkey Q/R.", ArmorRarity.Common, Palette.C(235, 235, 235), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false)
+        };
     }
+
+    private static float RollPercentRange(Random rng, int minPercent, int maxPercent)
+        => rng.Next(minPercent, maxPercent + 1) / 100f;
+
+    private static float RollTenthPercentRange(Random rng, int minTenthsPercent, int maxTenthsPercent)
+        => rng.Next(minTenthsPercent, maxTenthsPercent + 1) / 1000f;
 }
 
 public enum SlotKind

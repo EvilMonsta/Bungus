@@ -3,7 +3,7 @@ using Raylib_cs;
 
 namespace Bungus.Game;
 
-public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life, Color color, bool ownerEnemy, float damage, ProjectileKind kind = ProjectileKind.Bullet, float explosionRadius = 0f, float explosionDamage = 0f, float drawRadius = 4f)
+public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life, Color color, bool ownerEnemy, float damage, ProjectileKind kind = ProjectileKind.Bullet, float explosionRadius = 0f, float explosionDamage = 0f, float drawRadius = 4f, bool highlighted = false)
 {
     public Vector2 Position { get; private set; } = pos;
     public Vector2 PreviousPosition { get; private set; } = pos;
@@ -14,6 +14,7 @@ public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life
     public float ExplosionRadius { get; } = explosionRadius;
     public float ExplosionDamage { get; } = explosionDamage;
     public float DrawRadius { get; } = drawRadius;
+    public bool Highlighted { get; } = highlighted;
     private float _life = life;
     public bool Alive => _life > 0f;
 

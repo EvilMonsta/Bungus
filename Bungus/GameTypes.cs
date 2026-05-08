@@ -8,7 +8,7 @@ public enum ItemType { Weapon, Armor, Consumable }
 public enum ConsumableType { Medkit, Stim }
 public enum ArmorRarity { Common = 0, Rare = 1, Epic = 2, Legendary = 3, Red = 4, Damaged = 5 }
 public enum StatType { Strength, Dexterity, Speed, Gunsmith }
-public enum WeaponPattern { Standard, PulseRifle, EnergySpear, GrenadeLauncher }
+public enum WeaponPattern { Standard, PulseRifle, EnergySpear, GrenadeLauncher, SniperRifle }
 public enum ProjectileKind { Bullet, Grenade }
 public enum SwingVisualStyle { ArcSlash, SpearThrust }
 public enum DisplayMode { Windowed, Fullscreen }

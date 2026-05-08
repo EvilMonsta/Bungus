@@ -21,6 +21,14 @@ public sealed class Player
     private const float TwinShotChance = 0.33f;
     private const float TwinShotSpread = 0.06f;
     private const float DashCooldownDuration = 1.1f;
+    private const float MovingRangedSpreadAngle = MathF.PI / 90f;
+    private const float SniperDamageMultiplier = 6f;
+    private const float EmpoweredSniperDamageMultiplier = 15f;
+    private const float SniperCooldown = 1.75f;
+    private const float SniperProjectileSpeed = 2100f;
+    private const float SniperProjectileLifetime = 1.3f;
+    private const float SniperIdleRequirement = 1f;
+    private const float LegendarySniperChargeDuration = 2.5f;
 
     private readonly float _globalMaxHealthBonus;
     private readonly float _globalDamageBonus;
@@ -36,6 +44,9 @@ public sealed class Player
     private Vector2 _pulseDir;
     private Color _pulseColor;
     private float _pulseDamage;
+    private float _sniperStillTimer;
+    private float _legendarySniperChargeTimer;
+    private bool _legendarySniperChargePrimed;
 
     public Vector2 Position { get; private set; }
     public float Health { get; private set; }
@@ -43,6 +54,12 @@ public sealed class Player
     public float SpeedMultiplier => 1f + Spd * 0.04f;
     public float DashCooldownProgress => 1f - Math.Clamp(_dodgeCd / DashCooldownDuration, 0f, 1f);
     public bool DashReady => _dodgeCd <= 0f;
+    public bool IsMoving { get; private set; }
+    public bool IsSniperEquipped => ActiveWeaponClass == WeaponClass.Ranged && RangedWeapon?.Pattern == WeaponPattern.SniperRifle;
+    public bool IsLegendarySniperEquipped => IsSniperEquipped && RangedWeapon?.Rarity == ArmorRarity.Legendary;
+    public bool SniperChargeVisible => IsLegendarySniperEquipped && _legendarySniperChargePrimed;
+    public float SniperChargeProgress => !SniperChargeVisible ? 0f : Math.Clamp(_legendarySniperChargeTimer / LegendarySniperChargeDuration, 0f, 1f);
+    public bool SniperChargeReady => IsLegendarySniperEquipped && _legendarySniperChargePrimed && _legendarySniperChargeTimer >= LegendarySniperChargeDuration;
 
     public bool InventoryOpen { get; set; }
 
@@ -115,6 +132,7 @@ public sealed class Player
             _dodgeCd = DashCooldownDuration;
         }
 
+        IsMoving = d != Vector2.Zero;
         if (d != Vector2.Zero)
         {
             var speed = BaseMoveSpeed * SpeedMultiplier;
@@ -123,6 +141,7 @@ public sealed class Player
             Position = MovementUtils.MoveWithCollisions(Position, delta, 16f, obstacles, worldSize);
         }
 
+        UpdateLegendarySniperCharge(dt);
         UpdateDashEcho(dt, afterImages);
     }
 
@@ -145,12 +164,12 @@ public sealed class Player
         }
     }
 
-    public void Attack(Vector2 target, List<Projectile> projectiles, List<SwingArc> swings)
+    public bool Attack(Vector2 target, List<Projectile> projectiles, List<SwingArc> swings)
     {
-        if (_attackCd > 0f) return;
+        if (_attackCd > 0f) return false;
 
         var weapon = ActiveWeaponClass == WeaponClass.Ranged ? RangedWeapon : MeleeWeapon;
-        if (weapon is null) return;
+        if (weapon is null) return false;
 
         var dir = target - Position;
         if (dir == Vector2.Zero) dir = new Vector2(1f, 0f);
@@ -161,6 +180,7 @@ public sealed class Player
             var damage = GetWeaponDamage(weapon);
             if (weapon.Pattern == WeaponPattern.GrenadeLauncher)
             {
+                dir = ApplyMovementSpread(dir);
                 projectiles.Add(new Projectile(
                     Position + dir * 20f,
                     dir,
@@ -174,6 +194,7 @@ public sealed class Player
                     damage,
                     7f));
                 _attackCd = 1f;
+                return true;
             }
             else if (weapon.Pattern == WeaponPattern.PulseRifle)
             {
@@ -185,6 +206,29 @@ public sealed class Player
                 _pulseColor = weapon.Color;
                 _pulseDamage = pulseShotDamage;
                 _attackCd = 0.374f;
+                return true;
+            }
+            else if (weapon.Pattern == WeaponPattern.SniperRifle)
+            {
+                var empowered = SniperChargeReady;
+                var sniperDamage = GetSniperShotDamage(weapon, empowered);
+                dir = ApplyMovementSpread(dir);
+                projectiles.Add(new Projectile(
+                    Position + dir * 20f,
+                    dir,
+                    SniperProjectileSpeed,
+                    SniperProjectileLifetime,
+                    empowered ? Palette.C(176, 92, 255) : Palette.C(255, 48, 48),
+                    false,
+                    sniperDamage,
+                    ProjectileKind.Bullet,
+                    0f,
+                    0f,
+                    empowered ? 5.5f : 4.5f,
+                    empowered));
+                _attackCd = SniperCooldown;
+                ResetLegendarySniperChargeAfterShot();
+                return true;
             }
             else
             {
@@ -199,6 +243,7 @@ public sealed class Player
                 }
 
                 _attackCd = 0.22f;
+                return true;
             }
         }
         else
@@ -210,12 +255,14 @@ public sealed class Player
                 if (weapon.Rarity == ArmorRarity.Legendary) spearLength *= LegendarySpearLengthMultiplier;
                 swings.Add(SwingArc.Line(Position, Position + dir * SpearStartDistance, Position + dir * (SpearStartDistance + spearLength), MeleeSwingLife, weapon.Color));
                 _attackCd = GetMeleeCooldown(0.70f);
+                return true;
             }
             else
             {
                 var halfAngle = BladeHalfAngle + (weapon.Rarity == ArmorRarity.Legendary ? LegendaryBladeHalfAngleBonus : 0f);
                 swings.Add(SwingArc.Arc(Position, Position, BladeRadius, angle - halfAngle, angle + halfAngle, MeleeSwingLife, weapon.Color, Random.Shared.NextSingle() < 0.5f));
                 _attackCd = GetMeleeCooldown(0.64f);
+                return true;
             }
         }
     }
@@ -235,12 +282,14 @@ public sealed class Player
 
     private void FirePulseShot(List<Projectile> projectiles, Vector2 dir, Color color, float damage)
     {
+        dir = ApplyMovementSpread(dir);
         projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, 1.0f, color, false, damage));
     }
 
     private void FireStandardShot(List<Projectile> projectiles, Vector2 dir, Color color, float damage, float angleOffset = 0f)
     {
         var shotDir = angleOffset == 0f ? dir : VisibilityUtils.Rotate(dir, angleOffset);
+        shotDir = ApplyMovementSpread(shotDir);
         projectiles.Add(new Projectile(Position + shotDir * 18f, shotDir, 520f, 1.15f, color, false, damage));
     }
 
@@ -252,6 +301,13 @@ public sealed class Player
     public float GetRangedDamage()
     {
         return RangedWeapon is null ? 0f : GetWeaponDamage(RangedWeapon);
+    }
+
+    public float GetSniperShotDamage(ItemStack weapon, bool empowered = false)
+    {
+        if (weapon.Type != ItemType.Weapon || weapon.Pattern != WeaponPattern.SniperRifle) return 0f;
+        var multiplier = empowered ? EmpoweredSniperDamageMultiplier : SniperDamageMultiplier;
+        return GetWeaponDamage(weapon) * multiplier;
     }
 
     public float GetWeaponBaseDamage(ItemStack weapon)
@@ -311,6 +367,60 @@ public sealed class Player
     public float GetStatusEffectChance(float baseChance)
     {
         return baseChance;
+    }
+
+    private Vector2 ApplyMovementSpread(Vector2 dir)
+    {
+        if (!IsMoving) return dir;
+        var spread = (Random.Shared.NextSingle() * 2f - 1f) * MovingRangedSpreadAngle;
+        return Vector2.Normalize(VisibilityUtils.Rotate(dir, spread));
+    }
+
+    private void UpdateLegendarySniperCharge(float dt)
+    {
+        if (!IsLegendarySniperEquipped)
+        {
+            ResetLegendarySniperCharge();
+            return;
+        }
+
+        if (IsMoving)
+        {
+            ResetLegendarySniperCharge();
+            return;
+        }
+
+        if (!_legendarySniperChargePrimed)
+        {
+            _sniperStillTimer += dt;
+            if (_sniperStillTimer >= SniperIdleRequirement)
+            {
+                _legendarySniperChargePrimed = true;
+                _legendarySniperChargeTimer = 0f;
+            }
+
+            return;
+        }
+
+        if (_legendarySniperChargeTimer < LegendarySniperChargeDuration)
+        {
+            _legendarySniperChargeTimer = MathF.Min(LegendarySniperChargeDuration, _legendarySniperChargeTimer + dt);
+        }
+    }
+
+    private void ResetLegendarySniperCharge()
+    {
+        _sniperStillTimer = 0f;
+        _legendarySniperChargeTimer = 0f;
+        _legendarySniperChargePrimed = false;
+    }
+
+    private void ResetLegendarySniperChargeAfterShot()
+    {
+        if (!IsLegendarySniperEquipped) return;
+        _legendarySniperChargeTimer = 0f;
+        _legendarySniperChargePrimed = true;
+        _sniperStillTimer = SniperIdleRequirement;
     }
 
     public void SwitchActiveWeapon() => ActiveWeaponClass = ActiveWeaponClass == WeaponClass.Ranged ? WeaponClass.Melee : WeaponClass.Ranged;
@@ -859,6 +969,18 @@ public sealed class TurretEnemy
         return angle <= FovHalf;
     }
 
+    public bool CanSeePoint(Vector2 point, List<Obstacle> obstacles) => CanSee(point, obstacles, _alert);
+
+    public void ForceAggro(Vector2 target)
+    {
+        _alert = true;
+        _lastSeenPlayerPos = target;
+        _hasAim = true;
+        _aimAt = target;
+        var aimDir = target - Position;
+        if (aimDir != Vector2.Zero) _facing = Vector2.Normalize(aimDir);
+    }
+
     public void Damage(float amount)
     {
         if (!Alive) return;
@@ -992,7 +1114,7 @@ public sealed class MiniBossEnemySquare
         }
     }
 
-    private bool CanSeePoint(Vector2 point, List<Obstacle> obstacles)
+    public bool CanSeePoint(Vector2 point, List<Obstacle> obstacles)
     {
         var to = point - Position;
         var dist = to.Length();
@@ -1001,6 +1123,13 @@ public sealed class MiniBossEnemySquare
         var dir = Vector2.Normalize(to);
         var angle = MathF.Acos(Math.Clamp(Vector2.Dot(_facing, dir), -1f, 1f));
         return angle <= FovHalf && VisibilityUtils.HasLineOfSight(Position, point, obstacles);
+    }
+
+    public void ForceAggro(Vector2 target)
+    {
+        _alert = true;
+        var dir = target - Position;
+        if (dir != Vector2.Zero) _facing = Vector2.Normalize(dir);
     }
 
     public void Damage(float amount)
@@ -1221,6 +1350,20 @@ public sealed class BossEnemyDestroyer
     {
         var lifetime = BulletLifetime * (PhaseTwo ? PhaseTwoRangeMultiplier : 1f);
         return new Projectile(Position + dir * 40f, dir, BulletSpeed, lifetime, Palette.C(255, 140, 110), true, BulletDamage);
+    }
+
+    public bool CanSeePoint(Vector2 point, List<Obstacle> obstacles)
+    {
+        var to = point - Position;
+        var dist = to.Length();
+        return dist <= ViewDistance && VisibilityUtils.HasLineOfSight(Position, point, obstacles);
+    }
+
+    public void ForceAggro(Vector2 target)
+    {
+        _alert = true;
+        var dir = target - Position;
+        if (dir != Vector2.Zero) _facing = Vector2.Normalize(dir);
     }
 
     public bool IntersectsAnyHitZone(Vector2 point, float radius)

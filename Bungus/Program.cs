@@ -77,6 +77,12 @@ public sealed partial class SciFiRogueGame : IDisposable
     private float _noticeTimer;
     private string _deathHeader = "You Died";
     private string _deathBody = "All carried items were lost.";
+    private readonly Dictionary<string, int> _promoCodeUses = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _sessionActiveCodes = new(StringComparer.OrdinalIgnoreCase);
+    private bool _codesPopupOpen;
+    private string _codeInput = string.Empty;
+    private string _codeStatusText = string.Empty;
+    private bool _codeStatusSuccess;
 
     private static readonly Rectangle TakeAllButtonRect = new(740, 266, 220, 34);
 
@@ -176,10 +182,17 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateMainMenu()
     {
+        if (_codesPopupOpen)
+        {
+            UpdateCodesPopup();
+            return;
+        }
+
         if (Clicked(MainMenuButtonRect(0))) { ClearUiInteraction(); _state = GameState.MapSelect; }
         if (Clicked(MainMenuButtonRect(1))) { ClearUiInteraction(); _state = GameState.Storage; }
         if (Clicked(MainMenuButtonRect(2))) { ClearUiInteraction(); _state = GameState.Character; }
         if (Clicked(MainMenuButtonRect(3))) { ClearUiInteraction(); _state = GameState.Settings; }
+        if (Clicked(MainMenuCodesButtonRect())) OpenCodesPopup();
         if (Clicked(MainMenuButtonRect(4))) _requestExit = true;
     }
 
@@ -294,8 +307,15 @@ public sealed partial class SciFiRogueGame : IDisposable
         UpdateExtraction(dt);
         if (_state != GameState.Playing) return;
 
-        _camera.Target = Vector2.Lerp(_camera.Target, _player.Position, 0.2f);
+        var desiredCameraTarget = GetDesiredCameraTarget(mouseWorld);
+        _camera.Target = Vector2.Lerp(_camera.Target, desiredCameraTarget, _player.IsSniperEquipped ? 0.06f : 0.2f);
         if (_player.Health <= 0) FailRun("You Died", "All carried items were lost.");
+    }
+
+    private Vector2 GetDesiredCameraTarget(Vector2 mouseWorld)
+    {
+        if (!_player.IsSniperEquipped || _player.InventoryOpen) return _player.Position;
+        return Vector2.Lerp(_player.Position, mouseWorld, 0.5f);
     }
 
     private float NextHexSpawnDelay()
@@ -508,6 +528,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             enemyHit.Damage(damage);
             enemyHit.ForceAggro(_player.Position);
             enemyHit.JustHitByPlayer = true;
+            AggroWitnesses(enemyHit.Position);
             return true;
         }
 
@@ -518,6 +539,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (hexHit is not null)
         {
             hexHit.Damage(damage);
+            AggroWitnesses(hexHit.Position);
             return true;
         }
 
@@ -528,6 +550,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (turretHit is not null)
         {
             turretHit.Damage(damage);
+            turretHit.ForceAggro(_player.Position);
+            AggroWitnesses(turretHit.Position);
             return true;
         }
 
@@ -538,11 +562,15 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (miniBossHit is not null)
         {
             miniBossHit.Damage(damage);
+            miniBossHit.ForceAggro(_player.Position);
+            AggroWitnesses(miniBossHit.Position);
             return true;
         }
 
         if (_destroyerBoss is not null && _destroyerBoss.Alive && _destroyerBoss.TryApplySegmentDamage(from, to, radius, damage))
         {
+            _destroyerBoss.ForceAggro(_player.Position);
+            AggroWitnesses(_destroyerBoss.Position);
             return true;
         }
 
@@ -578,17 +606,25 @@ public sealed partial class SciFiRogueGame : IDisposable
         foreach (var turret in _turrets.Where(t => t.Alive && Vector2.Distance(t.Position, projectile.Position) <= projectile.ExplosionRadius))
         {
             turret.Damage(projectile.ExplosionDamage);
+            turret.ForceAggro(_player.Position);
         }
 
         foreach (var miniBoss in _miniBosses.Where(b => b.Alive && Vector2.Distance(b.Position, projectile.Position) <= projectile.ExplosionRadius))
         {
             miniBoss.Damage(projectile.ExplosionDamage);
+            miniBoss.ForceAggro(_player.Position);
         }
 
         if (_destroyerBoss is not null && _destroyerBoss.Alive)
         {
             _destroyerBoss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, projectile.ExplosionDamage);
+            if (_destroyerBoss.IntersectsAnyHitZone(projectile.Position, projectile.ExplosionRadius))
+            {
+                _destroyerBoss.ForceAggro(_player.Position);
+            }
         }
+
+        AggroWitnesses(projectile.Position);
     }
 
     private void UpdateSwings(float dt)
@@ -613,6 +649,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 e.Damage(_player.GetMeleeDamage());
                 e.ForceAggro(_player.Position);
                 e.JustHitByPlayer = true;
+                AggroWitnesses(e.Position);
             }
 
             foreach (var h in _hexEnemies.Where(x => x.Alive))
@@ -620,7 +657,11 @@ public sealed partial class SciFiRogueGame : IDisposable
                 var hit = s.IsLine
                     ? DistanceToSegment(h.Position, s.LineStart, s.LineEnd) < 16f
                     : IsInArc(h.Position, s, 10f);
-                if (hit && s.TryRegisterHit(h)) h.Damage(_player.GetMeleeDamage());
+                if (hit && s.TryRegisterHit(h))
+                {
+                    h.Damage(_player.GetMeleeDamage());
+                    AggroWitnesses(h.Position);
+                }
             }
 
             foreach (var t in _turrets.Where(x => x.Alive))
@@ -628,7 +669,12 @@ public sealed partial class SciFiRogueGame : IDisposable
                 var hit = s.IsLine
                     ? DistanceToSegment(t.Position, s.LineStart, s.LineEnd) < 20f
                     : IsInArc(t.Position, s, 14f);
-                if (hit && s.TryRegisterHit(t)) t.Damage(_player.GetMeleeDamage());
+                if (hit && s.TryRegisterHit(t))
+                {
+                    t.Damage(_player.GetMeleeDamage());
+                    t.ForceAggro(_player.Position);
+                    AggroWitnesses(t.Position);
+                }
             }
 
             foreach (var b in _miniBosses.Where(x => x.Alive))
@@ -636,7 +682,12 @@ public sealed partial class SciFiRogueGame : IDisposable
                 var hit = s.IsLine
                     ? DistanceToSegment(b.Position, s.LineStart, s.LineEnd) < 28f
                     : IsInArc(b.Position, s, 24f);
-                if (hit && s.TryRegisterHit(b)) b.Damage(_player.GetMeleeDamage() * 0.75f);
+                if (hit && s.TryRegisterHit(b))
+                {
+                    b.Damage(_player.GetMeleeDamage() * 0.75f);
+                    b.ForceAggro(_player.Position);
+                    AggroWitnesses(b.Position);
+                }
             }
 
             if (_destroyerBoss is not null && _destroyerBoss.Alive)
@@ -644,8 +695,36 @@ public sealed partial class SciFiRogueGame : IDisposable
                 var hit = s.IsLine
                     ? DistanceToSegment(_destroyerBoss.Position, s.LineStart, s.LineEnd) < 54f
                     : IsInArc(_destroyerBoss.Position, s, 50f);
-                if (hit && s.TryRegisterHit(_destroyerBoss)) _destroyerBoss.Damage(_player.GetMeleeDamage() * 0.75f);
+                if (hit && s.TryRegisterHit(_destroyerBoss))
+                {
+                    _destroyerBoss.Damage(_player.GetMeleeDamage() * 0.75f);
+                    _destroyerBoss.ForceAggro(_player.Position);
+                    AggroWitnesses(_destroyerBoss.Position);
+                }
             }
+        }
+    }
+
+    private void AggroWitnesses(Vector2 impactPosition)
+    {
+        foreach (var enemy in _enemies.Where(x => x.Alive))
+        {
+            if (enemy.CanSeePoint(impactPosition, _obstacles)) enemy.ForceAggro(_player.Position);
+        }
+
+        foreach (var turret in _turrets.Where(x => x.Alive))
+        {
+            if (turret.CanSeePoint(impactPosition, _obstacles)) turret.ForceAggro(_player.Position);
+        }
+
+        foreach (var miniBoss in _miniBosses.Where(x => x.Alive))
+        {
+            if (miniBoss.CanSeePoint(impactPosition, _obstacles)) miniBoss.ForceAggro(_player.Position);
+        }
+
+        if (_destroyerBoss is not null && _destroyerBoss.Alive && _destroyerBoss.CanSeePoint(impactPosition, _obstacles))
+        {
+            _destroyerBoss.ForceAggro(_player.Position);
         }
     }
 
@@ -1578,6 +1657,145 @@ public sealed partial class SciFiRogueGame : IDisposable
         _noticeTimer = 5f;
     }
 
+    private void OpenCodesPopup()
+    {
+        _codesPopupOpen = true;
+        _codeInput = string.Empty;
+        _codeStatusText = string.Empty;
+        _codeStatusSuccess = false;
+    }
+
+    private void CloseCodesPopup()
+    {
+        _codesPopupOpen = false;
+        _codeInput = string.Empty;
+        _codeStatusText = string.Empty;
+        _codeStatusSuccess = false;
+    }
+
+    private void UpdateCodesPopup()
+    {
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(CodesPopupCloseRect()))
+        {
+            CloseCodesPopup();
+            return;
+        }
+
+        if (Raylib.IsKeyPressed(KeyboardKey.Backspace) && _codeInput.Length > 0)
+        {
+            _codeInput = _codeInput[..^1];
+        }
+
+        while (true)
+        {
+            var key = Raylib.GetCharPressed();
+            if (key == 0) break;
+
+            if (_codeInput.Length >= 24) continue;
+            var ch = (char)key;
+            if (char.IsLetterOrDigit(ch) || ch == '_' || ch == '-')
+            {
+                _codeInput += char.ToUpperInvariant(ch);
+            }
+        }
+
+        if (Raylib.IsKeyPressed(KeyboardKey.Enter) || Clicked(CodesPopupApplyRect()))
+        {
+            ApplyPromoCodeInput();
+        }
+    }
+
+    private void ApplyPromoCodeInput()
+    {
+        var code = NormalizePromoCode(_codeInput);
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            SetCodeStatus(false, "Enter a code first.");
+            return;
+        }
+
+        if (code == "RAMGUNGOD")
+        {
+            var result = ApplyRamGunGodCode();
+            SetCodeStatus(result.Success, result.Message);
+            if (result.Success) _codeInput = string.Empty;
+            return;
+        }
+
+        SetCodeStatus(false, "No such code.");
+    }
+
+    private (bool Success, string Message) ApplyRamGunGodCode()
+    {
+        const string code = "RAMGUNGOD";
+        if (!CanUsePromoCode(code, null, false, out var error))
+        {
+            return (false, error);
+        }
+
+        var rewards = new List<ItemStack>
+        {
+            ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.Standard, ArmorRarity.Legendary, _rng),
+            ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.PulseRifle, ArmorRarity.Legendary, _rng),
+            ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.SniperRifle, ArmorRarity.Legendary, _rng),
+            ItemStack.PatternWeapon(WeaponClass.Melee, WeaponPattern.Standard, ArmorRarity.Legendary, _rng),
+            ItemStack.PatternWeapon(WeaponClass.Melee, WeaponPattern.EnergySpear, ArmorRarity.Legendary, _rng),
+            ItemStack.BossGrenadeLauncher()
+        };
+
+        var stored = 0;
+        foreach (var reward in rewards)
+        {
+            if (_meta.AddToStorage(reward)) stored++;
+        }
+
+        if (stored == 0)
+        {
+            return (false, "Storage is full.");
+        }
+
+        RegisterPromoCodeUse(code, false);
+        SavePersistentState();
+        var lost = rewards.Count - stored;
+        return (true, lost > 0 ? $"Success: {stored} weapon(s) delivered, {lost} lost due to full storage." : "Success");
+    }
+
+    private bool CanUsePromoCode(string code, int? maxUses, bool sessionOnly, out string error)
+    {
+        error = string.Empty;
+        if (maxUses is int limit && GetPromoCodeUseCount(code) >= limit)
+        {
+            error = "This code can no longer be used.";
+            return false;
+        }
+
+        if (sessionOnly && _sessionActiveCodes.Contains(code))
+        {
+            error = "This code is already active for this session.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private void RegisterPromoCodeUse(string code, bool sessionOnly)
+    {
+        _promoCodeUses[code] = GetPromoCodeUseCount(code) + 1;
+        if (sessionOnly) _sessionActiveCodes.Add(code);
+    }
+
+    private int GetPromoCodeUseCount(string code)
+        => _promoCodeUses.GetValueOrDefault(code, 0);
+
+    private void SetCodeStatus(bool success, string message)
+    {
+        _codeStatusSuccess = success;
+        _codeStatusText = message;
+    }
+
+    private static string NormalizePromoCode(string input)
+        => (input ?? string.Empty).Trim().ToUpperInvariant();
+
     private static string FormatTime(float timeLeft)
     {
         var total = Math.Max(0, (int)MathF.Ceiling(timeLeft));
@@ -1719,6 +1937,13 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         var total = player.GetWeaponDamage(weapon);
         if (weapon.Pattern == WeaponPattern.GrenadeLauncher) return $"blast {total:0.0} / direct {total + 200f:0.0}";
+        if (weapon.Pattern == WeaponPattern.SniperRifle)
+        {
+            var shotDamage = player.GetSniperShotDamage(weapon);
+            return weapon.Rarity == ArmorRarity.Legendary
+                ? $"shot {shotDamage:0.0} / charged {player.GetSniperShotDamage(weapon, true):0.0}"
+                : $"shot {shotDamage:0.0}";
+        }
         if (weapon.Pattern == WeaponPattern.PulseRifle)
         {
             var perShot = player.GetPulseShotDamage(weapon);

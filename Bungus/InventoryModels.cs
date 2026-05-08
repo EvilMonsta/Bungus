@@ -42,6 +42,7 @@ public sealed class PersistentStateData
     public int ThemeIndex { get; set; }
     public DisplayMode DisplayMode { get; set; } = DisplayMode.Windowed;
     public string SelectedMapName { get; set; } = "Baselands";
+    public Dictionary<string, int> PromoCodeUses { get; set; } = [];
     public MetaProfileSaveData Meta { get; set; } = new();
 }
 
@@ -266,6 +267,31 @@ public sealed class ItemStack
 
     public static ItemStack Weapon(WeaponClass kind, ArmorRarity rarity, Random rng)
     {
+        var pattern = RollWeaponPattern(kind, rarity, rng);
+        return CreatePatternWeapon(kind, pattern, rarity, rng);
+    }
+
+    public static ItemStack PatternWeapon(WeaponClass kind, WeaponPattern pattern, ArmorRarity rarity, Random rng)
+        => CreatePatternWeapon(kind, pattern, rarity, rng);
+
+    private static WeaponPattern RollWeaponPattern(WeaponClass kind, ArmorRarity rarity, Random rng)
+    {
+        if (rarity == ArmorRarity.Damaged) return WeaponPattern.Standard;
+
+        if (kind == WeaponClass.Ranged)
+        {
+            var rangedRoll = rng.NextSingle();
+            if (rangedRoll < 0.20f) return WeaponPattern.SniperRifle;
+            if (rangedRoll < 0.55f) return WeaponPattern.PulseRifle;
+            return WeaponPattern.Standard;
+        }
+
+        if (kind == WeaponClass.Melee && rng.NextSingle() < 0.35f) return WeaponPattern.EnergySpear;
+        return WeaponPattern.Standard;
+    }
+
+    private static ItemStack CreatePatternWeapon(WeaponClass kind, WeaponPattern pattern, ArmorRarity rarity, Random rng)
+    {
         var (baseDamage, variance) = rarity switch
         {
             ArmorRarity.Damaged => (4f, 1f),
@@ -278,21 +304,25 @@ public sealed class ItemStack
 
         baseDamage += rng.NextSingle() * variance;
 
-        WeaponPattern pattern;
         string name;
         string description;
 
-        if (rarity != ArmorRarity.Damaged && kind == WeaponClass.Ranged && rng.NextSingle() < 0.35f)
+        if (kind == WeaponClass.Ranged && pattern == WeaponPattern.SniperRifle)
         {
-            pattern = WeaponPattern.PulseRifle;
+            name = "Sniper Rifle";
+            description = rarity == ArmorRarity.Legendary
+                ? "Legendary sniper rifle. Standing still arms a devastating charged shot."
+                : "Ranged weapon. High damage, long reload and a targeting beam.";
+        }
+        else if (kind == WeaponClass.Ranged && pattern == WeaponPattern.PulseRifle)
+        {
             name = "Pulse Rifle";
             description = rarity == ArmorRarity.Legendary
                 ? "Legendary ranged weapon. Fires a 4-round burst."
                 : "Ranged weapon. Fires a 3-round burst.";
         }
-        else if (rarity != ArmorRarity.Damaged && kind == WeaponClass.Melee && rng.NextSingle() < 0.35f)
+        else if (kind == WeaponClass.Melee && pattern == WeaponPattern.EnergySpear)
         {
-            pattern = WeaponPattern.EnergySpear;
             name = "Energy Spear";
             description = rarity == ArmorRarity.Legendary
                 ? "Legendary melee weapon. Longer thrust reach."
@@ -300,7 +330,6 @@ public sealed class ItemStack
         }
         else
         {
-            pattern = WeaponPattern.Standard;
             name = rarity == ArmorRarity.Damaged
                 ? kind == WeaponClass.Ranged ? "Damaged Rail Pistol" : "Damaged Plasma Blade"
                 : kind == WeaponClass.Ranged ? "Rail Pistol" : "Plasma Blade";

@@ -30,7 +30,8 @@ public sealed partial class SciFiRogueGame
             case GameState.Playing:
                 DrawWorld();
                 DrawHud();
-                DrawInventory();
+                if (_mapOpen) DrawMapWindow();
+                else DrawInventory();
                 break;
             case GameState.Paused:
                 DrawWorld();
@@ -64,6 +65,30 @@ public sealed partial class SciFiRogueGame
         {
             Raylib.DrawRectangleRec(o.Rect, Theme.OutpostFill);
             Raylib.DrawRectangleLinesEx(o.Rect, 2f, Theme.OutpostLine);
+        }
+
+        foreach (var g in _generatorZones)
+        {
+            Raylib.DrawRectangleRec(g.Rect, Palette.C(50, 90, 120, 42));
+            Raylib.DrawRectangleLinesEx(g.Rect, 2f, Palette.C(120, 220, 255));
+        }
+
+        foreach (var h in _hangars)
+        {
+            Raylib.DrawRectangleRec(h.Rect, Palette.C(40, 70, 50, 38));
+            Raylib.DrawRectangleLinesEx(h.Rect, 2f, Palette.C(80, 210, 110));
+        }
+
+        if (_stationZone is not null)
+        {
+            Raylib.DrawRectangleRec(_stationZone.Rect, Palette.C(80, 80, 90, 45));
+            Raylib.DrawRectangleLinesEx(_stationZone.Rect, 3f, Palette.C(240, 60, 70));
+        }
+
+        foreach (var pool in _toxicPools)
+        {
+            Raylib.DrawEllipse((int)pool.Position.X, (int)pool.Position.Y, pool.RadiusX, pool.RadiusY, Palette.C(60, 210, 70, 75));
+            Raylib.DrawEllipseLines((int)pool.Position.X, (int)pool.Position.Y, pool.RadiusX, pool.RadiusY, Palette.C(110, 255, 120, 130));
         }
 
         foreach (var obstacle in _obstacles)
@@ -133,18 +158,40 @@ public sealed partial class SciFiRogueGame
             portal.Draw((float)Raylib.GetTime(), active, _lastChanceActive);
         }
 
+        foreach (var generator in _generators)
+        {
+            var fill = generator.Destroyed
+                ? Palette.C(60, 60, 70)
+                : generator.Vulnerable ? Palette.C(120, 210, 255) : Palette.C(90, 130, 170);
+            Raylib.DrawCircleV(generator.Position, 28f, fill);
+            Raylib.DrawCircleV(generator.Position, 14f, Color.White);
+            Raylib.DrawCircleLines((int)generator.Position.X, (int)generator.Position.Y, 30f, generator.Vulnerable ? Color.Gold : Color.SkyBlue);
+            if (!generator.Destroyed)
+            {
+                var ratio = generator.Health / generator.MaxHealth;
+                Raylib.DrawRectangle((int)generator.Position.X - 34, (int)generator.Position.Y - 44, 68, 5, Palette.C(20, 20, 20, 220));
+                Raylib.DrawRectangle((int)generator.Position.X - 34, (int)generator.Position.Y - 44, (int)(68 * ratio), 5, Color.Green);
+            }
+        }
+
         foreach (var ghost in _dashAfterImages) ghost.Draw();
 
         foreach (var e in _enemies) e.DrawSight();
         foreach (var h in _hexEnemies) h.DrawSight();
         foreach (var t in _turrets) t.DrawSight();
         foreach (var b in _miniBosses) b.DrawSight();
+        foreach (var g in _generatorGuards) g.DrawSight();
+        foreach (var toxic in _toxicEnemies) toxic.DrawSight();
         _destroyerBoss?.DrawSight();
+        _stationBoss?.DrawSight();
         foreach (var e in _enemies) e.Draw(Theme);
         foreach (var h in _hexEnemies) h.Draw();
         foreach (var t in _turrets) t.Draw();
         foreach (var b in _miniBosses) b.Draw(Theme);
+        foreach (var g in _generatorGuards) g.Draw();
+        foreach (var toxic in _toxicEnemies) toxic.Draw();
         _destroyerBoss?.Draw();
+        _stationBoss?.Draw();
         foreach (var t in _turrets) t.DrawAimLine();
         DrawPlayerSniperAimLine();
 
@@ -166,7 +213,7 @@ public sealed partial class SciFiRogueGame
             DrawSwing(s);
         }
 
-        Raylib.DrawRectangleLinesEx(new Rectangle(0, 0, World, World), 6f, Palette.C(120, 160, 220));
+        Raylib.DrawRectangleLinesEx(new Rectangle(0, 0, _worldSize, _worldSize), 6f, Palette.C(120, 160, 220));
         DrawPlayerShieldAura();
         Raylib.DrawCircleV(_player.Position, 16f, Theme.Player);
         Raylib.EndMode2D();
@@ -313,6 +360,90 @@ public sealed partial class SciFiRogueGame
         DrawZoneArrows();
     }
 
+    private void DrawMapWindow()
+    {
+        var screenWidth = Raylib.GetScreenWidth();
+        var screenHeight = Raylib.GetScreenHeight();
+        Raylib.DrawRectangle(0, 0, screenWidth, screenHeight, Palette.C(0, 0, 0, 150));
+
+        var mapRect = GetMapRect();
+        var panel = new Rectangle(mapRect.X - 22f, mapRect.Y - 58f, mapRect.Width + 44f, mapRect.Height + 86f);
+        Raylib.DrawRectangleRec(panel, Palette.C(6, 10, 20, 235));
+        Raylib.DrawRectangleLinesEx(panel, 2f, Palette.C(100, 190, 255));
+        Raylib.DrawText("Map", (int)panel.X + 18, (int)panel.Y + 16, 28, Color.White);
+        Raylib.DrawText("LMB: place/move marker | RMB near marker: remove | M/Esc: close", (int)panel.X + 92, (int)panel.Y + 23, 18, Color.LightGray);
+
+        Raylib.DrawRectangleRec(mapRect, Palette.C(12, 18, 28, 255));
+        Raylib.DrawRectangleLinesEx(mapRect, 2f, Color.SkyBlue);
+
+        foreach (var building in _buildings)
+        {
+            DrawMapRect(building.Rect, mapRect, Theme.BuildingFill, Theme.BuildingLine);
+        }
+
+        foreach (var outpost in _outposts)
+        {
+            DrawMapRect(outpost.Rect, mapRect, Theme.OutpostFill, Theme.OutpostLine);
+        }
+
+        foreach (var generatorZone in _generatorZones)
+        {
+            DrawMapRect(generatorZone.Rect, mapRect, Palette.C(50, 90, 120, 90), Palette.C(120, 220, 255));
+        }
+
+        foreach (var hangar in _hangars)
+        {
+            DrawMapRect(hangar.Rect, mapRect, Palette.C(40, 80, 52, 90), Palette.C(80, 220, 110));
+        }
+
+        if (_stationZone is not null)
+        {
+            DrawMapRect(_stationZone.Rect, mapRect, Palette.C(80, 80, 90, 80), Palette.C(240, 60, 70));
+        }
+
+        foreach (var obstacle in _obstacles)
+        {
+            DrawMapRect(obstacle.Rect, mapRect, Theme.ObstacleFill, Theme.ObstacleLine);
+        }
+
+        foreach (var portal in _extractPortals)
+        {
+            DrawMapCircle(portal.Position, mapRect, 6f, Palette.C(90, 230, 255));
+        }
+
+        foreach (var generator in _generators)
+        {
+            DrawMapCircle(generator.Position, mapRect, 5f, generator.Destroyed ? Color.Gray : Palette.C(130, 225, 255));
+        }
+
+        if (_mapMarker is Vector2 marker)
+        {
+            var markerPos = WorldToMap(marker, mapRect);
+            Raylib.DrawCircleV(markerPos, 7f, Palette.C(255, 220, 80));
+            Raylib.DrawCircleLines((int)markerPos.X, (int)markerPos.Y, 11f, Color.White);
+            Raylib.DrawText("M", (int)markerPos.X - 5, (int)markerPos.Y - 24, 18, Palette.C(255, 230, 120));
+        }
+
+        var playerPos = WorldToMap(_player.Position, mapRect);
+        Raylib.DrawCircleV(playerPos, 6f, Theme.Player);
+        Raylib.DrawCircleLines((int)playerPos.X, (int)playerPos.Y, 9f, Color.White);
+        Raylib.DrawText("P", (int)playerPos.X - 5, (int)playerPos.Y - 24, 18, Color.White);
+    }
+
+    private void DrawMapRect(Rectangle worldRect, Rectangle mapRect, Color fill, Color line)
+    {
+        var topLeft = WorldToMap(new Vector2(worldRect.X, worldRect.Y), mapRect);
+        var bottomRight = WorldToMap(new Vector2(worldRect.X + worldRect.Width, worldRect.Y + worldRect.Height), mapRect);
+        var rect = new Rectangle(topLeft.X, topLeft.Y, bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
+        Raylib.DrawRectangleRec(rect, fill);
+        Raylib.DrawRectangleLinesEx(rect, 1f, line);
+    }
+
+    private void DrawMapCircle(Vector2 worldPoint, Rectangle mapRect, float radius, Color color)
+    {
+        Raylib.DrawCircleV(WorldToMap(worldPoint, mapRect), radius, color);
+    }
+
     private void DrawExperienceBar()
     {
         var width = Raylib.GetScreenWidth();
@@ -437,7 +568,12 @@ public sealed partial class SciFiRogueGame
             if (slot.Kind == SlotKind.Trash) Raylib.DrawText("TR", (int)slot.Rect.X + 16, (int)slot.Rect.Y + 18, 20, Color.Orange);
             if (slot.Kind == SlotKind.QuickSlotQ) Raylib.DrawText("Q", (int)slot.Rect.X + 20, (int)slot.Rect.Y - 18, 16, Color.Green);
             if (slot.Kind == SlotKind.QuickSlotR) Raylib.DrawText("R", (int)slot.Rect.X + 20, (int)slot.Rect.Y - 18, 16, Color.Yellow);
-            if (slot.Item is not null) DrawItemIcon(slot.Item, new Rectangle(slot.Rect.X + 8, slot.Rect.Y + 8, 42, 42), comparison, slot.Kind);
+            if (slot.Item is not null)
+            {
+                var iconRect = new Rectangle(slot.Rect.X + 8, slot.Rect.Y + 8, 42, 42);
+                DrawItemIcon(slot.Item, iconRect, comparison, slot.Kind);
+                DrawInventoryUseHoldFrame(slot, iconRect);
+            }
         }
 
         if (_drag is not null)
@@ -472,10 +608,10 @@ public sealed partial class SciFiRogueGame
         }
         else if (item.Type == ItemType.Weapon)
         {
-            if (item.WeaponKind == WeaponClass.Melee && item.Pattern == WeaponPattern.EnergySpear) DrawSpearIcon(rect);
+            if (item.WeaponKind == WeaponClass.Melee && item.Pattern is WeaponPattern.EnergySpear or WeaponPattern.Lancelot) DrawSpearIcon(rect);
             else if (item.WeaponKind == WeaponClass.Melee) DrawBladeIcon(rect);
             else if (item.Pattern == WeaponPattern.SniperRifle) DrawSniperIcon(rect);
-            else if (item.Pattern == WeaponPattern.PulseRifle) DrawPulseRifleIcon(rect);
+            else if (item.Pattern is WeaponPattern.PulseRifle or WeaponPattern.Toxikus) DrawPulseRifleIcon(rect);
             else DrawPistolIcon(rect);
 
             DrawItemTypeLabel(rect, item.WeaponKind == WeaponClass.Ranged ? "rw" : "mw");
@@ -495,6 +631,37 @@ public sealed partial class SciFiRogueGame
         }
 
         DrawComparisonMarker(item, rect, comparison, sourceKind);
+    }
+
+    private void DrawInventoryUseHoldFrame(UiSlot slot, Rectangle rect)
+    {
+        if (_inventoryUseHoldIndex != slot.Index || _inventoryUseHoldKind != slot.Kind) return;
+
+        var progress = Math.Clamp(_inventoryUseHoldTimer / InventoryConsumableUseHoldDuration, 0f, 1f);
+        var perimeter = rect.Width * 2f + rect.Height * 2f;
+        DrawProgressFrameSegment(rect, perimeter * progress, Color.White);
+    }
+
+    private static void DrawProgressFrameSegment(Rectangle rect, float length, Color color)
+    {
+        const float thickness = 3f;
+        var remaining = length;
+        DrawEdge(new Vector2(rect.X, rect.Y), new Vector2(rect.X + rect.Width, rect.Y), ref remaining, thickness, color);
+        DrawEdge(new Vector2(rect.X + rect.Width, rect.Y), new Vector2(rect.X + rect.Width, rect.Y + rect.Height), ref remaining, thickness, color);
+        DrawEdge(new Vector2(rect.X + rect.Width, rect.Y + rect.Height), new Vector2(rect.X, rect.Y + rect.Height), ref remaining, thickness, color);
+        DrawEdge(new Vector2(rect.X, rect.Y + rect.Height), new Vector2(rect.X, rect.Y), ref remaining, thickness, color);
+    }
+
+    private static void DrawEdge(Vector2 from, Vector2 to, ref float remaining, float thickness, Color color)
+    {
+        if (remaining <= 0f) return;
+
+        var edge = to - from;
+        var edgeLength = edge.Length();
+        var drawLength = MathF.Min(edgeLength, remaining);
+        var end = from + Vector2.Normalize(edge) * drawLength;
+        Raylib.DrawLineEx(from, end, thickness, color);
+        remaining -= drawLength;
     }
 
     private static void DrawItemTypeLabel(Rectangle rect, string label)
@@ -554,7 +721,7 @@ public sealed partial class SciFiRogueGame
     private static float GetComparableWeaponDamage(Player player, ItemStack weapon)
     {
         if (weapon.Pattern == WeaponPattern.SniperRifle) return player.GetSniperShotDamage(weapon);
-        if (weapon.Pattern == WeaponPattern.PulseRifle) return player.GetPulseShotDamage(weapon) * player.GetPulseBurstShotCount(weapon);
+        if (weapon.Pattern is WeaponPattern.PulseRifle or WeaponPattern.Toxikus) return player.GetPulseShotDamage(weapon) * player.GetPulseBurstShotCount(weapon);
         if (weapon.Pattern == WeaponPattern.GrenadeLauncher) return player.GetWeaponDamage(weapon) + 200f;
         if (weapon.WeaponKind == WeaponClass.Melee) return player.GetMeleeHitDamage(weapon);
         return player.GetWeaponDamage(weapon);
@@ -695,16 +862,58 @@ public sealed partial class SciFiRogueGame
         var detailLines = BuildTooltipDetails(item);
         var x = (int)mouse.X + 20;
         var y = (int)mouse.Y + 14;
-        var height = 62 + detailLines.Count * 22;
-        Raylib.DrawRectangle(x, y, 360, height, Palette.C(0, 0, 0, 220));
-        Raylib.DrawRectangleLines(x, y, 360, height, Color.SkyBlue);
+        const int width = 360;
+        const int padding = 8;
+        const int lineHeight = 20;
+        var textWidth = width - padding * 2;
+        var descriptionLines = WrapText(item.Description, 16, textWidth);
+        var wrappedDetails = detailLines
+            .SelectMany(line => WrapText(line.Text, 16, textWidth).Select(text => (Text: text, line.Color)))
+            .ToList();
+        var height = 44 + descriptionLines.Count * lineHeight + 8 + wrappedDetails.Count * lineHeight + padding;
+        Raylib.DrawRectangle(x, y, width, height, Palette.C(0, 0, 0, 220));
+        Raylib.DrawRectangleLines(x, y, width, height, Color.SkyBlue);
         Raylib.DrawText(item.Name, x + 8, y + 8, 18, Color.White);
-        Raylib.DrawText(item.Description, x + 8, y + 32, 16, Color.LightGray);
-        for (var i = 0; i < detailLines.Count; i++)
+        var lineY = y + 32;
+        foreach (var line in descriptionLines)
         {
-            var (text, color) = detailLines[i];
-            Raylib.DrawText(text, x + 8, y + 58 + i * 22, 16, color);
+            Raylib.DrawText(line, x + padding, lineY, 16, Color.LightGray);
+            lineY += lineHeight;
         }
+
+        lineY += 8;
+        foreach (var (text, color) in wrappedDetails)
+        {
+            Raylib.DrawText(text, x + padding, lineY, 16, color);
+            lineY += lineHeight;
+        }
+    }
+
+    private static List<string> WrapText(string text, int fontSize, int maxWidth)
+    {
+        var lines = new List<string>();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            lines.Add(string.Empty);
+            return lines;
+        }
+
+        var current = string.Empty;
+        foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var candidate = string.IsNullOrEmpty(current) ? word : $"{current} {word}";
+            if (Raylib.MeasureText(candidate, fontSize) <= maxWidth)
+            {
+                current = candidate;
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(current)) lines.Add(current);
+            current = word;
+        }
+
+        if (!string.IsNullOrEmpty(current)) lines.Add(current);
+        return lines;
     }
 
     private static List<(string Text, Color Color)> BuildTooltipDetails(ItemStack item)
@@ -741,13 +950,13 @@ public sealed partial class SciFiRogueGame
 
     private void DrawGrid()
     {
-        for (var x = 0; x < World; x += 80) Raylib.DrawLine(x, 0, x, World, Theme.Grid);
-        for (var y = 0; y < World; y += 80) Raylib.DrawLine(0, y, World, y, Theme.Grid);
+        for (var x = 0; x < _worldSize; x += 80) Raylib.DrawLine(x, 0, x, _worldSize, Theme.Grid);
+        for (var y = 0; y < _worldSize; y += 80) Raylib.DrawLine(0, y, _worldSize, y, Theme.Grid);
     }
 
     private void DrawMainMenu()
     {
-        Raylib.DrawText("a0.1.6", 86, 150, 24, Palette.C(150, 185, 220));
+        Raylib.DrawText("a0.2", 86, 150, 24, Palette.C(150, 185, 220));
         DrawMetaProgressHeader();
 
         DrawButton(MainMenuButtonRect(0), "Play");
@@ -798,25 +1007,46 @@ public sealed partial class SciFiRogueGame
         DrawTitle("Select Map", 64, 66);
         Raylib.DrawText("Choose your landing zone", 72, 118, 26, Color.LightGray);
 
-        var card = new Rectangle(340, 170, 600, 320);
+        for (var i = 0; i < MapDefinition.All.Length; i++)
+        {
+            DrawMapCard(MapDefinition.All[i], MapCardRect(i));
+        }
+
+        DrawButton(new Rectangle(70, 620, 220, 52), "Back");
+    }
+
+    private void DrawMapCard(MapDefinition map, Rectangle card)
+    {
         var hover = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), card);
         Raylib.DrawRectangleRec(card, hover ? Palette.C(22, 40, 62) : Palette.C(14, 24, 40));
         Raylib.DrawRectangleLinesEx(card, 2f, Palette.C(116, 180, 235));
 
-        var sky = new Rectangle(card.X + 24, card.Y + 24, card.Width - 48, 120);
-        Raylib.DrawRectangleRec(sky, Palette.C(34, 58, 86));
-        Raylib.DrawCircleGradient((int)(sky.X + sky.Width - 90), (int)(sky.Y + 48), 42, Palette.C(250, 214, 120), Palette.C(250, 214, 120, 30));
-        Raylib.DrawRectangle((int)card.X + 40, (int)card.Y + 220, 160, 54, Palette.C(60, 96, 126));
-        Raylib.DrawRectangle((int)card.X + 240, (int)card.Y + 196, 122, 78, Palette.C(112, 74, 58));
-        Raylib.DrawRectangle((int)card.X + 408, (int)card.Y + 182, 180, 92, Palette.C(138, 84, 64));
-        Raylib.DrawCircle((int)card.X + 178, (int)card.Y + 248, 16, Palette.C(80, 170, 255));
-        Raylib.DrawCircle((int)card.X + 498, (int)card.Y + 238, 24, Palette.C(220, 92, 82));
-        Raylib.DrawLine((int)card.X + 54, (int)card.Y + 246, (int)card.X + 560, (int)card.Y + 246, Palette.C(210, 190, 160));
+        var sky = new Rectangle(card.X + 28, card.Y + 28, card.Width - 56, 128);
+        Raylib.DrawRectangleRec(sky, map.IsDeadZone ? Palette.C(28, 40, 44) : Palette.C(34, 58, 86));
+        Raylib.DrawCircleGradient((int)(sky.X + sky.Width - 90), (int)(sky.Y + 48), 42, map.IsDeadZone ? Palette.C(120, 255, 150, 90) : Palette.C(250, 214, 120), Palette.C(250, 214, 120, 30));
+        Raylib.DrawRectangle((int)card.X + 46, (int)card.Y + 228, 128, 48, Palette.C(60, 96, 126));
+        Raylib.DrawRectangle((int)card.X + 220, (int)card.Y + 204, 104, 72, map.IsDeadZone ? Palette.C(80, 90, 90) : Palette.C(112, 74, 58));
+        Raylib.DrawRectangle((int)card.X + 372, (int)card.Y + 188, 116, 88, map.IsDeadZone ? Palette.C(40, 110, 70) : Palette.C(138, 84, 64));
+        Raylib.DrawCircle((int)card.X + 138, (int)card.Y + 252, 15, Palette.C(80, 170, 255));
+        Raylib.DrawCircle((int)card.X + 432, (int)card.Y + 244, 22, map.IsDeadZone ? Palette.C(90, 230, 110) : Palette.C(220, 92, 82));
 
-        Raylib.DrawText("Baselands", 378, 184, 34, Color.White);
+        Raylib.DrawText(map.Name, (int)card.X + 42, (int)card.Y + 174, 32, Color.White);
+        Raylib.DrawText($"{map.WorldSize}x{map.WorldSize}", (int)card.X + 42, (int)card.Y + 212, 20, Color.LightGray);
+        DrawDifficultySkulls(map.Difficulty, new Vector2(card.X + 42, card.Y + 308));
+        Raylib.DrawText("Click to deploy", (int)(card.X + card.Width - 172), (int)card.Y + 310, 20, Palette.C(170, 220, 255));
+    }
 
-        DrawButton(new Rectangle(340, 520, 280, 58), "Deploy");
-        DrawButton(new Rectangle(70, 620, 220, 52), "Back");
+    private static void DrawDifficultySkulls(int count, Vector2 origin)
+    {
+        Raylib.DrawText("Difficulty", (int)origin.X, (int)origin.Y - 22, 18, Color.LightGray);
+        for (var i = 0; i < count; i++)
+        {
+            var x = origin.X + i * 26f;
+            Raylib.DrawCircle((int)x + 10, (int)origin.Y + 10, 10f, Palette.C(230, 230, 230));
+            Raylib.DrawCircle((int)x + 6, (int)origin.Y + 8, 2.5f, Color.Black);
+            Raylib.DrawCircle((int)x + 14, (int)origin.Y + 8, 2.5f, Color.Black);
+            Raylib.DrawRectangle((int)x + 5, (int)origin.Y + 17, 10, 5, Palette.C(230, 230, 230));
+        }
     }
 
     private void DrawStorage()
@@ -835,23 +1065,23 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText("Melee", 72, 372, 18, Color.LightGray);
         Raylib.DrawText("Consumables", 72, 440, 18, Color.LightGray);
 
-        Raylib.DrawRectangle(392, 154, 510, 496, Palette.C(10, 18, 30, 220));
-        Raylib.DrawRectangleLinesEx(new Rectangle(392, 154, 510, 496), 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText("Stash", 414, 170, 24, Color.White);
-        DrawStorageGrid(new Vector2(414, 206), 10, 10);
-
-        var trashPanel = new Rectangle(1008, 170, 210, 220);
-        Raylib.DrawRectangleRec(trashPanel, Palette.C(10, 18, 30, 220));
-        Raylib.DrawRectangleLinesEx(trashPanel, 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText("Trash", 1072, 194, 24, Color.White);
-        Raylib.DrawText("Right click sends", 1030, 338, 20, Color.LightGray);
-        Raylib.DrawText("items here", 1072, 364, 20, Color.LightGray);
-
-        var runBackpackPanel = new Rectangle(912, 396, 318, 304);
+        var runBackpackPanel = new Rectangle(392, 154, 318, 304);
         Raylib.DrawRectangleRec(runBackpackPanel, Palette.C(10, 18, 30, 220));
         Raylib.DrawRectangleLinesEx(runBackpackPanel, 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText("Run Backpack", 936, 410, 24, Color.White);
-        DrawStorageGrid(new Vector2(938, 468), 6, 5);
+        Raylib.DrawText("Run Backpack", 416, 170, 24, Color.White);
+        DrawStorageGrid(new Vector2(418, 228), 6, 5);
+
+        Raylib.DrawRectangle(720, 154, 510, 496, Palette.C(10, 18, 30, 220));
+        Raylib.DrawRectangleLinesEx(new Rectangle(720, 154, 510, 496), 2f, Palette.C(108, 170, 228));
+        Raylib.DrawText("Stash", 742, 170, 24, Color.White);
+        DrawStorageGrid(new Vector2(742, 206), 10, 10);
+
+        var trashPanel = new Rectangle(392, 480, 210, 220);
+        Raylib.DrawRectangleRec(trashPanel, Palette.C(10, 18, 30, 220));
+        Raylib.DrawRectangleLinesEx(trashPanel, 2f, Palette.C(108, 170, 228));
+        Raylib.DrawText("Trash", 456, 504, 24, Color.White);
+        Raylib.DrawText("Right click sends", 414, 648, 20, Color.LightGray);
+        Raylib.DrawText("items here", 456, 674, 20, Color.LightGray);
 
         DrawButton(new Rectangle(70, 620, 220, 52), "Back");
 
@@ -1043,6 +1273,9 @@ public sealed partial class SciFiRogueGame
 
     private Rectangle MainMenuButtonRect(int index)
         => new(70, Raylib.GetScreenHeight() - 344 + index * 60, 220, 48);
+
+    private static Rectangle MapCardRect(int index)
+        => new(70 + index * 585, 160, 555, 380);
 
     private static Rectangle MainMenuCodesButtonRect()
         => new(Raylib.GetScreenWidth() - 290, Raylib.GetScreenHeight() - 110, 220, 48);

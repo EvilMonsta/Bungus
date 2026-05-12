@@ -17,12 +17,8 @@ public sealed partial class SciFiRogueGame : IDisposable
 {
     private const int W = 1280;
     private const int H = 720;
-    private const int World = 6000;
     private const float MinZoneGap = 300f;
     private const float CenterNoZoneRadius = 850f;
-    private const float PortalUnlockDelay = 120f;
-    private const float PortalLifetime = 330f;
-    private const float LastChanceLifetime = 60f;
     private const int ProtectedSaveVersion = 2;
     private static readonly string SaveFilePath = Path.Combine(AppContext.BaseDirectory, "save", "profile.json");
     private static readonly JsonSerializerOptions SaveJsonOptions = new() { WriteIndented = true };
@@ -38,6 +34,9 @@ public sealed partial class SciFiRogueGame : IDisposable
     private List<TurretEnemy> _turrets = [];
     private List<MiniBossEnemySquare> _miniBosses = [];
     private BossEnemyDestroyer? _destroyerBoss;
+    private List<GeneratorGuardianEnemy> _generatorGuards = [];
+    private List<ToxicTriangleEnemy> _toxicEnemies = [];
+    private StationBossEnemy? _stationBoss;
     private List<Projectile> _projectiles = [];
     private List<Explosion> _explosions = [];
     private List<SwingArc> _swings = [];
@@ -45,21 +44,31 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private List<LootZone> _buildings = [];
     private List<LootZone> _outposts = [];
+    private List<LootZone> _generatorZones = [];
+    private List<LootZone> _hangars = [];
+    private LootZone? _stationZone;
     private List<Obstacle> _obstacles = [];
     private List<LootChest> _chests = [];
     private List<GroundConsumablePickup> _groundConsumables = [];
     private List<ProtectiveDome> _protectiveDomes = [];
+    private List<GeneratorNode> _generators = [];
+    private List<ToxicPool> _toxicPools = [];
 
     private DragPayload? _drag;
     private ItemStack? _hovered;
     private SlotKind _lastClickKind;
     private int _lastClickIndex = -1;
     private double _lastClickTime;
+    private SlotKind _inventoryUseHoldKind;
+    private int _inventoryUseHoldIndex = -1;
+    private float _inventoryUseHoldTimer;
     private int _pendingStrengthPoints;
     private int _pendingDexterityPoints;
     private int _pendingSpeedPoints;
     private int _pendingGunsmithPoints;
     private int? _openedChestIndex;
+    private bool _mapOpen;
+    private Vector2? _mapMarker;
     private bool _requestExit;
     private readonly List<VisualTheme> _themes;
     private int _themeIndex;
@@ -68,6 +77,13 @@ public sealed partial class SciFiRogueGame : IDisposable
     private readonly MetaProfile _meta = new();
     private readonly List<ExtractPortal> _extractPortals = [];
     private string _selectedMapName = "Baselands";
+    private MapDefinition _currentMap = MapDefinition.Baselands;
+    private int _worldSize = MapDefinition.Baselands.WorldSize;
+    private Rectangle? _stationEntranceDoor;
+    private Rectangle? _stationBossDoor;
+    private Rectangle? _stationBossArena;
+    private bool _stationEntranceOpen;
+    private bool _stationBossFightStarted;
     private int _runScore;
     private float _portalUnlockTimer;
     private float _portalActiveTimer;
@@ -86,6 +102,26 @@ public sealed partial class SciFiRogueGame : IDisposable
     private bool _codeStatusSuccess;
 
     private static readonly Rectangle TakeAllButtonRect = new(740, 266, 220, 34);
+    private const float InventoryConsumableUseHoldDuration = 1f;
+    private sealed record MapDefinition(
+        string Name,
+        int Difficulty,
+        int WorldSize,
+        int BuildingMin,
+        int BuildingMaxExclusive,
+        int OutpostMin,
+        int OutpostMaxExclusive,
+        float PortalUnlockDelay,
+        float PortalLifetime,
+        float LastChanceLifetime,
+        int PortalCount,
+        int LastChancePortalCount,
+        bool IsDeadZone)
+    {
+        public static readonly MapDefinition Baselands = new("Baselands", 1, 6000, 14, 21, 7, 11, 120f, 330f, 60f, 2, 1, false);
+        public static readonly MapDefinition DeadZone = new("Dead Zone", 2, 12000, 10, 16, 8, 16, 180f, 720f, 60f, 3, 2, true);
+        public static readonly MapDefinition[] All = [Baselands, DeadZone];
+    }
 
     public SciFiRogueGame()
     {
@@ -103,12 +139,23 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void StartRun(string mapName)
     {
-        _selectedMapName = mapName;
-        (_buildings, _outposts) = GenerateZones(_rng.Next(14, 21), _rng.Next(7, 11));
+        _currentMap = MapDefinition.All.FirstOrDefault(m => m.Name.Equals(mapName, StringComparison.OrdinalIgnoreCase)) ?? MapDefinition.Baselands;
+        _selectedMapName = _currentMap.Name;
+        _worldSize = _currentMap.WorldSize;
+        (_buildings, _outposts) = GenerateZones(_rng.Next(_currentMap.BuildingMin, _currentMap.BuildingMaxExclusive), _rng.Next(_currentMap.OutpostMin, _currentMap.OutpostMaxExclusive));
+        GenerateSpecialZones();
         _obstacles = GenerateObstacles();
         _chests = GenerateChestsInZones();
         _groundConsumables = [];
         _protectiveDomes = [];
+        _generators = [];
+        _toxicPools = [];
+        _stationEntranceDoor = null;
+        _stationBossDoor = null;
+        _stationBossArena = null;
+        _stationEntranceOpen = false;
+        _stationBossFightStarted = false;
+        GenerateDeadZoneSetPieces();
         _player = Player.Create(
             GeneratePlayerSpawnPoint(),
             GetCommonHealthBonus(),
@@ -129,17 +176,22 @@ public sealed partial class SciFiRogueGame : IDisposable
         _hexEnemies = [];
         _turrets = GenerateTurrets();
         _miniBosses = GenerateMiniBosses();
-        _destroyerBoss = GenerateDestroyerBoss();
+        _destroyerBoss = _currentMap.IsDeadZone ? null : GenerateDestroyerBoss();
+        _generatorGuards = GenerateGeneratorGuards();
+        _toxicEnemies = GenerateToxicEnemies();
+        _stationBoss = GenerateStationBoss();
         _nextHexSpawnTimer = NextHexSpawnDelay();
         _extractPortals.Clear();
         _runScore = 0;
-        _portalUnlockTimer = PortalUnlockDelay;
-        _portalActiveTimer = PortalLifetime;
+        _portalUnlockTimer = _currentMap.PortalUnlockDelay;
+        _portalActiveTimer = _currentMap.PortalLifetime;
         _lastChanceTimer = 0f;
         _lastChanceActive = false;
         _lastChancePortalNotified = false;
         _player.InventoryOpen = false;
         _openedChestIndex = null;
+        _mapOpen = false;
+        _mapMarker = null;
         _drag = null;
         _hovered = null;
         ClearPendingLevelUpPoints();
@@ -207,13 +259,14 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
-        var card = new Rectangle(340, 170, 600, 320);
-        var deploy = new Rectangle(340, 520, 280, 58);
-        if (Clicked(card) || Clicked(deploy))
+        for (var i = 0; i < MapDefinition.All.Length; i++)
         {
+            var map = MapDefinition.All[i];
+            if (!Clicked(MapCardRect(i))) continue;
             ClearUiInteraction();
-            StartRun("Baselands");
+            StartRun(map.Name);
             _state = GameState.Playing;
+            return;
         }
     }
 
@@ -270,6 +323,20 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdatePlaying(float dt)
     {
+        if (Raylib.IsKeyPressed(KeyboardKey.M))
+        {
+            _mapOpen = !_mapOpen;
+            _drag = null;
+            ResetInventoryUseHold();
+            return;
+        }
+
+        if (_mapOpen)
+        {
+            UpdateMapWindow();
+            return;
+        }
+
         if (Raylib.IsKeyPressed(KeyboardKey.Escape)) { _state = GameState.Paused; return; }
         if (Raylib.IsKeyPressed(KeyboardKey.Tab))
         {
@@ -278,11 +345,16 @@ public sealed partial class SciFiRogueGame : IDisposable
             {
                 _openedChestIndex = null;
                 ClearPendingLevelUpPoints();
+                ResetInventoryUseHold();
+            }
+            else
+            {
+                ResetInventoryUseHold();
             }
         }
 
         var enemyCollisionObstacles = BuildEnemyCollisionObstacles();
-        _player.Update(dt, _obstacles, World, _dashAfterImages);
+        _player.Update(dt, _obstacles, _worldSize, _dashAfterImages);
         _player.UpdateCombat(dt, _projectiles);
         if (Raylib.IsKeyPressed(KeyboardKey.Q)) HandleConsumedQuickSlot(_player.UseQuickSlotQ());
         if (Raylib.IsKeyPressed(KeyboardKey.R)) HandleConsumedQuickSlot(_player.UseQuickSlotR());
@@ -291,7 +363,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         var mouseWorld = Raylib.GetScreenToWorld2D(Raylib.GetMousePosition(), _camera);
         if (Raylib.IsMouseButtonDown(MouseButton.Left) && !_player.InventoryOpen)
         {
-            _player.Attack(mouseWorld, _projectiles, _swings);
+            _player.Attack(mouseWorld, _projectiles, _swings, _obstacles, _worldSize, _dashAfterImages);
         }
 
         UpdateEnemies(dt, enemyCollisionObstacles);
@@ -299,6 +371,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         UpdateTurrets(dt, enemyCollisionObstacles);
         UpdateMiniBosses(dt, enemyCollisionObstacles);
         UpdateDestroyerBoss(dt, enemyCollisionObstacles);
+        UpdateDeadZoneEnemies(dt, enemyCollisionObstacles);
+        UpdateDeadZoneHazards(dt);
+        UpdateDeadZoneProgress();
         UpdateProjectiles(dt);
         UpdateSwings(dt);
         UpdateEffects(dt);
@@ -312,14 +387,57 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (_state != GameState.Playing) return;
 
         var desiredCameraTarget = GetDesiredCameraTarget(mouseWorld);
-        _camera.Target = Vector2.Lerp(_camera.Target, desiredCameraTarget, _player.IsSniperEquipped ? 0.06f : 0.2f);
+        _camera.Target = Vector2.Lerp(_camera.Target, desiredCameraTarget, _player.IsSniperEquipped ? 0.035f : 0.2f);
         if (_player.Health <= 0) FailRun("You Died", "All carried items were lost.");
     }
 
     private Vector2 GetDesiredCameraTarget(Vector2 mouseWorld)
     {
         if (!_player.IsSniperEquipped || _player.InventoryOpen) return _player.Position;
-        return Vector2.Lerp(_player.Position, mouseWorld, 0.5f);
+
+        var toCursor = mouseWorld - _player.Position;
+        if (toCursor.LengthSquared() <= 0.001f) return _player.Position;
+
+        var dir = Vector2.Normalize(toCursor);
+        var desiredOffset = toCursor * 0.5f;
+        var maxOffset = GetMaxSniperCameraOffset(dir);
+        if (desiredOffset.Length() > maxOffset) desiredOffset = dir * maxOffset;
+        return _player.Position + desiredOffset;
+    }
+
+    private float GetMaxSniperCameraOffset(Vector2 dir)
+    {
+        var halfWidth = Raylib.GetScreenWidth() * 0.5f;
+        var halfHeight = Raylib.GetScreenHeight() * 0.5f;
+        var xLimit = MathF.Abs(dir.X) < 0.001f ? float.PositiveInfinity : halfWidth / MathF.Abs(dir.X);
+        var yLimit = MathF.Abs(dir.Y) < 0.001f ? float.PositiveInfinity : halfHeight / MathF.Abs(dir.Y);
+        var distanceFromCenterToEdge = MathF.Min(xLimit, yLimit);
+        return distanceFromCenterToEdge * 0.5f / MathF.Max(_camera.Zoom, 0.001f);
+    }
+
+    private void UpdateMapWindow()
+    {
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape))
+        {
+            _mapOpen = false;
+            return;
+        }
+
+        var mapRect = GetMapRect();
+        var mouse = Raylib.GetMousePosition();
+        if (!Raylib.CheckCollisionPointRec(mouse, mapRect)) return;
+
+        if (Raylib.IsMouseButtonPressed(MouseButton.Right) && _mapMarker is Vector2 marker)
+        {
+            var markerScreen = WorldToMap(marker, mapRect);
+            if (Vector2.Distance(markerScreen, mouse) <= 22f) _mapMarker = null;
+            return;
+        }
+
+        if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _mapMarker = MapToWorld(mouse, mapRect);
+        }
     }
 
     private float NextHexSpawnDelay()
@@ -333,7 +451,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             e.UpdateVisionSweep(dt);
             e.UpdateAwareness(_player.Position, dt, enemyCollisionObstacles);
-            e.UpdateMovement(dt, _player.Position, enemyCollisionObstacles, World);
+            e.UpdateMovement(dt, _player.Position, enemyCollisionObstacles, _worldSize);
             e.TryShootBurst(_player.Position, _projectiles);
 
             if (e.TryMeleeHit(_player) && _rng.NextSingle() <= _player.GetStatusEffectChance(0.05f))
@@ -366,7 +484,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         foreach (var h in _hexEnemies)
         {
-            h.Update(dt, _player.Position, _projectiles, enemyCollisionObstacles, World);
+            h.Update(dt, _player.Position, _projectiles, enemyCollisionObstacles, _worldSize);
             if (!h.Alive && !h.KillAwarded)
             {
                 h.KillAwarded = true;
@@ -396,7 +514,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         foreach (var b in _miniBosses)
         {
-            b.Update(dt, _player.Position, _projectiles, _player, enemyCollisionObstacles, World, _dashAfterImages);
+            b.Update(dt, _player.Position, _projectiles, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages);
             if (!b.Alive && !b.KillAwarded)
             {
                 b.KillAwarded = true;
@@ -412,7 +530,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         if (_destroyerBoss is null) return;
 
-        _destroyerBoss.Update(dt, _player.Position, _projectiles, _player, enemyCollisionObstacles, World, _dashAfterImages);
+        _destroyerBoss.Update(dt, _player.Position, _projectiles, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages);
         if (!_destroyerBoss.Alive && !_destroyerBoss.KillAwarded)
         {
             _destroyerBoss.KillAwarded = true;
@@ -421,6 +539,93 @@ public sealed partial class SciFiRogueGame : IDisposable
             AddRunScore(1000);
             _chests.Add(new LootChest(_destroyerBoss.Position, RollBossLoot()));
         }
+    }
+
+    private void UpdateDeadZoneEnemies(float dt, List<Obstacle> enemyCollisionObstacles)
+    {
+        foreach (var guard in _generatorGuards)
+        {
+            guard.Update(dt, _player.Position, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages);
+            if (!guard.Alive && !guard.KillAwarded)
+            {
+                guard.KillAwarded = true;
+                var generator = _generators.FirstOrDefault(g => g.ZoneId == guard.ZoneId);
+                if (generator is not null) generator.GuardDefeated = true;
+                TryDropEnemyConsumable(guard.Position);
+                _player.RegisterKill(4);
+                AddRunScore(80);
+            }
+        }
+
+        foreach (var toxic in _toxicEnemies)
+        {
+            toxic.Update(dt, _player.Position, _projectiles, enemyCollisionObstacles, _worldSize);
+            if (!toxic.Alive && !toxic.KillAwarded)
+            {
+                toxic.KillAwarded = true;
+                TryDropEnemyConsumable(toxic.Position);
+                _player.RegisterKill(2);
+                AddRunScore(25);
+            }
+        }
+
+        if (_stationBoss is not null)
+        {
+            _stationBoss.Update(dt, _player.Position, _projectiles, _player, enemyCollisionObstacles, _worldSize);
+            if (!_stationBoss.Alive && !_stationBoss.KillAwarded)
+            {
+                _stationBoss.KillAwarded = true;
+                _player.RegisterKill(25);
+                AddRunScore(1300);
+                _chests.Add(new LootChest(_stationBoss.Position, RollStationBossLoot()));
+            }
+        }
+    }
+
+    private void UpdateDeadZoneHazards(float dt)
+    {
+        if (!_currentMap.IsDeadZone) return;
+
+        if (_toxicPools.Any(pool => pool.Contains(_player.Position)))
+        {
+            _player.ApplyPoison(5f);
+        }
+    }
+
+    private void UpdateDeadZoneProgress()
+    {
+        if (!_currentMap.IsDeadZone) return;
+
+        if (!_stationEntranceOpen && _generators.Count(g => g.Destroyed) >= 3)
+        {
+            _stationEntranceOpen = true;
+            RemoveObstacle(_stationEntranceDoor);
+            ShowNotice("Station entrance unlocked.");
+        }
+
+        if (!_stationBossFightStarted
+            && _stationBoss is not null
+            && _stationBossArena is Rectangle arena
+            && Raylib.CheckCollisionPointRec(_player.Position, arena))
+        {
+            _stationBossFightStarted = true;
+            _stationBoss.Activate();
+            if (_stationBossDoor is Rectangle door)
+            {
+                _obstacles.Add(new Obstacle(door));
+            }
+            ShowNotice("Station arena sealed.");
+        }
+    }
+
+    private void RemoveObstacle(Rectangle? rect)
+    {
+        if (rect is not Rectangle target) return;
+        _obstacles.RemoveAll(o =>
+            MathF.Abs(o.Rect.X - target.X) < 0.1f
+            && MathF.Abs(o.Rect.Y - target.Y) < 0.1f
+            && MathF.Abs(o.Rect.Width - target.Width) < 0.1f
+            && MathF.Abs(o.Rect.Height - target.Height) < 0.1f);
     }
 
     private void UpdateGroundConsumables()
@@ -467,7 +672,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             var p = _projectiles[i];
             p.Update(dt);
 
-            var hitWorldBounds = p.Position.X < 0 || p.Position.Y < 0 || p.Position.X > World || p.Position.Y > World;
+            var hitWorldBounds = p.Position.X < 0 || p.Position.Y < 0 || p.Position.X > _worldSize || p.Position.Y > _worldSize;
             var hitObstacle = MovementUtils.CircleHitsObstacle(p.Position, p.DrawRadius, _obstacles);
             var domeHit = p.OwnerEnemy ? FindHitDome(p.Position, p.DrawRadius) : null;
 
@@ -490,7 +695,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 }
                 else
                 {
-                    directHit = TryApplyPlayerSegmentDamage(p.PreviousPosition, p.Position, p.DrawRadius, p.Damage, p.SourcePosition);
+                    directHit = TryApplyPlayerSegmentDamage(p.PreviousPosition, p.Position, p.DrawRadius, p.Damage, p.SourcePosition, p.PoisonDamagePerSecond, p.PoisonDuration);
                     hitTarget = directHit || HasEnemyInRadius(p.Position, 22f);
                 }
 
@@ -522,6 +727,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 if (Vector2.Distance(p.Position, _player.Position) < 14f)
                 {
                     _player.TakeDamage(p.Damage);
+                    if (p.PlayerPoisonDuration > 0f) _player.ApplyPoison(p.PlayerPoisonDuration);
                     _explosions.Add(new Explosion(p.Position, 26f, p.Color));
                     _projectiles.RemoveAt(i);
                 }
@@ -529,7 +735,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 continue;
             }
 
-            if (TryApplyPlayerSegmentDamage(p.PreviousPosition, p.Position, p.DrawRadius, p.Damage, p.SourcePosition))
+            if (TryApplyPlayerSegmentDamage(p.PreviousPosition, p.Position, p.DrawRadius, p.Damage, p.SourcePosition, p.PoisonDamagePerSecond, p.PoisonDuration))
             {
                 _explosions.Add(new Explosion(p.Position, 34f, p.Color));
                 _projectiles.RemoveAt(i);
@@ -546,12 +752,16 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (_hexEnemies.Any(h => h.Alive && Vector2.Distance(h.Position, position) < radius)) return true;
         if (_turrets.Any(t => t.Alive && Vector2.Distance(t.Position, position) < radius + 6f)) return true;
         if (_miniBosses.Any(b => b.Alive && Vector2.Distance(b.Position, position) < radius + 14f)) return true;
+        if (_generatorGuards.Any(g => g.Alive && Vector2.Distance(g.Position, position) < radius + 14f)) return true;
+        if (_toxicEnemies.Any(e => e.Alive && Vector2.Distance(e.Position, position) < radius + 12f)) return true;
+        if (_generators.Any(g => !g.Destroyed && Vector2.Distance(g.Position, position) < radius + 24f)) return true;
+        if (_stationBoss is not null && _stationBoss.IntersectsAnyHitZone(position, radius)) return true;
         return _destroyerBoss is not null
             && _destroyerBoss.Alive
             && _destroyerBoss.IntersectsAnyHitZone(position, radius);
     }
 
-    private bool TryApplyPlayerSegmentDamage(Vector2 from, Vector2 to, float radius, float damage, Vector2 shotSource)
+    private bool TryApplyPlayerSegmentDamage(Vector2 from, Vector2 to, float radius, float damage, Vector2 shotSource, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
     {
         var enemyHit = _enemies
             .Where(e => e.Alive && DistanceToSegment(e.Position, from, to) <= radius + 11f)
@@ -560,7 +770,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (enemyHit is not null)
         {
             enemyHit.Damage(damage);
-            ApplyPlayerHitEffects(enemyHit);
+            ApplyPlayerHitEffects(enemyHit, poisonDamagePerSecond, poisonDuration);
             var targetAggroed = enemyHit.ReactToShot(shotSource, _obstacles);
             AggroWitnesses(enemyHit.Position, targetAggroed);
             return true;
@@ -573,7 +783,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (hexHit is not null)
         {
             hexHit.Damage(damage);
-            ApplyPlayerHitEffects(hexHit);
+            ApplyPlayerHitEffects(hexHit, poisonDamagePerSecond, poisonDuration);
             AggroWitnesses(hexHit.Position, true);
             return true;
         }
@@ -585,7 +795,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (turretHit is not null)
         {
             turretHit.Damage(damage);
-            ApplyPlayerHitEffects(turretHit);
+            ApplyPlayerHitEffects(turretHit, poisonDamagePerSecond, poisonDuration);
             var targetAggroed = turretHit.ReactToShot(shotSource, _player.Position, _obstacles);
             AggroWitnesses(turretHit.Position, targetAggroed);
             return true;
@@ -598,15 +808,57 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (miniBossHit is not null)
         {
             miniBossHit.Damage(damage);
-            ApplyPlayerHitEffects(miniBossHit);
+            ApplyPlayerHitEffects(miniBossHit, poisonDamagePerSecond, poisonDuration);
             var targetAggroed = miniBossHit.ReactToShot(shotSource, _obstacles);
             AggroWitnesses(miniBossHit.Position, targetAggroed);
             return true;
         }
 
+        var guardHit = _generatorGuards
+            .Where(g => g.Alive && DistanceToSegment(g.Position, from, to) <= radius + 18f)
+            .OrderBy(g => DistanceToSegment(g.Position, from, to))
+            .FirstOrDefault();
+        if (guardHit is not null)
+        {
+            guardHit.Damage(damage);
+            ApplyPlayerHitEffects(guardHit, poisonDamagePerSecond, poisonDuration);
+            AggroWitnesses(guardHit.Position, true);
+            return true;
+        }
+
+        var toxicHit = _toxicEnemies
+            .Where(e => e.Alive && DistanceToSegment(e.Position, from, to) <= radius + 16f)
+            .OrderBy(e => DistanceToSegment(e.Position, from, to))
+            .FirstOrDefault();
+        if (toxicHit is not null)
+        {
+            toxicHit.Damage(damage);
+            ApplyPlayerHitEffects(toxicHit, poisonDamagePerSecond, poisonDuration);
+            toxicHit.ForceAggro(_player.Position);
+            AggroWitnesses(toxicHit.Position, true);
+            return true;
+        }
+
+        var generatorHit = _generators
+            .Where(g => !g.Destroyed && DistanceToSegment(g.Position, from, to) <= radius + 28f)
+            .OrderBy(g => DistanceToSegment(g.Position, from, to))
+            .FirstOrDefault();
+        if (generatorHit is not null)
+        {
+            generatorHit.Damage(damage);
+            return true;
+        }
+
+        if (_stationBoss is not null && _stationBoss.TryApplySegmentDamage(from, to, radius, damage))
+        {
+            ApplyPlayerHitEffects(_stationBoss, poisonDamagePerSecond, poisonDuration);
+            AggroWitnesses(_stationBoss.Position, true);
+            return true;
+        }
+
         if (_destroyerBoss is not null && _destroyerBoss.Alive && _destroyerBoss.TryApplySegmentDamage(from, to, radius, damage))
         {
-            ApplyPlayerHitEffects(_destroyerBoss);
+            ApplyPlayerHitEffects(_destroyerBoss, poisonDamagePerSecond, poisonDuration);
             _destroyerBoss.ForceAggro(_player.Position);
             AggroWitnesses(_destroyerBoss.Position, true);
             return true;
@@ -659,6 +911,35 @@ public sealed partial class SciFiRogueGame : IDisposable
             aggroWitnesses |= miniBoss.ReactToShot(projectile.SourcePosition, _obstacles);
         }
 
+        foreach (var guard in _generatorGuards.Where(g => g.Alive && Vector2.Distance(g.Position, projectile.Position) <= projectile.ExplosionRadius + 14f))
+        {
+            guard.Damage(projectile.ExplosionDamage);
+            ApplyPlayerHitEffects(guard);
+            aggroWitnesses = true;
+        }
+
+        foreach (var toxic in _toxicEnemies.Where(e => e.Alive && Vector2.Distance(e.Position, projectile.Position) <= projectile.ExplosionRadius + 12f))
+        {
+            toxic.Damage(projectile.ExplosionDamage);
+            ApplyPlayerHitEffects(toxic);
+            aggroWitnesses = true;
+        }
+
+        foreach (var generator in _generators.Where(g => !g.Destroyed && Vector2.Distance(g.Position, projectile.Position) <= projectile.ExplosionRadius + 24f))
+        {
+            generator.Damage(projectile.ExplosionDamage);
+        }
+
+        if (_stationBoss is not null)
+        {
+            _stationBoss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, projectile.ExplosionDamage);
+            if (_stationBoss.IntersectsAnyHitZone(projectile.Position, projectile.ExplosionRadius))
+            {
+                ApplyPlayerHitEffects(_stationBoss);
+                aggroWitnesses = true;
+            }
+        }
+
         if (_destroyerBoss is not null && _destroyerBoss.Alive)
         {
             _destroyerBoss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, projectile.ExplosionDamage);
@@ -673,29 +954,52 @@ public sealed partial class SciFiRogueGame : IDisposable
         AggroWitnesses(projectile.Position, aggroWitnesses);
     }
 
-    private void ApplyPlayerHitEffects(Enemy enemy)
+    private void ApplyPlayerHitEffects(Enemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
     {
         if (_player.StickyBulletsActive) enemy.ApplyStickySlow();
+        if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
     }
 
-    private void ApplyPlayerHitEffects(HexEnemy enemy)
+    private void ApplyPlayerHitEffects(HexEnemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
     {
         if (_player.StickyBulletsActive) enemy.ApplyStickySlow();
+        if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
     }
 
-    private void ApplyPlayerHitEffects(TurretEnemy enemy)
+    private void ApplyPlayerHitEffects(TurretEnemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
     {
         if (_player.StickyBulletsActive) enemy.ApplyStickySlow();
+        if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
     }
 
-    private void ApplyPlayerHitEffects(MiniBossEnemySquare enemy)
+    private void ApplyPlayerHitEffects(MiniBossEnemySquare enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
     {
         if (_player.StickyBulletsActive) enemy.ApplyStickySlow();
+        if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
     }
 
-    private void ApplyPlayerHitEffects(BossEnemyDestroyer enemy)
+    private void ApplyPlayerHitEffects(BossEnemyDestroyer enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
     {
         if (_player.StickyBulletsActive) enemy.ApplyStickySlow();
+        if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
+    }
+
+    private void ApplyPlayerHitEffects(GeneratorGuardianEnemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
+    {
+        if (_player.StickyBulletsActive) enemy.ApplyStickySlow();
+        if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
+    }
+
+    private void ApplyPlayerHitEffects(ToxicTriangleEnemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
+    {
+        if (_player.StickyBulletsActive) enemy.ApplyStickySlow();
+        if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
+    }
+
+    private void ApplyPlayerHitEffects(StationBossEnemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
+    {
+        if (_player.StickyBulletsActive) enemy.ApplyStickySlow();
+        if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
     }
 
     private void UpdateProtectiveDomes(float dt)
@@ -720,9 +1024,24 @@ public sealed partial class SciFiRogueGame : IDisposable
                 dome.TryApplyContactDamage(boss, 20f, 0.8f);
             }
 
+            foreach (var guard in _generatorGuards.Where(g => g.Alive && Vector2.Distance(g.Position, dome.Position) <= ProtectiveDome.Radius + 18f))
+            {
+                dome.TryApplyContactDamage(guard, 18f, 0.8f);
+            }
+
+            foreach (var toxic in _toxicEnemies.Where(t => t.Alive && Vector2.Distance(t.Position, dome.Position) <= ProtectiveDome.Radius + 16f))
+            {
+                dome.TryApplyContactDamage(toxic, 10f, 0.9f);
+            }
+
             if (_destroyerBoss is not null && _destroyerBoss.Alive && Vector2.Distance(_destroyerBoss.Position, dome.Position) <= ProtectiveDome.Radius + 52f)
             {
                 dome.TryApplyContactDamage(_destroyerBoss, 22f, 0.8f);
+            }
+
+            if (_stationBoss is not null && _stationBoss.Alive && Vector2.Distance(_stationBoss.Position, dome.Position) <= ProtectiveDome.Radius + 34f)
+            {
+                dome.TryApplyContactDamage(_stationBoss, 22f, 0.8f);
             }
 
             if (dome.Alive) continue;
@@ -796,6 +1115,56 @@ public sealed partial class SciFiRogueGame : IDisposable
                 }
             }
 
+            foreach (var g in _generatorGuards.Where(x => x.Alive))
+            {
+                var hit = s.IsLine
+                    ? DistanceToSegment(g.Position, s.LineStart, s.LineEnd) < 20f
+                    : IsInArc(g.Position, s, 14f);
+                if (hit && s.TryRegisterHit(g))
+                {
+                    g.Damage(_player.GetMeleeDamage());
+                    ApplyPlayerHitEffects(g);
+                    AggroWitnesses(g.Position, true);
+                }
+            }
+
+            foreach (var toxic in _toxicEnemies.Where(x => x.Alive))
+            {
+                var hit = s.IsLine
+                    ? DistanceToSegment(toxic.Position, s.LineStart, s.LineEnd) < 18f
+                    : IsInArc(toxic.Position, s, 12f);
+                if (hit && s.TryRegisterHit(toxic))
+                {
+                    toxic.Damage(_player.GetMeleeDamage());
+                    ApplyPlayerHitEffects(toxic);
+                    AggroWitnesses(toxic.Position, true);
+                }
+            }
+
+            foreach (var generator in _generators.Where(x => !x.Destroyed))
+            {
+                var hit = s.IsLine
+                    ? DistanceToSegment(generator.Position, s.LineStart, s.LineEnd) < 30f
+                    : IsInArc(generator.Position, s, 24f);
+                if (hit && s.TryRegisterHit(generator))
+                {
+                    generator.Damage(_player.GetMeleeDamage());
+                }
+            }
+
+            if (_stationBoss is not null && _stationBoss.Alive)
+            {
+                var hit = s.IsLine
+                    ? DistanceToSegment(_stationBoss.Position, s.LineStart, s.LineEnd) < 36f
+                    : IsInArc(_stationBoss.Position, s, 30f);
+                if (hit && s.TryRegisterHit(_stationBoss))
+                {
+                    _stationBoss.Damage(_player.GetMeleeDamage() * 0.75f);
+                    ApplyPlayerHitEffects(_stationBoss);
+                    AggroWitnesses(_stationBoss.Position, true);
+                }
+            }
+
             if (_destroyerBoss is not null && _destroyerBoss.Alive)
             {
                 var hit = s.IsLine
@@ -829,6 +1198,11 @@ public sealed partial class SciFiRogueGame : IDisposable
         foreach (var miniBoss in _miniBosses.Where(x => x.Alive))
         {
             if (miniBoss.CanNoticeCombatPoint(impactPosition, _obstacles)) miniBoss.ForceAggro(_player.Position);
+        }
+
+        foreach (var toxic in _toxicEnemies.Where(x => x.Alive))
+        {
+            if (toxic.CanNoticeCombatPoint(impactPosition, _obstacles)) toxic.ForceAggro(_player.Position);
         }
 
         if (_destroyerBoss is not null && _destroyerBoss.Alive && _destroyerBoss.CanSeePoint(impactPosition, _obstacles))
@@ -888,6 +1262,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             chest.Opened = true;
             _openedChestIndex = i;
             _player.InventoryOpen = true;
+            ResetInventoryUseHold();
             break;
         }
 
@@ -898,6 +1273,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             _openedChestIndex = null;
             _player.InventoryOpen = false;
+            ResetInventoryUseHold();
             return;
         }
     }
@@ -921,9 +1297,12 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (from is not null && TryMoveInventorySlotToTrash(from))
             {
                 _drag = null;
+                ResetInventoryUseHold();
                 return;
             }
         }
+
+        UpdateInventoryConsumableUseHold(slots, m);
 
         if (Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
@@ -943,6 +1322,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 if (isDoubleClick && from.Item is not null && HandleDoubleClick(from))
                 {
                     _drag = null;
+                    ResetInventoryUseHold();
                     return;
                 }
 
@@ -951,7 +1331,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             }
         }
 
-        if (_openedChestIndex is not null && (Clicked(TakeAllButtonRect) || Raylib.IsKeyPressed(KeyboardKey.X)))
+        if (_openedChestIndex is not null && (Clicked(TakeAllButtonRect) || (Raylib.IsKeyPressed(KeyboardKey.X) && _inventoryUseHoldIndex < 0)))
         {
             MoveAllFromChestToBackpack();
         }
@@ -981,12 +1361,81 @@ public sealed partial class SciFiRogueGame : IDisposable
             return MoveChestItemToBackpack(slot.Index);
         }
 
+        if (slot.Item?.Type == ItemType.Consumable)
+        {
+            return MoveConsumableToQuickSlotQ(slot);
+        }
+
         if (slot.Kind == SlotKind.Backpack)
         {
             return EquipFromBackpack(slot.Index);
         }
 
         return false;
+    }
+
+    private void UpdateInventoryConsumableUseHold(List<UiSlot> slots, Vector2 mouse)
+    {
+        if (_drag is not null || !Raylib.IsKeyDown(KeyboardKey.X))
+        {
+            ResetInventoryUseHold();
+            return;
+        }
+
+        var slot = slots.FirstOrDefault(s => Raylib.CheckCollisionPointRec(mouse, s.Rect));
+        if (slot?.Item?.Type != ItemType.Consumable || slot.Kind == SlotKind.Trash || slot.Kind == SlotKind.Chest)
+        {
+            ResetInventoryUseHold();
+            return;
+        }
+
+        if (_inventoryUseHoldKind != slot.Kind || _inventoryUseHoldIndex != slot.Index)
+        {
+            _inventoryUseHoldKind = slot.Kind;
+            _inventoryUseHoldIndex = slot.Index;
+            _inventoryUseHoldTimer = 0f;
+        }
+
+        _inventoryUseHoldTimer += Raylib.GetFrameTime();
+        if (_inventoryUseHoldTimer < InventoryConsumableUseHoldDuration) return;
+
+        var consumed = _player.UseConsumableItem(slot.Item);
+        if (consumed is null)
+        {
+            ResetInventoryUseHold();
+            return;
+        }
+
+        RemoveFromSource(new DragPayload(slot.Kind, slot.Index, slot.Item));
+        HandleConsumedQuickSlot(consumed);
+        _player.Inventory.AutoFillConsumableSlots();
+        ResetInventoryUseHold();
+    }
+
+    private bool MoveConsumableToQuickSlotQ(UiSlot slot)
+    {
+        if (slot.Item?.Type != ItemType.Consumable) return false;
+        if (slot.Kind == SlotKind.QuickSlotQ) return false;
+        if (slot.Kind is not (SlotKind.Backpack or SlotKind.QuickSlotR)) return false;
+
+        var target = _player.Inventory.QuickSlotQ;
+        _player.Inventory.QuickSlotQ = slot.Item;
+
+        if (slot.Kind == SlotKind.Backpack)
+        {
+            _player.Inventory.BackpackSlots[slot.Index] = target;
+            return true;
+        }
+
+        _player.Inventory.QuickSlotR = target;
+        return true;
+    }
+
+    private void ResetInventoryUseHold()
+    {
+        _inventoryUseHoldKind = default;
+        _inventoryUseHoldIndex = -1;
+        _inventoryUseHoldTimer = 0f;
     }
 
     private void UpdateStorageUi()
@@ -1128,14 +1577,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var c = i % 10;
             var r = i / 10;
-            list.Add(new UiSlot(new Rectangle(414 + c * 48, 206 + r * 44, 42, 42), SlotKind.Storage, i, _meta.StorageSlots[i], i));
+            list.Add(new UiSlot(new Rectangle(742 + c * 48, 206 + r * 44, 42, 42), SlotKind.Storage, i, _meta.StorageSlots[i], i));
         }
 
         for (var i = 0; i < _meta.RunBackpackSlots.Count; i++)
         {
             var c = i % 6;
             var r = i / 6;
-            list.Add(new UiSlot(new Rectangle(938 + c * 48, 468 + r * 44, 42, 42), SlotKind.RunBackpack, i, _meta.RunBackpackSlots[i], i));
+            list.Add(new UiSlot(new Rectangle(418 + c * 48, 228 + r * 44, 42, 42), SlotKind.RunBackpack, i, _meta.RunBackpackSlots[i], i));
         }
 
         list.AddRange(
@@ -1145,7 +1594,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             new UiSlot(new Rectangle(238, 362, 58, 58), SlotKind.MeleeWeapon, -1, _meta.MeleeWeapon, -1),
             new UiSlot(new Rectangle(206, 454, 58, 58), SlotKind.QuickSlotQ, -1, _meta.QuickSlotQ, -1),
             new UiSlot(new Rectangle(272, 454, 58, 58), SlotKind.QuickSlotR, -1, _meta.QuickSlotR, -1),
-            new UiSlot(new Rectangle(1084, 252, 58, 58), SlotKind.Trash, -1, _meta.Trash, -1)
+            new UiSlot(new Rectangle(468, 562, 58, 58), SlotKind.Trash, -1, _meta.Trash, -1)
         ]);
 
         return list;
@@ -1620,7 +2069,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (_portalUnlockTimer <= 0f)
             {
                 SpawnExtractionPortals();
-                _portalActiveTimer = PortalLifetime;
+                _portalActiveTimer = _currentMap.PortalLifetime;
                 ShowNotice("Portals are open.");
             }
 
@@ -1643,28 +2092,33 @@ public sealed partial class SciFiRogueGame : IDisposable
     private void SpawnExtractionPortals()
     {
         _extractPortals.Clear();
-        var first = RandomExtractionPortalPoint(24f);
-        var second = first;
-        for (var i = 0; i < 120; i++)
+        var attempts = 0;
+        while (_extractPortals.Count < _currentMap.PortalCount && attempts++ < 400)
         {
-            second = RandomExtractionPortalPoint(24f);
-            if (Vector2.Distance(first, second) >= 2200f) break;
+            var point = RandomExtractionPortalPoint(24f);
+            if (_extractPortals.Any(portal => Vector2.Distance(portal.Position, point) < 2200f) && _extractPortals.Count > 0) continue;
+            _extractPortals.Add(new ExtractPortal(point, _rng.NextSingle() * MathF.Tau));
         }
 
-        _extractPortals.Add(new ExtractPortal(first, _rng.NextSingle() * MathF.Tau));
-        _extractPortals.Add(new ExtractPortal(second, _rng.NextSingle() * MathF.Tau));
+        while (_extractPortals.Count < _currentMap.PortalCount)
+        {
+            _extractPortals.Add(new ExtractPortal(RandomExtractionPortalPoint(24f), _rng.NextSingle() * MathF.Tau));
+        }
     }
 
     private void ActivateLastChancePortal()
     {
         _extractPortals.Clear();
         _lastChanceActive = true;
-        _lastChanceTimer = LastChanceLifetime;
+        _lastChanceTimer = _currentMap.LastChanceLifetime;
         _lastChancePortalNotified = false;
 
-        var portalPos = RandomExtractionPortalPoint(24f);
-        _extractPortals.Add(new ExtractPortal(portalPos, _rng.NextSingle() * MathF.Tau));
-        SpawnLastChanceEnemies(portalPos);
+        for (var i = 0; i < _currentMap.LastChancePortalCount; i++)
+        {
+            var portalPos = RandomExtractionPortalPoint(24f);
+            _extractPortals.Add(new ExtractPortal(portalPos, _rng.NextSingle() * MathF.Tau));
+            SpawnLastChanceEnemies(portalPos);
+        }
         _nextHexSpawnTimer = MathF.Min(_nextHexSpawnTimer, NextHexSpawnDelay());
         ShowNotice("Final extraction chance started. Portal opens in the last 10 seconds.");
     }
@@ -1684,7 +2138,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         for (var i = 0; i < _rng.Next(2, 6); i++)
         {
             var point = RandomPointNear(portalPos, 90f, 260f, 14f);
-            _enemies.Add(Enemy.CreatePatrol(point, point, false));
+            _enemies.Add(Enemy.CreatePatrol(point, point, false, enhanced: _currentMap.IsDeadZone));
         }
     }
 
@@ -1695,7 +2149,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             var angle = _rng.NextSingle() * MathF.Tau;
             var distance = minDistance + _rng.NextSingle() * (maxDistance - minDistance);
             var point = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * distance;
-            point = Vector2.Clamp(point, new Vector2(radius + 4f, radius + 4f), new Vector2(World - radius - 4f, World - radius - 4f));
+            point = Vector2.Clamp(point, new Vector2(radius + 4f, radius + 4f), new Vector2(_worldSize - radius - 4f, _worldSize - radius - 4f));
             if (!MovementUtils.CircleHitsObstacle(point, radius, _obstacles)) return point;
         }
 
@@ -1875,8 +2329,10 @@ public sealed partial class SciFiRogueGame : IDisposable
             ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.Standard, ArmorRarity.Legendary, _rng),
             ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.PulseRifle, ArmorRarity.Legendary, _rng),
             ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.SniperRifle, ArmorRarity.Legendary, _rng),
+            ItemStack.Toxikus(_rng),
             ItemStack.PatternWeapon(WeaponClass.Melee, WeaponPattern.Standard, ArmorRarity.Legendary, _rng),
             ItemStack.PatternWeapon(WeaponClass.Melee, WeaponPattern.EnergySpear, ArmorRarity.Legendary, _rng),
+            ItemStack.Lancelot(_rng),
             ItemStack.BossGrenadeLauncher()
         };
 
@@ -2007,10 +2463,39 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         DrawScreenZoneArrow(_buildings, Palette.C(80, 170, 255), "T");
         DrawScreenZoneArrow(_outposts, Palette.C(245, 90, 90), "O");
+        if (_mapMarker is Vector2 marker)
+        {
+            DrawScreenPointArrow(marker, Palette.C(255, 220, 80), "M");
+        }
+
         if (_destroyerBoss is not null && _destroyerBoss.Alive)
         {
             DrawScreenPointArrow(_destroyerBoss.Position, Palette.C(230, 45, 45), "B");
         }
+    }
+
+    private static Rectangle GetMapRect()
+    {
+        var size = MathF.Min(Raylib.GetScreenWidth() - 140f, Raylib.GetScreenHeight() - 120f);
+        size = MathF.Min(size, 620f);
+        return new Rectangle(
+            Raylib.GetScreenWidth() * 0.5f - size * 0.5f,
+            Raylib.GetScreenHeight() * 0.5f - size * 0.5f + 20f,
+            size,
+            size);
+    }
+
+    private Vector2 WorldToMap(Vector2 worldPoint, Rectangle mapRect)
+    {
+        var scale = mapRect.Width / _worldSize;
+        return new Vector2(mapRect.X + worldPoint.X * scale, mapRect.Y + worldPoint.Y * scale);
+    }
+
+    private Vector2 MapToWorld(Vector2 mapPoint, Rectangle mapRect)
+    {
+        var scale = _worldSize / mapRect.Width;
+        var world = new Vector2((mapPoint.X - mapRect.X) * scale, (mapPoint.Y - mapRect.Y) * scale);
+        return Vector2.Clamp(world, Vector2.Zero, new Vector2(_worldSize, _worldSize));
     }
 
     private void DrawScreenZoneArrow(List<LootZone> zones, Color color, string marker)
@@ -2145,17 +2630,19 @@ public sealed partial class SciFiRogueGame : IDisposable
                 ? $"shot {shotDamage:0.0} / charged {player.GetSniperShotDamage(weapon, true):0.0}"
                 : $"shot {shotDamage:0.0}";
         }
-        if (weapon.Pattern == WeaponPattern.PulseRifle)
+        if (weapon.Pattern is WeaponPattern.PulseRifle or WeaponPattern.Toxikus)
         {
             var perShot = player.GetPulseShotDamage(weapon);
             var shots = player.GetPulseBurstShotCount(weapon);
-            return $"burst {perShot:0.0}x{shots}={perShot * shots:0.0}";
+            return weapon.Pattern == WeaponPattern.Toxikus
+                ? $"toxic burst {perShot:0.0}x{shots} + poison"
+                : $"burst {perShot:0.0}x{shots}={perShot * shots:0.0}";
         }
 
         if (kind == WeaponClass.Melee)
         {
             var hitDamage = player.GetMeleeHitDamage(weapon);
-            return weapon.Pattern == WeaponPattern.EnergySpear
+            return weapon.Pattern is WeaponPattern.EnergySpear or WeaponPattern.Lancelot
                 ? $"thrust {hitDamage:0.0}"
                 : $"slash {hitDamage:0.0}";
         }
@@ -2174,6 +2661,53 @@ public sealed partial class SciFiRogueGame : IDisposable
         return (all.Where(x => !x.IsOutpost).ToList(), all.Where(x => x.IsOutpost).ToList());
     }
 
+    private IEnumerable<LootZone> AllZones()
+    {
+        foreach (var zone in _buildings) yield return zone;
+        foreach (var zone in _outposts) yield return zone;
+        foreach (var zone in _generatorZones) yield return zone;
+        foreach (var zone in _hangars) yield return zone;
+        if (_stationZone is not null) yield return _stationZone;
+    }
+
+    private void GenerateSpecialZones()
+    {
+        _generatorZones = [];
+        _hangars = [];
+        _stationZone = null;
+        if (!_currentMap.IsDeadZone) return;
+
+        var station = GetDeadZoneStationRect();
+        _stationZone = new LootZone(10000, station, LootZoneKind.Station);
+
+        var all = _buildings.Concat(_outposts).ToList();
+        all.Add(_stationZone);
+        PlaceSpecialZones(all, 5, LootZoneKind.Generator);
+        PlaceSpecialZones(all, _rng.Next(2, 4), LootZoneKind.Hangar);
+    }
+
+    private void PlaceSpecialZones(List<LootZone> all, int count, LootZoneKind kind)
+    {
+        var created = 0;
+        var attempts = 0;
+        while (created < count && attempts < count * 240)
+        {
+            attempts++;
+            var size = kind == LootZoneKind.Hangar
+                ? new Vector2(_rng.Next(1400, 1650), _rng.Next(1400, 1650))
+                : new Vector2(_rng.Next(360, 460), _rng.Next(360, 460));
+            var pos = new Vector2(_rng.Next(80, _worldSize - (int)size.X - 80), _rng.Next(80, _worldSize - (int)size.Y - 80));
+            var rect = new Rectangle(pos, size);
+            if (!IsZonePlacementValid(rect, all)) continue;
+
+            var zone = new LootZone(10000 + all.Count, rect, kind);
+            all.Add(zone);
+            if (kind == LootZoneKind.Hangar) _hangars.Add(zone);
+            else _generatorZones.Add(zone);
+            created++;
+        }
+    }
+
     private void PlaceZones(List<LootZone> all, int count, bool outpost)
     {
         var created = 0;
@@ -2181,10 +2715,11 @@ public sealed partial class SciFiRogueGame : IDisposable
         while (created < count && attempts < count * 180)
         {
             attempts++;
+            var scale = _currentMap.IsDeadZone ? MathF.Sqrt(1.4f) : 1f;
             var size = outpost
-                ? new Vector2(_rng.Next(520, 780), _rng.Next(520, 780))
-                : new Vector2(_rng.Next(420, 620), _rng.Next(420, 620));
-            var pos = new Vector2(_rng.Next(80, World - (int)size.X - 80), _rng.Next(80, World - (int)size.Y - 80));
+                ? new Vector2(_rng.Next(520, 780) * scale, _rng.Next(520, 780) * scale)
+                : new Vector2(_rng.Next(420, 620) * scale, _rng.Next(420, 620) * scale);
+            var pos = new Vector2(_rng.Next(80, _worldSize - (int)size.X - 80), _rng.Next(80, _worldSize - (int)size.Y - 80));
             var rect = new Rectangle(pos, size);
             if (!IsZonePlacementValid(rect, all)) continue;
             all.Add(new LootZone(all.Count, rect, outpost));
@@ -2195,8 +2730,13 @@ public sealed partial class SciFiRogueGame : IDisposable
     private bool IsZonePlacementValid(Rectangle rect, List<LootZone> existing)
     {
         var center = new Vector2(rect.X + rect.Width / 2f, rect.Y + rect.Height / 2f);
-        var worldCenter = new Vector2(World / 2f, World / 2f);
+        var worldCenter = new Vector2(_worldSize / 2f, _worldSize / 2f);
         if (Vector2.Distance(center, worldCenter) < CenterNoZoneRadius + MathF.Max(rect.Width, rect.Height) * 0.5f)
+        {
+            return false;
+        }
+
+        if (_currentMap.IsDeadZone && RectDistance(rect, GetDeadZoneStationRect()) < MinZoneGap)
         {
             return false;
         }
@@ -2208,6 +2748,9 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         return true;
     }
+
+    private Rectangle GetDeadZoneStationRect()
+        => new(_worldSize / 2f - 1500f, _worldSize / 2f - 1000f, 3000f, 2000f);
 
     private List<LootChest> GenerateChestsInZones()
     {
@@ -2241,12 +2784,39 @@ public sealed partial class SciFiRogueGame : IDisposable
             }
         }
 
+        foreach (var hangar in _hangars)
+        {
+            var chestCount = _rng.Next(2, 4);
+            for (var i = 0; i < chestCount; i++)
+            {
+                var lootCount = _rng.Next(1, 4);
+                var loot = new List<ItemStack>();
+                for (var l = 0; l < lootCount; l++) loot.Add(RollHangarLoot());
+                list.Add(new LootChest(RandomPointInZoneSafe(hangar.Rect, 20f), loot, hangar.Id, LootContainerKind.Chest));
+            }
+        }
+
         return list;
     }
 
     private ItemStack RollLoot(bool isOutpost)
     {
         var r = _rng.NextSingle();
+        if (_currentMap.IsDeadZone)
+        {
+            if (isOutpost)
+            {
+                if (r < 0.20f) return ItemStack.Consumable(RollConsumableType());
+                if (r < 0.60f) return RollEquipmentOfRarity(ArmorRarity.Common);
+                if (r < 0.98f) return RollEquipmentOfRarity(ArmorRarity.Rare);
+                return RollEquipmentOfRarity(ArmorRarity.Epic);
+            }
+
+            if (r < 0.40f) return ItemStack.Consumable(RollConsumableType());
+            if (r < 0.90f) return RollEquipmentOfRarity(ArmorRarity.Common);
+            return RollEquipmentOfRarity(ArmorRarity.Rare);
+        }
+
         if (_selectedMapName.Equals("Baselands", StringComparison.OrdinalIgnoreCase))
         {
             if (isOutpost)
@@ -2266,6 +2836,25 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         var rarity = RollRarity(isOutpost);
         return RollEquipmentOfRarity(rarity);
+    }
+
+    private ItemStack RollHangarLoot()
+    {
+        var r = _rng.NextSingle();
+        if (r < 0.22f) return ItemStack.Consumable(RollConsumableType());
+        if (r < 0.42f) return RollEquipmentOfRarity(ArmorRarity.Common);
+        if (r < 0.92f) return RollEquipmentOfRarity(ArmorRarity.Rare);
+        if (r < 0.96f) return RollEquipmentOfRarity(ArmorRarity.Epic);
+        if (r < 0.98f) return ItemStack.Toxikus(_rng);
+        return RollEquipmentOfRarity(ArmorRarity.Rare);
+    }
+
+    private ItemStack RollStationCrateLoot()
+    {
+        var r = _rng.NextSingle();
+        if (r < 0.40f) return ItemStack.Consumable(RollConsumableType());
+        if (r < 0.70f) return RollEquipmentOfRarity(ArmorRarity.Common);
+        return RollEquipmentOfRarity(ArmorRarity.Rare);
     }
 
     private ArmorRarity RollRarity(bool isOutpost)
@@ -2308,6 +2897,18 @@ public sealed partial class SciFiRogueGame : IDisposable
         return loot;
     }
 
+    private List<ItemStack> RollStationBossLoot()
+    {
+        var secondRarity = _rng.NextSingle() < 0.05f ? ArmorRarity.Legendary : ArmorRarity.Epic;
+        var loot = new List<ItemStack>
+        {
+            RollEquipmentOfRarity(ArmorRarity.Epic),
+            RollEquipmentOfRarity(secondRarity)
+        };
+        if (_rng.NextSingle() < 0.20f) loot.Add(ItemStack.Lancelot(_rng));
+        return loot;
+    }
+
     private List<ItemStack> RollMiniBossLoot()
     {
         var loot = new List<ItemStack> { RollEquipmentOfRarity(_rng.NextSingle() < 0.5f ? ArmorRarity.Rare : ArmorRarity.Common) };
@@ -2341,6 +2942,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (_enemies.Any(enemy => enemy.Alive && enemy.ZoneId == zoneId)) return false;
         if (_turrets.Any(turret => turret.Alive && turret.ZoneId == zoneId)) return false;
         if (_miniBosses.Any(boss => boss.Alive && boss.ZoneId == zoneId)) return false;
+        if (_generatorGuards.Any(guard => guard.Alive && guard.ZoneId == zoneId)) return false;
+        if (_toxicEnemies.Any(enemy => enemy.Alive && enemy.ZoneId == zoneId)) return false;
         return true;
     }
 
@@ -2391,21 +2994,20 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         for (var i = 0; i < 200; i++)
         {
-            var point = new Vector2(_rng.Next(50, World - 50), _rng.Next(50, World - 50));
+            var point = new Vector2(_rng.Next(50, _worldSize - 50), _rng.Next(50, _worldSize - 50));
             if (MovementUtils.CircleHitsObstacle(point, radius, _obstacles)) continue;
             return point;
         }
 
-        return new Vector2(World / 2f, World / 2f);
+        return new Vector2(_worldSize / 2f, _worldSize / 2f);
     }
 
     private Vector2 RandomOutdoorPoint(float radius = 14f)
     {
         while (true)
         {
-            var point = new Vector2(_rng.Next(100, World - 100), _rng.Next(100, World - 100));
-            if (_buildings.Any(z => Raylib.CheckCollisionPointRec(point, z.Rect))) continue;
-            if (_outposts.Any(z => Raylib.CheckCollisionPointRec(point, z.Rect))) continue;
+            var point = new Vector2(_rng.Next(100, _worldSize - 100), _rng.Next(100, _worldSize - 100));
+            if (AllZones().Any(z => Raylib.CheckCollisionPointRec(point, z.Rect))) continue;
             if (MovementUtils.CircleHitsObstacle(point, radius, _obstacles)) continue;
             return point;
         }
@@ -2425,7 +3027,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     }
 
     private bool IsPointInAnyZone(Vector2 point, float margin)
-        => _buildings.Concat(_outposts).Any(zone => Raylib.CheckCollisionPointRec(point, ExpandRect(zone.Rect, margin)));
+        => AllZones().Any(zone => Raylib.CheckCollisionPointRec(point, ExpandRect(zone.Rect, margin)));
 
     private static Rectangle ExpandRect(Rectangle rect, float margin)
         => new(rect.X - margin, rect.Y - margin, rect.Width + margin * 2f, rect.Height + margin * 2f);
@@ -2443,16 +3045,25 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         var list = new List<Obstacle>();
 
-        foreach (var zone in _buildings.Concat(_outposts))
+        foreach (var zone in _buildings.Concat(_outposts).Concat(_hangars))
         {
-            var count = zone.IsOutpost ? _rng.Next(6, 10) : _rng.Next(4, 7);
+            var count = zone.Kind switch
+            {
+                LootZoneKind.Hangar => _rng.Next(14, 20),
+                LootZoneKind.Outpost => _rng.Next(_currentMap.IsDeadZone ? 9 : 6, _currentMap.IsDeadZone ? 14 : 10),
+                _ => _rng.Next(_currentMap.IsDeadZone ? 6 : 4, _currentMap.IsDeadZone ? 10 : 7)
+            };
             for (var i = 0; i < count; i++)
             {
                 var tries = 0;
                 while (tries++ < 60)
                 {
-                    var w = zone.IsOutpost ? _rng.Next(70, 128) : _rng.Next(52, 96);
-                    var h = zone.IsOutpost ? _rng.Next(70, 128) : _rng.Next(52, 96);
+                    var w = zone.Kind == LootZoneKind.Hangar
+                        ? _rng.Next(96, 180)
+                        : zone.IsOutpost ? _rng.Next(70, 128) : _rng.Next(52, 96);
+                    var h = zone.Kind == LootZoneKind.Hangar
+                        ? _rng.Next(96, 180)
+                        : zone.IsOutpost ? _rng.Next(70, 128) : _rng.Next(52, 96);
                     var x = _rng.Next((int)zone.Rect.X + 18, (int)(zone.Rect.X + zone.Rect.Width - w - 18));
                     var y = _rng.Next((int)zone.Rect.Y + 18, (int)(zone.Rect.Y + zone.Rect.Height - h - 18));
                     var rect = new Rectangle(x, y, w, h);
@@ -2468,38 +3079,149 @@ public sealed partial class SciFiRogueGame : IDisposable
         return list;
     }
 
+    private void GenerateDeadZoneSetPieces()
+    {
+        if (!_currentMap.IsDeadZone) return;
+
+        foreach (var zone in _generatorZones)
+        {
+            _generators.Add(new GeneratorNode(zone.Center, zone.Id));
+        }
+
+        foreach (var hangar in _hangars)
+        {
+            AddHangarWalls(hangar.Rect);
+            var clusters = _rng.Next(7, 11);
+            for (var i = 0; i < clusters; i++)
+            {
+                var center = RandomPointInZoneSafe(hangar.Rect, 40f);
+                var blobs = _rng.Next(5, 9);
+                for (var b = 0; b < blobs; b++)
+                {
+                    var offset = new Vector2(_rng.Next(-105, 106), _rng.Next(-105, 106));
+                    _toxicPools.Add(new ToxicPool(center + offset, _rng.Next(44, 86), _rng.Next(30, 74)));
+                }
+            }
+        }
+
+        if (_stationZone is not null)
+        {
+            AddStationLayout(_stationZone.Rect);
+        }
+    }
+
+    private void AddHangarWalls(Rectangle rect)
+    {
+        const float wall = 28f;
+        var gap = rect.Width * 0.22f;
+        var gapX = rect.X + rect.Width * 0.5f - gap * 0.5f;
+
+        _obstacles.Add(new Obstacle(new Rectangle(rect.X, rect.Y, wall, rect.Height)));
+        _obstacles.Add(new Obstacle(new Rectangle(rect.X + rect.Width - wall, rect.Y, wall, rect.Height)));
+        _obstacles.Add(new Obstacle(new Rectangle(rect.X, rect.Y, gapX - rect.X, wall)));
+        _obstacles.Add(new Obstacle(new Rectangle(gapX + gap, rect.Y, rect.X + rect.Width - gapX - gap, wall)));
+        _obstacles.Add(new Obstacle(new Rectangle(rect.X, rect.Y + rect.Height - wall, gapX - rect.X, wall)));
+        _obstacles.Add(new Obstacle(new Rectangle(gapX + gap, rect.Y + rect.Height - wall, rect.X + rect.Width - gapX - gap, wall)));
+    }
+
+    private void AddStationLayout(Rectangle rect)
+    {
+        const float wall = 26f;
+        var entranceGap = 240f;
+        var entranceX = rect.X + rect.Width * 0.5f - entranceGap * 0.5f;
+
+        _obstacles.Add(new Obstacle(new Rectangle(rect.X, rect.Y, rect.Width, wall)));
+        _obstacles.Add(new Obstacle(new Rectangle(rect.X, rect.Y, wall, rect.Height)));
+        _obstacles.Add(new Obstacle(new Rectangle(rect.X + rect.Width - wall, rect.Y, wall, rect.Height)));
+        _obstacles.Add(new Obstacle(new Rectangle(rect.X, rect.Y + rect.Height - wall, entranceX - rect.X, wall)));
+        _obstacles.Add(new Obstacle(new Rectangle(entranceX + entranceGap, rect.Y + rect.Height - wall, rect.X + rect.Width - entranceX - entranceGap, wall)));
+
+        _stationEntranceDoor = new Rectangle(entranceX, rect.Y + rect.Height - wall, entranceGap, wall);
+        _obstacles.Add(new Obstacle(_stationEntranceDoor.Value));
+
+        var bossWallX = rect.X + rect.Width * 0.54f;
+        var bossDoorY = rect.Y + rect.Height - 330f;
+        var bossDoorHeight = 220f;
+        _stationBossArena = new Rectangle(bossWallX + wall, rect.Y + wall, rect.Width - (bossWallX - rect.X) - wall * 2f, rect.Height - wall * 2f);
+        _stationBossDoor = new Rectangle(bossWallX, bossDoorY, wall, bossDoorHeight);
+
+        _obstacles.Add(new Obstacle(new Rectangle(bossWallX, rect.Y, wall, bossDoorY - rect.Y)));
+        _obstacles.Add(new Obstacle(new Rectangle(bossWallX, bossDoorY + bossDoorHeight, wall, rect.Y + rect.Height - bossDoorY - bossDoorHeight)));
+
+        var leftWidth = bossWallX - rect.X;
+        var verticals = new[]
+        {
+            new Rectangle(rect.X + leftWidth * 0.18f, rect.Y + 260f, wall, 520f),
+            new Rectangle(rect.X + leftWidth * 0.36f, rect.Y + 680f, wall, 640f),
+            new Rectangle(rect.X + leftWidth * 0.62f, rect.Y + 120f, wall, 720f),
+            new Rectangle(rect.X + leftWidth * 0.62f, rect.Y + 1100f, wall, 660f),
+            new Rectangle(rect.X + leftWidth * 0.84f, rect.Y + 200f, wall, 520f),
+            new Rectangle(rect.X + leftWidth * 0.84f, rect.Y + 880f, wall, 560f)
+        };
+        var horizontals = new[]
+        {
+            new Rectangle(rect.X + 120f, rect.Y + 300f, 520f, wall),
+            new Rectangle(rect.X + 120f, rect.Y + 680f, 960f, wall),
+            new Rectangle(rect.X + 360f, rect.Y + 980f, 840f, wall),
+            new Rectangle(rect.X + 120f, rect.Y + 1320f, 620f, wall),
+            new Rectangle(rect.X + 820f, rect.Y + 1540f, 780f, wall)
+        };
+
+        foreach (var obstacle in verticals.Concat(horizontals)) _obstacles.Add(new Obstacle(obstacle));
+
+        var potentialCrates = new[]
+        {
+            new Vector2(rect.X + 120f, rect.Y + 110f),
+            new Vector2(rect.X + 150f, rect.Y + 520f),
+            new Vector2(rect.X + 150f, rect.Y + 920f),
+            new Vector2(rect.X + 180f, rect.Y + 1660f),
+            new Vector2(rect.X + 560f, rect.Y + 360f),
+            new Vector2(rect.X + 860f, rect.Y + 930f),
+            new Vector2(rect.X + 1240f, rect.Y + 360f),
+            new Vector2(rect.X + 1440f, rect.Y + 1120f),
+            new Vector2(rect.X + 330f, rect.Y + 1560f),
+            new Vector2(rect.X + 760f, rect.Y + 1650f)
+        };
+
+        foreach (var pos in potentialCrates.OrderBy(_ => _rng.Next()).Take(_rng.Next(4, 8)))
+        {
+            _chests.Add(new LootChest(pos, new List<ItemStack> { RollStationCrateLoot() }, null, LootContainerKind.Crate));
+        }
+    }
+
     private List<Enemy> GenerateEnemies()
     {
         var list = new List<Enemy>();
+        var enhanced = _currentMap.IsDeadZone;
 
         foreach (var b in _buildings)
         {
-            var count = _rng.Next(2, 4);
+            var count = ScaleDeadZoneEnemyCount(_rng.Next(2, 4));
             for (var i = 0; i < count; i++)
             {
                 var patrolA = RandomPointInZoneSafe(b.Rect, 14f);
                 var patrolB = RandomPointInZoneSafe(b.Rect, 14f);
-                list.Add(Enemy.CreatePatrol(patrolA, patrolB, false, b.Id));
+                list.Add(Enemy.CreatePatrol(patrolA, patrolB, false, b.Id, enhanced));
             }
 
-            var strongCount = _rng.Next(1, 3);
+            var strongCount = ScaleDeadZoneEnemyCount(_rng.Next(1, 3));
             for (var i = 0; i < strongCount; i++)
             {
-                list.Add(Enemy.CreateStrong(RandomPointInZoneSafe(b.Rect, 14f), b.Id));
+                list.Add(Enemy.CreateStrong(RandomPointInZoneSafe(b.Rect, 14f), b.Id, enhanced));
             }
         }
 
         foreach (var o in _outposts)
         {
-            var count = _rng.Next(5, 8);
+            var count = ScaleDeadZoneEnemyCount(_rng.Next(5, 8));
             for (var i = 0; i < count; i++)
             {
                 var patrolA = RandomPointInZoneSafe(o.Rect, 14f);
                 var patrolB = RandomPointInZoneSafe(o.Rect, 14f);
-                list.Add(Enemy.CreatePatrol(patrolA, patrolB, true, o.Id));
+                list.Add(Enemy.CreatePatrol(patrolA, patrolB, true, o.Id, enhanced));
             }
-            var strong = _rng.Next(3, 5);
-            for (var i = 0; i < strong; i++) list.Add(Enemy.CreateStrong(RandomPointInZoneSafe(o.Rect, 14f), o.Id));
+            var strong = ScaleDeadZoneEnemyCount(_rng.Next(3, 5));
+            for (var i = 0; i < strong; i++) list.Add(Enemy.CreateStrong(RandomPointInZoneSafe(o.Rect, 14f), o.Id, enhanced));
         }
 
         var outdoorPatrols = _rng.Next(12, 19);
@@ -2507,23 +3229,26 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var patrolA = RandomOutdoorPoint();
             var patrolB = patrolA + new Vector2(_rng.Next(-160, 161), _rng.Next(-160, 161));
-            patrolB = Vector2.Clamp(patrolB, new Vector2(40f, 40f), new Vector2(World - 40f, World - 40f));
+            patrolB = Vector2.Clamp(patrolB, new Vector2(40f, 40f), new Vector2(_worldSize - 40f, _worldSize - 40f));
             if (MovementUtils.CircleHitsObstacle(patrolB, 14f, _obstacles)) patrolB = patrolA;
-            list.Add(Enemy.CreatePatrol(patrolA, patrolB, false));
+            list.Add(Enemy.CreatePatrol(patrolA, patrolB, false, enhanced: enhanced));
         }
 
-        var outdoorStrong = _rng.Next(6, 11);
-        for (var i = 0; i < outdoorStrong; i++) list.Add(Enemy.CreateStrong(RandomOutdoorPoint()));
+        var outdoorStrong = _currentMap.IsDeadZone ? _rng.Next(18, 29) : _rng.Next(6, 11);
+        for (var i = 0; i < outdoorStrong; i++) list.Add(Enemy.CreateStrong(RandomOutdoorPoint(), enhanced: enhanced));
 
         var outdoorGuards = _rng.Next(10, 17);
         for (var i = 0; i < outdoorGuards; i++)
         {
             var point = RandomOutdoorPoint();
-            list.Add(Enemy.CreatePatrol(point, point, false));
+            list.Add(Enemy.CreatePatrol(point, point, false, enhanced: enhanced));
         }
 
         return list;
     }
+
+    private int ScaleDeadZoneEnemyCount(int count)
+        => _currentMap.IsDeadZone ? Math.Max(1, (int)MathF.Ceiling(count * 1.5f)) : count;
 
 
     private List<TurretEnemy> GenerateTurrets()
@@ -2541,18 +3266,50 @@ public sealed partial class SciFiRogueGame : IDisposable
         return list;
     }
 
+    private List<GeneratorGuardianEnemy> GenerateGeneratorGuards()
+    {
+        var list = new List<GeneratorGuardianEnemy>();
+        foreach (var zone in _generatorZones)
+        {
+            list.Add(new GeneratorGuardianEnemy(zone.Center + new Vector2(70f, 0f), zone.Id));
+        }
+
+        return list;
+    }
+
+    private List<ToxicTriangleEnemy> GenerateToxicEnemies()
+    {
+        var list = new List<ToxicTriangleEnemy>();
+        foreach (var hangar in _hangars)
+        {
+            var count = _rng.Next(5, 11);
+            for (var i = 0; i < count; i++)
+            {
+                list.Add(new ToxicTriangleEnemy(RandomPointInZoneSafe(hangar.Rect, 16f), hangar.Id));
+            }
+        }
+
+        return list;
+    }
+
+    private StationBossEnemy? GenerateStationBoss()
+    {
+        if (!_currentMap.IsDeadZone || _stationBossArena is not Rectangle arena) return null;
+        return new StationBossEnemy(new Vector2(arena.X + arena.Width * 0.5f, arena.Y + arena.Height * 0.5f), arena);
+    }
+
     private Vector2 GeneratePlayerSpawnPoint()
     {
         for (var i = 0; i < 200; i++)
         {
             var point = RandomOutdoorPoint(16f);
-            if (Vector2.Distance(point, new Vector2(World / 2f, World / 2f)) >= CenterNoZoneRadius + 250f)
+            if (Vector2.Distance(point, new Vector2(_worldSize / 2f, _worldSize / 2f)) >= CenterNoZoneRadius + 250f)
             {
                 return point;
             }
         }
 
-        return new Vector2(World / 2f, CenterNoZoneRadius + 250f);
+        return new Vector2(_worldSize / 2f, CenterNoZoneRadius + 250f);
     }
 
     private List<MiniBossEnemySquare> GenerateMiniBosses()
@@ -2567,7 +3324,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     }
 
     private BossEnemyDestroyer GenerateDestroyerBoss()
-        => new(new Vector2(World / 2f, World / 2f));
+        => new(new Vector2(_worldSize / 2f, _worldSize / 2f));
 
 
     private static List<VisualTheme> BuildThemes()

@@ -470,7 +470,19 @@ public sealed class ItemStack
         string name;
         string description;
 
-        if (kind == WeaponClass.Ranged && pattern == WeaponPattern.SniperRifle)
+        if (kind == WeaponClass.Ranged && pattern == WeaponPattern.Toxikus)
+        {
+            name = "Toxikus";
+            description = "Unique pulse rifle. Slower 2-round burst; bullets poison enemies.";
+            baseDamage = 20f + rng.NextSingle() * 5f;
+        }
+        else if (kind == WeaponClass.Melee && pattern == WeaponPattern.Lancelot)
+        {
+            name = "Lancelot";
+            description = "Unique spear. Attacks lunge forward and hit harder than a legendary spear.";
+            baseDamage = (27f + rng.NextSingle() * 4f) * 1.05f;
+        }
+        else if (kind == WeaponClass.Ranged && pattern == WeaponPattern.SniperRifle)
         {
             name = "Sniper Rifle";
             description = rarity == ArmorRarity.Legendary
@@ -599,6 +611,12 @@ public sealed class ItemStack
             150f,
             false);
     }
+
+    public static ItemStack Toxikus(Random rng)
+        => CreatePatternWeapon(WeaponClass.Ranged, WeaponPattern.Toxikus, ArmorRarity.Red, rng);
+
+    public static ItemStack Lancelot(Random rng)
+        => CreatePatternWeapon(WeaponClass.Melee, WeaponPattern.Lancelot, ArmorRarity.Red, rng);
 
     public static ItemStack Consumable(ConsumableType t)
     {

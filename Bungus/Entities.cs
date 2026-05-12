@@ -43,6 +43,7 @@ public sealed class Player
     private float _dodgeCd;
     private float _stim;
     private float _bleed;
+    private float _poison;
     private float _dashEchoTimer;
     private float _dashEchoSpawnTimer;
     private Vector2 _dashEchoDir;
@@ -51,6 +52,8 @@ public sealed class Player
     private Vector2 _pulseDir;
     private Color _pulseColor;
     private float _pulseDamage;
+    private float _pulsePoisonDamagePerSecond;
+    private float _pulsePoisonDuration;
     private float _sniperStillTimer;
     private float _legendarySniperChargeTimer;
     private bool _legendarySniperChargePrimed;
@@ -135,6 +138,14 @@ public sealed class Player
             Health = MathF.Max(0f, Health - 2.4f * dt);
         }
 
+        if (_poison > 0)
+        {
+            _poison -= dt;
+            _timeSinceLastDamage = 0f;
+            _regenTickTimer = 0f;
+            Health = MathF.Max(0f, Health - MaxHealth * 0.03f * dt);
+        }
+
         var d = Vector2.Zero;
         if (Raylib.IsKeyDown(KeyboardKey.W)) d.Y -= 1;
         if (Raylib.IsKeyDown(KeyboardKey.S)) d.Y += 1;
@@ -187,7 +198,7 @@ public sealed class Player
         }
     }
 
-    public bool Attack(Vector2 target, List<Projectile> projectiles, List<SwingArc> swings)
+    public bool Attack(Vector2 target, List<Projectile> projectiles, List<SwingArc> swings, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages)
     {
         if (_attackCd > 0f) return false;
 
@@ -221,16 +232,20 @@ public sealed class Player
                 _attackCd = 1f;
                 return true;
             }
-            else if (weapon.Pattern == WeaponPattern.PulseRifle)
+            else if (weapon.Pattern is WeaponPattern.PulseRifle or WeaponPattern.Toxikus)
             {
                 var pulseShotDamage = GetPulseShotDamage(weapon);
-                FirePulseShot(projectiles, dir, weapon.Color, pulseShotDamage);
+                var poisonDps = weapon.Pattern == WeaponPattern.Toxikus ? 40f : 0f;
+                var poisonDuration = weapon.Pattern == WeaponPattern.Toxikus ? 3f : 0f;
+                FirePulseShot(projectiles, dir, weapon.Color, pulseShotDamage, poisonDps, poisonDuration);
                 _pulseQueuedShots = GetPulseBurstShotCount(weapon) - 1;
-                _pulseShotCd = 0.064f;
+                _pulseShotCd = weapon.Pattern == WeaponPattern.Toxikus ? 0.083f : 0.064f;
                 _pulseDir = dir;
                 _pulseColor = weapon.Color;
                 _pulseDamage = pulseShotDamage;
-                _attackCd = 0.374f;
+                _pulsePoisonDamagePerSecond = poisonDps;
+                _pulsePoisonDuration = poisonDuration;
+                _attackCd = weapon.Pattern == WeaponPattern.Toxikus ? 0.486f : 0.374f;
                 return true;
             }
             else if (weapon.Pattern == WeaponPattern.SniperRifle)
@@ -275,11 +290,16 @@ public sealed class Player
         else
         {
             var angle = MathF.Atan2(dir.Y, dir.X);
-            if (weapon.Pattern == WeaponPattern.EnergySpear)
+            if (weapon.Pattern is WeaponPattern.EnergySpear or WeaponPattern.Lancelot)
             {
                 var spearLength = SpearEndDistance - SpearStartDistance;
-                if (weapon.Rarity == ArmorRarity.Legendary) spearLength *= LegendarySpearLengthMultiplier;
+                if (weapon.Rarity == ArmorRarity.Legendary || weapon.Pattern == WeaponPattern.Lancelot) spearLength *= LegendarySpearLengthMultiplier;
                 swings.Add(SwingArc.Line(Position, Position + dir * SpearStartDistance, Position + dir * (SpearStartDistance + spearLength), MeleeSwingLife, weapon.Color));
+                if (weapon.Pattern == WeaponPattern.Lancelot)
+                {
+                    Position = MovementUtils.MoveWithCollisions(Position, dir * 64f, 16f, obstacles, worldSize);
+                    DashAfterImage.Spawn(afterImages, Position, dir, 64f, weapon.Color, false);
+                }
                 _attackCd = GetMeleeCooldown(0.70f);
                 return true;
             }
@@ -300,16 +320,16 @@ public sealed class Player
         _pulseShotCd -= dt;
         while (_pulseQueuedShots > 0 && _pulseShotCd <= 0f)
         {
-            FirePulseShot(projectiles, _pulseDir, _pulseColor, _pulseDamage);
+            FirePulseShot(projectiles, _pulseDir, _pulseColor, _pulseDamage, _pulsePoisonDamagePerSecond, _pulsePoisonDuration);
             _pulseQueuedShots--;
             _pulseShotCd += 0.064f;
         }
     }
 
-    private void FirePulseShot(List<Projectile> projectiles, Vector2 dir, Color color, float damage)
+    private void FirePulseShot(List<Projectile> projectiles, Vector2 dir, Color color, float damage, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
     {
         dir = ApplyMovementSpread(dir);
-        projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, PulseProjectileLifetime, color, false, damage, sourcePosition: Position));
+        projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, PulseProjectileLifetime, color, false, damage, sourcePosition: Position, poisonDamagePerSecond: poisonDamagePerSecond, poisonDuration: poisonDuration));
     }
 
     private void FireStandardShot(List<Projectile> projectiles, Vector2 dir, Color color, float damage, float angleOffset = 0f)
@@ -368,14 +388,15 @@ public sealed class Player
 
     public int GetPulseBurstShotCount(ItemStack weapon)
     {
-        if (weapon.Type != ItemType.Weapon || weapon.Pattern != WeaponPattern.PulseRifle) return 1;
+        if (weapon.Type != ItemType.Weapon || weapon.Pattern is not (WeaponPattern.PulseRifle or WeaponPattern.Toxikus)) return 1;
+        if (weapon.Pattern == WeaponPattern.Toxikus) return 2;
         return weapon.Rarity == ArmorRarity.Legendary ? 4 : 3;
     }
 
     public float GetPulseShotDamage(ItemStack weapon)
     {
-        if (weapon.Type != ItemType.Weapon || weapon.Pattern != WeaponPattern.PulseRifle) return 0f;
-        return GetWeaponDamage(weapon) * 0.45f;
+        if (weapon.Type != ItemType.Weapon || weapon.Pattern is not (WeaponPattern.PulseRifle or WeaponPattern.Toxikus)) return 0f;
+        return GetWeaponDamage(weapon) * 0.525f;
     }
 
     public float GetMeleeDamageMultiplier() => Str * 0.0025f + Dex * 0.01f;
@@ -475,6 +496,9 @@ public sealed class Player
         return used;
     }
 
+    public ConsumableType? UseConsumableItem(ItemStack? item)
+        => TryUseConsumable(item);
+
     private ConsumableType? TryUseConsumable(ItemStack? slot)
     {
         if (slot?.Type != ItemType.Consumable || slot.ConsumableKind is null) return null;
@@ -502,6 +526,8 @@ public sealed class Player
     }
 
     public void ApplyBleed(float duration) => _bleed = MathF.Max(_bleed, duration);
+
+    public void ApplyPoison(float duration) => _poison = MathF.Max(_poison, duration);
     public void TickEffects(float dt) { }
 
     public void TakeDamage(float value, bool isExplosion = false)
@@ -609,6 +635,7 @@ public sealed class Enemy
     public int ZoneId = -1;
     public bool IsStrong;
     public bool IsPatrol;
+    public bool IsEnhanced;
     public bool Alive => Health > 0f;
 
     public bool KillAwarded;
@@ -641,6 +668,8 @@ public sealed class Enemy
 
     private float _deathAnim = 0.45f;
     private float _slowTimer;
+    private float _poisonTimer;
+    private float _poisonDamagePerSecond;
 
     private const float BaseView = 435f;
     private const float StrongView = 540f;
@@ -654,28 +683,32 @@ public sealed class Enemy
         _baseFacing = _facing;
     }
 
-    public static Enemy CreatePatrol(Vector2 a, Vector2 b, bool outpost, int zoneId = -1)
+    public static Enemy CreatePatrol(Vector2 a, Vector2 b, bool outpost, int zoneId = -1, bool enhanced = false)
     {
+        var maxHealth = enhanced ? 125f : 100f;
         var e = new Enemy(a)
         {
             ZoneId = zoneId,
             IsPatrol = true,
+            IsEnhanced = enhanced,
             _patrolA = a,
             _patrolB = b,
-            MaxHealth = 100f,
-            Health = 100f
+            MaxHealth = maxHealth,
+            Health = maxHealth
         };
         return e;
     }
 
-    public static Enemy CreateStrong(Vector2 pos, int zoneId = -1)
+    public static Enemy CreateStrong(Vector2 pos, int zoneId = -1, bool enhanced = false)
     {
+        var maxHealth = enhanced ? 375f : 300f;
         var e = new Enemy(pos)
         {
             ZoneId = zoneId,
             IsStrong = true,
-            MaxHealth = 300f,
-            Health = 300f
+            IsEnhanced = enhanced,
+            MaxHealth = maxHealth,
+            Health = maxHealth
         };
         return e;
     }
@@ -772,6 +805,7 @@ public sealed class Enemy
     {
         _attackCd -= dt;
         _slowTimer = MathF.Max(0f, _slowTimer - dt);
+        TickPoison(dt);
 
         if (!Alive) return;
 
@@ -867,6 +901,20 @@ public sealed class Enemy
         _slowTimer = MathF.Max(_slowTimer, duration);
     }
 
+    public void ApplyPoison(float damagePerSecond, float duration)
+    {
+        if (!Alive || damagePerSecond <= 0f || duration <= 0f) return;
+        _poisonDamagePerSecond = MathF.Max(_poisonDamagePerSecond, damagePerSecond);
+        _poisonTimer = MathF.Max(_poisonTimer, duration);
+    }
+
+    private void TickPoison(float dt)
+    {
+        if (_poisonTimer <= 0f || !Alive) return;
+        _poisonTimer = MathF.Max(0f, _poisonTimer - dt);
+        Health = MathF.Max(0f, Health - _poisonDamagePerSecond * dt);
+    }
+
     private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.7f : 1f;
 
     public void TryShootBurst(Vector2 playerPos, List<Projectile> projectiles)
@@ -879,7 +927,7 @@ public sealed class Enemy
 
             var dir = playerPos - Position;
             if (dir != Vector2.Zero) dir = Vector2.Normalize(dir);
-            projectiles.Add(new Projectile(Position + dir * 16f, dir, 420f, 1.68f, Palette.C(255, 120, 120), true, 8f));
+            projectiles.Add(new Projectile(Position + dir * 16f, dir, 420f, 1.68f, Palette.C(255, 120, 120), true, ScaleDamage(8f)));
             _burstCd = 2.8f;
             return;
         }
@@ -895,7 +943,7 @@ public sealed class Enemy
         {
             var dir = playerPos - Position;
             if (dir != Vector2.Zero) dir = Vector2.Normalize(dir);
-            projectiles.Add(new Projectile(Position + dir * 16f, dir, 420f, 1.68f, Palette.C(255, 120, 120), true, 10f));
+            projectiles.Add(new Projectile(Position + dir * 16f, dir, 420f, 1.68f, Palette.C(255, 120, 120), true, ScaleDamage(10f)));
             _burstShotsLeft--;
             _burstShotCd = 0.13f;
         }
@@ -905,9 +953,11 @@ public sealed class Enemy
     {
         if (!Alive || _attackCd > 0f || Vector2.Distance(Position, player.Position) > 24f) return false;
         _attackCd = IsStrong ? 1.3f : 0.9f;
-        player.TakeDamage(IsStrong ? 18f : 10f);
+        player.TakeDamage(ScaleDamage(IsStrong ? 18f : 10f));
         return true;
     }
+
+    private float ScaleDamage(float damage) => IsEnhanced ? damage * 1.1f : damage;
 
     public float GetViewDistance() => IsStrong ? StrongView : BaseView;
 
@@ -930,10 +980,19 @@ public sealed class Enemy
                 var p3 = Position + new Vector2(14, 14);
                 Raylib.DrawTriangle(p1, p2, p3, theme.EnemyStrong);
                 Raylib.DrawTriangleLines(p1, p2, p3, Color.Maroon);
+                if (IsEnhanced)
+                {
+                    var inner1 = Position + new Vector2(0, -8);
+                    var inner2 = Position + new Vector2(-7, 7);
+                    var inner3 = Position + new Vector2(7, 7);
+                    Raylib.DrawTriangle(inner1, inner2, inner3, Color.White);
+                    Raylib.DrawTriangleLines(inner1, inner2, inner3, Color.Black);
+                }
             }
             else
             {
                 Raylib.DrawCircleV(Position, 14f, theme.Enemy);
+                if (IsEnhanced) Raylib.DrawCircleV(Position, 7f, Color.White);
                 Raylib.DrawCircleLines((int)Position.X, (int)Position.Y, 16f, Color.Maroon);
             }
 
@@ -979,6 +1038,8 @@ public sealed class HexEnemy
     private float _burstShotCd;
     private readonly bool _burstMode;
     private float _slowTimer;
+    private float _poisonTimer;
+    private float _poisonDamagePerSecond;
 
     private const float DesiredDistance = 290f;
 
@@ -994,6 +1055,8 @@ public sealed class HexEnemy
     {
         if (!Alive) return;
         _slowTimer = MathF.Max(0f, _slowTimer - dt);
+        TickPoison(dt);
+        if (!Alive) return;
 
         var toPlayer = playerPos - Position;
         if (toPlayer == Vector2.Zero) toPlayer = new Vector2(1f, 0f);
@@ -1047,6 +1110,20 @@ public sealed class HexEnemy
         Health = MathF.Max(0f, Health - amount);
     }
 
+    public void ApplyPoison(float damagePerSecond, float duration)
+    {
+        if (!Alive || damagePerSecond <= 0f || duration <= 0f) return;
+        _poisonDamagePerSecond = MathF.Max(_poisonDamagePerSecond, damagePerSecond);
+        _poisonTimer = MathF.Max(_poisonTimer, duration);
+    }
+
+    private void TickPoison(float dt)
+    {
+        if (_poisonTimer <= 0f || !Alive) return;
+        _poisonTimer = MathF.Max(0f, _poisonTimer - dt);
+        Health = MathF.Max(0f, Health - _poisonDamagePerSecond * dt);
+    }
+
     public void ApplyStickySlow(float duration = 1f)
     {
         _slowTimer = MathF.Max(_slowTimer, duration);
@@ -1078,6 +1155,358 @@ public sealed class HexEnemy
     }
 }
 
+public sealed class GeneratorGuardianEnemy
+{
+    public Vector2 Position;
+    public float MaxHealth = 1000f;
+    public float Health = 1000f;
+    public int ZoneId = -1;
+    public bool Alive => Health > 0f;
+    public bool KillAwarded;
+
+    private readonly Vector2 _spawn;
+    private bool _alert;
+    private float _attackCd;
+    private float _sideDashCd;
+    private float _playerDashCd;
+    private float _slowTimer;
+    private float _poisonTimer;
+    private float _poisonDamagePerSecond;
+    private float _spearVisualTimer;
+    private Vector2 _spearStart;
+    private Vector2 _spearEnd;
+    private Vector2 _facing = new(1f, 0f);
+
+    private const float SpearStartDistance = 24f;
+    private const float GoldenSpearEndDistance = 145f;
+    private const float SpearHitRadius = 18f;
+    private const float SpearVisualDuration = 0.18f;
+
+    public GeneratorGuardianEnemy(Vector2 position, int zoneId)
+    {
+        Position = position;
+        _spawn = position;
+        ZoneId = zoneId;
+        _sideDashCd = NextSideDashCooldown();
+        _playerDashCd = NextPlayerDashCooldown();
+    }
+
+    public void Update(float dt, Vector2 playerPos, Player player, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages)
+    {
+        _slowTimer = MathF.Max(0f, _slowTimer - dt);
+        _spearVisualTimer = MathF.Max(0f, _spearVisualTimer - dt);
+        TickPoison(dt);
+        if (!Alive) return;
+
+        var toPlayer = playerPos - Position;
+        var playerDistance = toPlayer.Length();
+        if (_alert && playerDistance > 980f)
+        {
+            ReturnToSpawn(dt, obstacles, worldSize);
+            return;
+        }
+
+        if (!_alert)
+        {
+            _facing = Vector2.Normalize(_spawn - Position == Vector2.Zero ? _facing : _spawn - Position);
+            return;
+        }
+
+        var dir = playerDistance <= 0.001f ? _facing : Vector2.Normalize(toPlayer);
+        _facing = dir;
+        Position = MovementUtils.MoveWithCollisions(Position, dir * 150f * GetMovementSpeedMultiplier() * dt, 16f, obstacles, worldSize);
+
+        _sideDashCd -= dt;
+        _playerDashCd -= dt;
+        if (_sideDashCd <= 0f)
+        {
+            var side = VisibilityUtils.Rotate(dir, Random.Shared.NextSingle() < 0.5f ? MathF.PI * 0.5f : -MathF.PI * 0.5f);
+            Position = MovementUtils.MoveWithCollisions(Position, side * 110f * GetMovementSpeedMultiplier(), 16f, obstacles, worldSize);
+            DashAfterImage.Spawn(afterImages, Position, side, 110f, Palette.C(80, 220, 255), false);
+            _sideDashCd = NextSideDashCooldown();
+        }
+
+        if (_playerDashCd <= 0f)
+        {
+            Position = MovementUtils.MoveWithCollisions(Position, dir * 170f * GetMovementSpeedMultiplier(), 16f, obstacles, worldSize);
+            DashAfterImage.Spawn(afterImages, Position, dir, 170f, Palette.C(120, 230, 255), false);
+            _playerDashCd = NextPlayerDashCooldown();
+        }
+
+        _attackCd -= dt;
+        if (_attackCd <= 0f && playerDistance <= GoldenSpearEndDistance + 16f)
+        {
+            _spearStart = Position + dir * SpearStartDistance;
+            _spearEnd = Position + dir * GoldenSpearEndDistance;
+            _spearVisualTimer = SpearVisualDuration;
+            if (DistanceToSegment(player.Position, _spearStart, _spearEnd) <= SpearHitRadius)
+            {
+                player.TakeDamage(30f);
+            }
+            _attackCd = 0.8f;
+        }
+    }
+
+    private void ReturnToSpawn(float dt, List<Obstacle> obstacles, int worldSize)
+    {
+        var toSpawn = _spawn - Position;
+        if (toSpawn.LengthSquared() <= 36f)
+        {
+            _alert = false;
+            Health = MathF.Min(MaxHealth, Health + MaxHealth * 0.30f * dt);
+            return;
+        }
+
+        var dir = Vector2.Normalize(toSpawn);
+        _facing = dir;
+        Position = MovementUtils.MoveWithCollisions(Position, dir * 150f * dt, 16f, obstacles, worldSize);
+        Health = MathF.Min(MaxHealth, Health + MaxHealth * 0.30f * dt);
+    }
+
+    public bool CanSeePoint(Vector2 point, List<Obstacle> obstacles)
+    {
+        var to = point - Position;
+        if (to.Length() > 702f || to.LengthSquared() < 0.01f) return false;
+        var dir = Vector2.Normalize(to);
+        var angle = MathF.Acos(Math.Clamp(Vector2.Dot(_facing, dir), -1f, 1f));
+        return angle <= MathF.PI / 3f && VisibilityUtils.HasLineOfSight(Position, point, obstacles);
+    }
+
+    public void ForceAggro(Vector2 target)
+    {
+        _alert = true;
+        if (target != Position) _facing = Vector2.Normalize(target - Position);
+    }
+
+    public void Damage(float amount)
+    {
+        if (!Alive) return;
+        Health = MathF.Max(0f, Health - amount);
+        _alert = true;
+    }
+
+    public void ApplyStickySlow(float duration = 1f) => _slowTimer = MathF.Max(_slowTimer, duration);
+
+    public void ApplyPoison(float damagePerSecond, float duration)
+    {
+        if (!Alive || damagePerSecond <= 0f || duration <= 0f) return;
+        _poisonDamagePerSecond = MathF.Max(_poisonDamagePerSecond, damagePerSecond);
+        _poisonTimer = MathF.Max(_poisonTimer, duration);
+    }
+
+    private void TickPoison(float dt)
+    {
+        if (_poisonTimer <= 0f || !Alive) return;
+        _poisonTimer = MathF.Max(0f, _poisonTimer - dt);
+        Health = MathF.Max(0f, Health - _poisonDamagePerSecond * dt);
+    }
+
+    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.7f : 1f;
+    private static float NextSideDashCooldown() => 2f + Random.Shared.NextSingle() * 2f;
+    private static float NextPlayerDashCooldown() => 1f + Random.Shared.NextSingle() * 2f;
+
+    private static float DistanceToSegment(Vector2 p, Vector2 a, Vector2 b)
+    {
+        var ab = b - a;
+        var denom = ab.LengthSquared();
+        if (denom <= 0.0001f) return Vector2.Distance(p, a);
+        var t = Math.Clamp(Vector2.Dot(p - a, ab) / denom, 0f, 1f);
+        return Vector2.Distance(p, a + ab * t);
+    }
+
+    public void DrawSight()
+    {
+        if (!Alive) return;
+        var left = VisibilityUtils.Rotate(_facing, -MathF.PI / 3f);
+        var right = VisibilityUtils.Rotate(_facing, MathF.PI / 3f);
+        var c = Palette.C(130, 230, 255, 90);
+        VisibilityUtils.DrawDashedLine(Position, Position + left * 526f, 22, c);
+        VisibilityUtils.DrawDashedLine(Position, Position + right * 526f, 22, c);
+    }
+
+    public void Draw()
+    {
+        if (!Alive) return;
+        Raylib.DrawPoly(Position, 3, 20f, 30f, Palette.C(120, 225, 255));
+        Raylib.DrawPoly(Position, 3, 20f, 210f, Palette.C(120, 225, 255));
+        Raylib.DrawCircleLines((int)Position.X, (int)Position.Y, 22f, Color.White);
+        DrawSpearVisual();
+        DrawHealthBar(Position, Health, MaxHealth, 52);
+    }
+
+    private void DrawSpearVisual()
+    {
+        if (_spearVisualTimer <= 0f) return;
+
+        var alpha = Math.Clamp(_spearVisualTimer / SpearVisualDuration, 0f, 1f);
+        var color = new Color((byte)120, (byte)225, (byte)255, (byte)(255 * alpha));
+        var dir = _spearEnd - _spearStart;
+        if (dir.LengthSquared() <= 0.001f) return;
+        dir = Vector2.Normalize(dir);
+        var angle = MathF.Atan2(dir.Y, dir.X) * 180f / MathF.PI;
+        var length = Vector2.Distance(_spearStart, _spearEnd);
+        var center = (_spearStart + _spearEnd) * 0.5f;
+
+        Raylib.DrawLineEx(_spearStart, _spearEnd, 5f, color);
+        Raylib.DrawRectanglePro(
+            new Rectangle(center.X, center.Y, length, 8f),
+            new Vector2(length * 0.5f, 4f),
+            angle,
+            color);
+        Raylib.DrawCircleV(_spearEnd, 7f, Color.White);
+    }
+
+    private static void DrawHealthBar(Vector2 position, float health, float maxHealth, int width)
+    {
+        var ratio = Math.Clamp(health / MathF.Max(maxHealth, 0.001f), 0f, 1f);
+        Raylib.DrawRectangle((int)position.X - width / 2, (int)position.Y - 34, width, 5, Palette.C(20, 20, 20, 220));
+        Raylib.DrawRectangle((int)position.X - width / 2, (int)position.Y - 34, (int)(width * ratio), 5, Color.Green);
+    }
+}
+
+public sealed class ToxicTriangleEnemy
+{
+    public Vector2 Position;
+    public float MaxHealth = 382.5f;
+    public float Health = 382.5f;
+    public int ZoneId = -1;
+    public bool Alive => Health > 0f;
+    public bool KillAwarded;
+
+    private bool _alert;
+    private float _fireCd;
+    private int _burstLeft;
+    private float _burstShotCd;
+    private float _slowTimer;
+    private float _poisonTimer;
+    private float _poisonDamagePerSecond;
+    private Vector2 _facing = new(1f, 0f);
+
+    private const float ViewDistance = 435f;
+    private const float FovHalf = MathF.PI / 3f;
+
+    public ToxicTriangleEnemy(Vector2 position, int zoneId)
+    {
+        Position = position;
+        ZoneId = zoneId;
+    }
+
+    public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, List<Obstacle> obstacles, int worldSize)
+    {
+        _slowTimer = MathF.Max(0f, _slowTimer - dt);
+        TickPoison(dt);
+        if (!Alive) return;
+
+        var toPlayer = playerPos - Position;
+        if (toPlayer == Vector2.Zero) toPlayer = new Vector2(1f, 0f);
+        var dist = toPlayer.Length();
+        var dir = Vector2.Normalize(toPlayer);
+
+        if (!_alert)
+        {
+            if (CanSeePoint(playerPos, obstacles)) _alert = true;
+            else return;
+        }
+
+        _facing = dir;
+
+        var desiredDistance = 193f;
+        var radial = dist > desiredDistance + 16f ? 182f : dist < desiredDistance - 16f ? -143f : 0f;
+        var strafeDir = new Vector2(-dir.Y, dir.X) * (MathF.Sin((float)Raylib.GetTime() * 7f + Position.X * 0.01f) > 0f ? 1f : -1f);
+        Position = MovementUtils.MoveWithCollisions(Position, (dir * radial + strafeDir * 104f) * GetMovementSpeedMultiplier() * dt, 16f, obstacles, worldSize);
+
+        _fireCd -= dt;
+        if (_fireCd <= 0f && _burstLeft <= 0)
+        {
+            _burstLeft = Random.Shared.Next(2, 10);
+            _burstShotCd = 0f;
+            _fireCd = 1.15f;
+        }
+
+        _burstShotCd -= dt;
+        while (_burstLeft > 0 && _burstShotCd <= 0f)
+        {
+            var spread = ((Random.Shared.NextSingle() * 50f) - 25f) * MathF.PI / 180f;
+            var shotDir = VisibilityUtils.Rotate(dir, spread);
+            projectiles.Add(new Projectile(Position + shotDir * 18f, shotDir, 560f, 1.44f, Palette.C(80, 210, 70), true, 5f, playerPoisonDuration: 2f));
+            _burstLeft--;
+            _burstShotCd += 0.07f;
+        }
+    }
+
+    public void Damage(float amount)
+    {
+        if (!Alive) return;
+        Health = MathF.Max(0f, Health - amount);
+        _alert = true;
+    }
+
+    public bool CanSeePoint(Vector2 point, List<Obstacle> obstacles)
+    {
+        var to = point - Position;
+        var dist = to.Length();
+        if (dist > ViewDistance || dist < 0.01f) return false;
+
+        var dir = Vector2.Normalize(to);
+        var angle = MathF.Acos(Math.Clamp(Vector2.Dot(_facing, dir), -1f, 1f));
+        return angle <= FovHalf && VisibilityUtils.HasLineOfSight(Position, point, obstacles);
+    }
+
+    public bool CanNoticeCombatPoint(Vector2 point, List<Obstacle> obstacles)
+    {
+        var to = point - Position;
+        if (to.LengthSquared() < 0.01f) return false;
+        var dir = Vector2.Normalize(to);
+        var angle = MathF.Acos(Math.Clamp(Vector2.Dot(_facing, dir), -1f, 1f));
+        return angle <= FovHalf && VisibilityUtils.HasLineOfSight(Position, point, obstacles);
+    }
+
+    public void ForceAggro(Vector2 target)
+    {
+        _alert = true;
+        var dir = target - Position;
+        if (dir != Vector2.Zero) _facing = Vector2.Normalize(dir);
+    }
+
+    public void ApplyStickySlow(float duration = 1f) => _slowTimer = MathF.Max(_slowTimer, duration);
+
+    public void ApplyPoison(float damagePerSecond, float duration)
+    {
+        if (!Alive || damagePerSecond <= 0f || duration <= 0f) return;
+        _poisonDamagePerSecond = MathF.Max(_poisonDamagePerSecond, damagePerSecond);
+        _poisonTimer = MathF.Max(_poisonTimer, duration);
+    }
+
+    private void TickPoison(float dt)
+    {
+        if (_poisonTimer <= 0f || !Alive) return;
+        _poisonTimer = MathF.Max(0f, _poisonTimer - dt);
+        Health = MathF.Max(0f, Health - _poisonDamagePerSecond * dt);
+    }
+
+    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.7f : 1f;
+    public void DrawSight()
+    {
+        if (!Alive || _alert) return;
+        var c = Palette.C(60, 180, 70, 28);
+        var left = VisibilityUtils.Rotate(_facing, -FovHalf);
+        var right = VisibilityUtils.Rotate(_facing, FovHalf);
+        var sightLineLength = ViewDistance * 0.75f;
+        VisibilityUtils.DrawDashedLine(Position, Position + left * sightLineLength, 22, c);
+        VisibilityUtils.DrawDashedLine(Position, Position + right * sightLineLength, 22, c);
+    }
+
+    public void Draw()
+    {
+        if (!Alive) return;
+        Raylib.DrawPoly(Position, 3, 18f, MathF.Atan2(_facing.Y, _facing.X) * 180f / MathF.PI + 90f, Palette.C(220, 110, 100));
+        Raylib.DrawCircleLines((int)Position.X, (int)Position.Y, 20f, Palette.C(30, 120, 45));
+        var hp = Health / MaxHealth;
+        Raylib.DrawRectangle((int)Position.X - 24, (int)Position.Y - 30, 48, 5, Palette.C(20, 20, 20, 220));
+        Raylib.DrawRectangle((int)Position.X - 24, (int)Position.Y - 30, (int)(48 * hp), 5, Color.Green);
+    }
+}
+
 public sealed class TurretEnemy
 {
     public Vector2 Position;
@@ -1098,6 +1527,8 @@ public sealed class TurretEnemy
     private Vector2 _lastSeenPlayerPos;
     private bool _hasAim;
     private Vector2 _aimAt;
+    private float _poisonTimer;
+    private float _poisonDamagePerSecond;
 
     private const float ViewDistance = 735f;
     private const float FovHalf = MathF.PI / 3f;
@@ -1114,6 +1545,8 @@ public sealed class TurretEnemy
 
     public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, List<Obstacle> obstacles)
     {
+        if (!Alive) return;
+        TickPoison(dt);
         if (!Alive) return;
 
         var toPlayer = playerPos - Position;
@@ -1231,6 +1664,20 @@ public sealed class TurretEnemy
         Health = MathF.Max(0f, Health - amount);
     }
 
+    public void ApplyPoison(float damagePerSecond, float duration)
+    {
+        if (!Alive || damagePerSecond <= 0f || duration <= 0f) return;
+        _poisonDamagePerSecond = MathF.Max(_poisonDamagePerSecond, damagePerSecond);
+        _poisonTimer = MathF.Max(_poisonTimer, duration);
+    }
+
+    private void TickPoison(float dt)
+    {
+        if (_poisonTimer <= 0f || !Alive) return;
+        _poisonTimer = MathF.Max(0f, _poisonTimer - dt);
+        Health = MathF.Max(0f, Health - _poisonDamagePerSecond * dt);
+    }
+
     public void ApplyStickySlow(float duration = 1f) { }
 
     public void DrawSight()
@@ -1304,6 +1751,8 @@ public sealed class MiniBossEnemySquare
     private float _investigateWait;
     private Vector2 _facing = new(1f, 0f);
     private float _slowTimer;
+    private float _poisonTimer;
+    private float _poisonDamagePerSecond;
 
     private const float ViewDistance = 690f;
     private const float AlertViewMultiplier = 1.25f;
@@ -1316,6 +1765,8 @@ public sealed class MiniBossEnemySquare
         if (!Alive) return;
 
         _slowTimer = MathF.Max(0f, _slowTimer - dt);
+        TickPoison(dt);
+        if (!Alive) return;
         _ramCd -= dt;
         _shootCd -= dt;
         _slamCd -= dt;
@@ -1468,6 +1919,20 @@ public sealed class MiniBossEnemySquare
         Health = MathF.Max(0f, Health - amount);
     }
 
+    public void ApplyPoison(float damagePerSecond, float duration)
+    {
+        if (!Alive || damagePerSecond <= 0f || duration <= 0f) return;
+        _poisonDamagePerSecond = MathF.Max(_poisonDamagePerSecond, damagePerSecond);
+        _poisonTimer = MathF.Max(_poisonTimer, duration);
+    }
+
+    private void TickPoison(float dt)
+    {
+        if (_poisonTimer <= 0f || !Alive) return;
+        _poisonTimer = MathF.Max(0f, _poisonTimer - dt);
+        Health = MathF.Max(0f, Health - _poisonDamagePerSecond * dt);
+    }
+
     public void ApplyStickySlow(float duration = 1f)
     {
         _slowTimer = MathF.Max(_slowTimer, duration);
@@ -1508,6 +1973,212 @@ public sealed class MiniBossEnemySquare
     }
 }
 
+public sealed class StationBossEnemy
+{
+    public Vector2 Position;
+    public float MaxHealth = 3500f;
+    public float Health = 3500f;
+    public bool Alive => Health > 0f;
+    public bool KillAwarded;
+    public bool Active { get; private set; }
+
+    private readonly Rectangle _arena;
+    private Vector2 _dashDir;
+    private float _dashWindup;
+    private bool _dashing;
+    private float _stunTimer;
+    private float _fireCd;
+    private int _burstShotsLeft;
+    private float _burstShotCd;
+    private float _grenadeCd = 3f;
+    private int _grenadesLeft;
+    private float _grenadeShotCd;
+    private bool _grayHealUsed;
+    private float _grayHealTimer;
+    private float _slowTimer;
+    private float _poisonTimer;
+    private float _poisonDamagePerSecond;
+
+    public StationBossEnemy(Vector2 position, Rectangle arena)
+    {
+        Position = position;
+        _arena = arena;
+    }
+
+    public void Activate() => Active = true;
+
+    public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, Player player, List<Obstacle> obstacles, int worldSize)
+    {
+        _slowTimer = MathF.Max(0f, _slowTimer - dt);
+        TickPoison(dt);
+        if (!Alive || !Active) return;
+
+        if (_grayHealTimer > 0f)
+        {
+            _grayHealTimer -= dt;
+            Health = MathF.Min(MaxHealth, Health + MaxHealth * 0.03f * dt);
+            return;
+        }
+
+        if (!_grayHealUsed && Health <= MaxHealth * 0.2f)
+        {
+            _grayHealUsed = true;
+            _grayHealTimer = 5f;
+            return;
+        }
+
+        var toPlayer = playerPos - Position;
+        var dir = toPlayer == Vector2.Zero ? new Vector2(1f, 0f) : Vector2.Normalize(toPlayer);
+
+        if (_stunTimer > 0f)
+        {
+            _stunTimer -= dt;
+            return;
+        }
+
+        if (_dashWindup > 0f)
+        {
+            _dashWindup -= dt;
+            if (_dashWindup <= 0f)
+            {
+                _dashing = true;
+            }
+            return;
+        }
+
+        if (_dashing)
+        {
+            var next = MovementUtils.MoveWithCollisions(Position, _dashDir * 1000f * dt, 32f, obstacles, worldSize);
+            var hitWall = Vector2.DistanceSquared(next, Position) < 1f
+                || next.X <= _arena.X + 36f || next.Y <= _arena.Y + 36f
+                || next.X >= _arena.X + _arena.Width - 36f || next.Y >= _arena.Y + _arena.Height - 36f;
+            Position = Vector2.Clamp(next, new Vector2(_arena.X + 36f, _arena.Y + 36f), new Vector2(_arena.X + _arena.Width - 36f, _arena.Y + _arena.Height - 36f));
+            if (Vector2.Distance(Position, player.Position) <= 96f) player.TakeDamage(100f);
+            if (hitWall)
+            {
+                _dashing = false;
+                _stunTimer = 4f;
+            }
+            return;
+        }
+
+        Position = MovementUtils.MoveWithCollisions(Position, dir * 200f * GetMovementSpeedMultiplier() * dt, 32f, obstacles, worldSize);
+        Position = Vector2.Clamp(Position, new Vector2(_arena.X + 36f, _arena.Y + 36f), new Vector2(_arena.X + _arena.Width - 36f, _arena.Y + _arena.Height - 36f));
+
+        _fireCd -= dt;
+        if (_fireCd <= 0f && _burstShotsLeft <= 0)
+        {
+            _burstShotsLeft = 4;
+            _burstShotCd = 0f;
+            _fireCd = 0.95f;
+        }
+
+        _burstShotCd -= dt;
+        while (_burstShotsLeft > 0 && _burstShotCd <= 0f)
+        {
+            projectiles.Add(new Projectile(Position + dir * 28f, dir, 620f, 1.5f, Palette.C(255, 120, 120), true, 20f));
+            _burstShotsLeft--;
+            _burstShotCd += _burstShotsLeft == 2 ? 0.18f : 0.06f;
+        }
+
+        _grenadeCd -= dt;
+        if (_grenadeCd <= 0f && _grenadesLeft <= 0)
+        {
+            _grenadesLeft = 3;
+            _grenadeShotCd = 0f;
+            _grenadeCd = 2.67f;
+        }
+
+        _grenadeShotCd -= dt;
+        while (_grenadesLeft > 0 && _grenadeShotCd <= 0f)
+        {
+            var spread = ((Random.Shared.NextSingle() * 60f) - 30f) * MathF.PI / 180f;
+            var grenadeDir = VisibilityUtils.Rotate(dir, spread);
+            projectiles.Add(new Projectile(Position + grenadeDir * 32f, grenadeDir, 300f, 1.125f, Palette.C(255, 155, 90), true, 0f, ProjectileKind.Grenade, 40f, 25f, 5f));
+            _grenadesLeft--;
+            _grenadeShotCd += 0.107f;
+        }
+
+        if (Random.Shared.NextSingle() < dt * 0.22f)
+        {
+            _dashDir = dir;
+            _dashWindup = 1f;
+        }
+    }
+
+    public void Damage(float amount)
+    {
+        if (!Alive) return;
+        if (_grayHealTimer > 0f)
+        {
+            Health = MathF.Min(MaxHealth, Health + amount);
+            return;
+        }
+
+        Health = MathF.Max(0f, Health - amount);
+    }
+
+    public bool TryApplySegmentDamage(Vector2 from, Vector2 to, float radius, float damage)
+    {
+        if (!Alive || !Active) return false;
+        if (DistanceToSegment(Position, from, to) > radius + 34f) return false;
+        Damage(damage);
+        return true;
+    }
+
+    public bool IntersectsAnyHitZone(Vector2 position, float radius)
+        => Alive && Active && Vector2.Distance(Position, position) <= radius + 34f;
+
+    public void ApplyExplosionDamage(Vector2 position, float radius, float damage)
+    {
+        if (IntersectsAnyHitZone(position, radius)) Damage(damage);
+    }
+
+    public void ApplyStickySlow(float duration = 1f) => _slowTimer = MathF.Max(_slowTimer, duration);
+
+    public void ApplyPoison(float damagePerSecond, float duration)
+    {
+        if (!Alive || damagePerSecond <= 0f || duration <= 0f) return;
+        _poisonDamagePerSecond = MathF.Max(_poisonDamagePerSecond, damagePerSecond);
+        _poisonTimer = MathF.Max(_poisonTimer, duration);
+    }
+
+    private void TickPoison(float dt)
+    {
+        if (_poisonTimer <= 0f || !Alive) return;
+        _poisonTimer = MathF.Max(0f, _poisonTimer - dt);
+        Damage(_poisonDamagePerSecond * dt);
+    }
+
+    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.95f : 1f;
+
+    private static float DistanceToSegment(Vector2 p, Vector2 a, Vector2 b)
+    {
+        var ab = b - a;
+        var denom = ab.LengthSquared();
+        if (denom <= 0.0001f) return Vector2.Distance(p, a);
+        var t = Math.Clamp(Vector2.Dot(p - a, ab) / denom, 0f, 1f);
+        return Vector2.Distance(p, a + ab * t);
+    }
+
+    public void DrawSight() { }
+
+    public void Draw()
+    {
+        if (!Alive) return;
+        var fill = _grayHealTimer > 0f ? Palette.C(130, 130, 130) : Palette.C(210, 40, 44);
+        Raylib.DrawCircleV(Position, 34f, fill);
+        if (_dashing) Raylib.DrawCircleV(Position, 68f, Palette.C(255, 70, 70, 60));
+        var tri = _dashWindup > 0f ? Color.Yellow : Color.White;
+        Raylib.DrawPoly(Position + new Vector2(-8f, 0f), 3, 13f, 90f, tri);
+        Raylib.DrawPoly(Position + new Vector2(10f, 0f), 3, 13f, -90f, Color.Black);
+        Raylib.DrawCircleLines((int)Position.X, (int)Position.Y, 36f, Color.White);
+        var hp = Health / MaxHealth;
+        Raylib.DrawRectangle((int)Position.X - 58, (int)Position.Y - 54, 116, 7, Palette.C(20, 20, 20, 230));
+        Raylib.DrawRectangle((int)Position.X - 58, (int)Position.Y - 54, (int)(116 * hp), 7, Color.Green);
+    }
+}
+
 public sealed class BossEnemyDestroyer
 {
     public Vector2 Position;
@@ -1533,8 +2204,10 @@ public sealed class BossEnemyDestroyer
     private bool _alert;
     private bool _phaseTwoShieldReset;
     private float _slowTimer;
+    private float _poisonTimer;
+    private float _poisonDamagePerSecond;
 
-    private const float ViewDistance = 1176f;
+    private const float ViewDistance = 999.6f;
     private const float AlertViewMultiplier = 1.25f;
     private const float PhaseOneSpeed = 72.5f;
     private const float PhaseTwoSpeed = 265.625f;
@@ -1558,6 +2231,8 @@ public sealed class BossEnemyDestroyer
         if (!Alive) return;
 
         _slowTimer = MathF.Max(0f, _slowTimer - dt);
+        TickPoison(dt);
+        if (!Alive) return;
         _forwardDashCd -= dt;
         _sideDashCd -= dt;
         _shootCd -= dt;
@@ -1721,6 +2396,20 @@ public sealed class BossEnemyDestroyer
     public void ApplyStickySlow(float duration = 1f)
     {
         _slowTimer = MathF.Max(_slowTimer, duration);
+    }
+
+    public void ApplyPoison(float damagePerSecond, float duration)
+    {
+        if (!Alive || damagePerSecond <= 0f || duration <= 0f) return;
+        _poisonDamagePerSecond = MathF.Max(_poisonDamagePerSecond, damagePerSecond);
+        _poisonTimer = MathF.Max(_poisonTimer, duration);
+    }
+
+    private void TickPoison(float dt)
+    {
+        if (_poisonTimer <= 0f || !Alive) return;
+        _poisonTimer = MathF.Max(0f, _poisonTimer - dt);
+        if (!ShieldActive) DamageCore(_poisonDamagePerSecond * dt);
     }
 
     public bool IntersectsAnyHitZone(Vector2 point, float radius)

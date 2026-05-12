@@ -4,7 +4,7 @@ using Raylib_cs;
 
 namespace Bungus.Game;
 
-public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life, Color color, bool ownerEnemy, float damage, ProjectileKind kind = ProjectileKind.Bullet, float explosionRadius = 0f, float explosionDamage = 0f, float drawRadius = 4f, bool highlighted = false, Vector2? sourcePosition = null)
+public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life, Color color, bool ownerEnemy, float damage, ProjectileKind kind = ProjectileKind.Bullet, float explosionRadius = 0f, float explosionDamage = 0f, float drawRadius = 4f, bool highlighted = false, Vector2? sourcePosition = null, float poisonDamagePerSecond = 0f, float poisonDuration = 0f, float playerPoisonDuration = 0f)
 {
     public Vector2 Position { get; private set; } = pos;
     public Vector2 PreviousPosition { get; private set; } = pos;
@@ -17,6 +17,9 @@ public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life
     public float ExplosionDamage { get; } = explosionDamage;
     public float DrawRadius { get; } = drawRadius;
     public bool Highlighted { get; } = highlighted;
+    public float PoisonDamagePerSecond { get; } = poisonDamagePerSecond;
+    public float PoisonDuration { get; } = poisonDuration;
+    public float PlayerPoisonDuration { get; } = playerPoisonDuration;
     private float _life = life;
     public bool Alive => _life > 0f;
 
@@ -113,11 +116,24 @@ public sealed class SwingArc
     }
 }
 
-public sealed class LootZone(int id, Rectangle rect, bool isOutpost)
+public sealed class LootZone
 {
-    public int Id { get; } = id;
-    public Rectangle Rect { get; } = rect;
-    public bool IsOutpost { get; } = isOutpost;
+    public LootZone(int id, Rectangle rect, bool isOutpost)
+        : this(id, rect, isOutpost ? LootZoneKind.Outpost : LootZoneKind.City)
+    {
+    }
+
+    public LootZone(int id, Rectangle rect, LootZoneKind kind)
+    {
+        Id = id;
+        Rect = rect;
+        Kind = kind;
+    }
+
+    public int Id { get; }
+    public Rectangle Rect { get; }
+    public LootZoneKind Kind { get; }
+    public bool IsOutpost => Kind == LootZoneKind.Outpost;
     public Vector2 Center => new(Rect.X + Rect.Width / 2f, Rect.Y + Rect.Height / 2f);
 }
 
@@ -126,12 +142,46 @@ public sealed class Obstacle(Rectangle rect)
     public Rectangle Rect { get; } = rect;
 }
 
+public sealed class GeneratorNode(Vector2 position, int zoneId)
+{
+    public Vector2 Position { get; } = position;
+    public int ZoneId { get; } = zoneId;
+    public float MaxHealth { get; } = 500f;
+    public float Health { get; private set; } = 500f;
+    public bool GuardDefeated { get; set; }
+    public bool Destroyed => Health <= 0f;
+    public bool Vulnerable => GuardDefeated && !Destroyed;
+
+    public void Damage(float amount)
+    {
+        if (!Vulnerable || amount <= 0f) return;
+        Health = MathF.Max(0f, Health - amount);
+    }
+}
+
+public sealed class ToxicPool(Vector2 position, float radiusX, float radiusY)
+{
+    public Vector2 Position { get; } = position;
+    public float RadiusX { get; } = radiusX;
+    public float RadiusY { get; } = radiusY;
+
+    public bool Contains(Vector2 point)
+    {
+        var dx = (point.X - Position.X) / MathF.Max(RadiusX, 0.001f);
+        var dy = (point.Y - Position.Y) / MathF.Max(RadiusY, 0.001f);
+        return dx * dx + dy * dy <= 1f;
+    }
+}
+
 public sealed class ProtectiveDome(Vector2 position)
 {
     public const float Radius = 80f;
-    public const float MaxHealth = 200f;
+    public const float MaxHealth = 300f;
+    private const float DecayTickInterval = 1f;
+    private const float DecayPercentPerTick = 0.0333f;
 
     private readonly Dictionary<int, float> _contactCooldowns = [];
+    private float _decayTimer;
 
     public Vector2 Position { get; } = position;
     public float Health { get; private set; } = MaxHealth;
@@ -139,6 +189,13 @@ public sealed class ProtectiveDome(Vector2 position)
 
     public void Update(float dt)
     {
+        _decayTimer += dt;
+        while (_decayTimer >= DecayTickInterval && Alive)
+        {
+            _decayTimer -= DecayTickInterval;
+            Damage(MaxHealth * DecayPercentPerTick);
+        }
+
         if (_contactCooldowns.Count == 0) return;
 
         var keys = _contactCooldowns.Keys.ToArray();
@@ -173,6 +230,26 @@ public static class MovementUtils
 {
     public static Vector2 MoveWithCollisions(Vector2 position, Vector2 delta, float radius, List<Obstacle> obstacles, int worldSize)
     {
+        var steps = Math.Max(1, (int)MathF.Ceiling(delta.Length() / MathF.Max(4f, radius * 0.5f)));
+        if (steps > 1)
+        {
+            var nextStepped = position;
+            var step = delta / steps;
+            for (var i = 0; i < steps; i++)
+            {
+                var moved = MoveWithCollisionsSingleStep(nextStepped, step, radius, obstacles, worldSize);
+                if (Vector2.DistanceSquared(moved, nextStepped) < 0.0001f) break;
+                nextStepped = moved;
+            }
+
+            return nextStepped;
+        }
+
+        return MoveWithCollisionsSingleStep(position, delta, radius, obstacles, worldSize);
+    }
+
+    private static Vector2 MoveWithCollisionsSingleStep(Vector2 position, Vector2 delta, float radius, List<Obstacle> obstacles, int worldSize)
+    {
         var next = position;
         var xTry = new Vector2(position.X + delta.X, position.Y);
         if (!CircleHitsObstacle(xTry, radius, obstacles)) next.X = xTry.X;
@@ -186,6 +263,26 @@ public static class MovementUtils
     }
 
     public static Vector2 MoveWithCollisions(Vector2 position, Vector2 delta, float radius, List<Obstacle> obstacles, List<ProtectiveDome> domes, int worldSize)
+    {
+        var steps = Math.Max(1, (int)MathF.Ceiling(delta.Length() / MathF.Max(4f, radius * 0.5f)));
+        if (steps > 1)
+        {
+            var nextStepped = position;
+            var step = delta / steps;
+            for (var i = 0; i < steps; i++)
+            {
+                var moved = MoveWithCollisionsSingleStep(nextStepped, step, radius, obstacles, domes, worldSize);
+                if (Vector2.DistanceSquared(moved, nextStepped) < 0.0001f) break;
+                nextStepped = moved;
+            }
+
+            return nextStepped;
+        }
+
+        return MoveWithCollisionsSingleStep(position, delta, radius, obstacles, domes, worldSize);
+    }
+
+    private static Vector2 MoveWithCollisionsSingleStep(Vector2 position, Vector2 delta, float radius, List<Obstacle> obstacles, List<ProtectiveDome> domes, int worldSize)
     {
         var next = position;
         var xTry = new Vector2(position.X + delta.X, position.Y);

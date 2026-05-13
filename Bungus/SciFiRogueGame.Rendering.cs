@@ -356,6 +356,7 @@ public sealed partial class SciFiRogueGame
         DrawExtractionHud();
         DrawVitalBars();
         DrawLevelUpIndicator();
+        DrawStatusEffects();
         Raylib.DrawText("WASD move | LMB attack | E switch active weapon | TAB inventory | ESC menu", 20, Raylib.GetScreenHeight() - 28, 18, Color.Gray);
         DrawZoneArrows();
     }
@@ -465,6 +466,59 @@ public sealed partial class SciFiRogueGame
             new Vector2(x + 24, y + 20),
             Palette.C(80, 230, 110));
         Raylib.DrawText("Level Up", x + 34, y + 2, 22, Palette.C(120, 255, 140));
+    }
+
+    private void DrawStatusEffects()
+    {
+        var x = Raylib.GetScreenWidth() - 42f;
+        var y = _player.StatPoints > 0 ? 74f : 28f;
+
+        if (_player.Poisoned)
+        {
+            DrawStatusEffectIcon(new Vector2(x, y), Palette.C(120, 20, 24), "P", _player.PoisonEffectProgress);
+            y += 46f;
+        }
+
+        if (_player.StickyBulletsActive)
+        {
+            DrawStatusEffectIcon(new Vector2(x, y), Palette.C(120, 120, 120), "B", _player.StickyBulletsEffectProgress);
+            y += 46f;
+        }
+
+        if (_player.StimActive)
+        {
+            DrawStatusEffectIcon(new Vector2(x, y), Palette.C(80, 210, 100), "S", _player.StimEffectProgress);
+        }
+    }
+
+    private static void DrawStatusEffectIcon(Vector2 center, Color color, string label, float progress)
+    {
+        Raylib.DrawCircleV(center, 18f, Palette.C(8, 10, 14, 210));
+        Raylib.DrawCircleV(center, 12f, color);
+
+        var fontSize = 18;
+        var textWidth = Raylib.MeasureText(label, fontSize);
+        Raylib.DrawText(label, (int)(center.X - textWidth * 0.5f), (int)(center.Y - fontSize * 0.5f), fontSize, Color.White);
+
+        DrawCircularProgressFrame(center, 19f, progress, color);
+    }
+
+    private static void DrawCircularProgressFrame(Vector2 center, float radius, float progress, Color color)
+    {
+        progress = Math.Clamp(progress, 0f, 1f);
+        Raylib.DrawCircleLinesV(center, radius, Palette.C(0, 0, 0, 220));
+        if (progress <= 0f) return;
+
+        var segments = Math.Max(3, (int)MathF.Ceiling(48f * progress));
+        var start = -MathF.PI * 0.5f;
+        for (var i = 0; i < segments; i++)
+        {
+            var a1 = start + MathF.Tau * progress * i / segments;
+            var a2 = start + MathF.Tau * progress * (i + 1) / segments;
+            var p1 = center + new Vector2(MathF.Cos(a1), MathF.Sin(a1)) * radius;
+            var p2 = center + new Vector2(MathF.Cos(a2), MathF.Sin(a2)) * radius;
+            Raylib.DrawLineEx(p1, p2, 3f, color);
+        }
     }
 
     private void DrawVitalBars()

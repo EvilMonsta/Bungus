@@ -84,6 +84,8 @@ public sealed partial class SciFiRogueGame : IDisposable
     private Rectangle? _stationBossArena;
     private bool _stationEntranceOpen;
     private bool _stationBossFightStarted;
+    private bool _stationBossDoorSealed;
+    private float _stationBossDoorSealTimer = -1f;
     private int _runScore;
     private float _portalUnlockTimer;
     private float _portalActiveTimer;
@@ -155,6 +157,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         _stationBossArena = null;
         _stationEntranceOpen = false;
         _stationBossFightStarted = false;
+        _stationBossDoorSealed = false;
+        _stationBossDoorSealTimer = -1f;
         GenerateDeadZoneSetPieces();
         _player = Player.Create(
             GeneratePlayerSpawnPoint(),
@@ -373,7 +377,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         UpdateDestroyerBoss(dt, enemyCollisionObstacles);
         UpdateDeadZoneEnemies(dt, enemyCollisionObstacles);
         UpdateDeadZoneHazards(dt);
-        UpdateDeadZoneProgress();
+        UpdateDeadZoneProgress(dt);
         UpdateProjectiles(dt);
         UpdateSwings(dt);
         UpdateEffects(dt);
@@ -578,6 +582,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 _player.RegisterKill(25);
                 AddRunScore(1300);
                 _chests.Add(new LootChest(_stationBoss.Position, RollStationBossLoot()));
+                OpenStationBossDoor();
             }
         }
     }
@@ -592,7 +597,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
     }
 
-    private void UpdateDeadZoneProgress()
+    private void UpdateDeadZoneProgress(float dt)
     {
         if (!_currentMap.IsDeadZone) return;
 
@@ -610,12 +615,67 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             _stationBossFightStarted = true;
             _stationBoss.Activate();
-            if (_stationBossDoor is Rectangle door)
-            {
-                _obstacles.Add(new Obstacle(door));
-            }
-            ShowNotice("Station arena sealed.");
+            _stationBossDoorSealTimer = 0.5f;
+            ShowNotice("Station arena sealing.");
         }
+
+        if (_stationBossDoorSealTimer > 0f)
+        {
+            _stationBossDoorSealTimer -= dt;
+            if (_stationBossDoorSealTimer <= 0f) SealStationBossDoor();
+        }
+    }
+
+    private void SealStationBossDoor()
+    {
+        if (_stationBossDoorSealed) return;
+        _stationBossDoorSealTimer = -1f;
+        _stationBossDoorSealed = true;
+
+        if (_stationBossDoor is not Rectangle door) return;
+
+        if (CircleIntersectsRect(_player.Position, 16f, door))
+        {
+            _player.PlaceAt(FindSafeArenaDoorPoint(door));
+        }
+
+        _obstacles.Add(new Obstacle(door));
+        ShowNotice("Station arena sealed.");
+    }
+
+    private void OpenStationBossDoor()
+    {
+        _stationBossDoorSealTimer = -1f;
+        _stationBossDoorSealed = false;
+        RemoveObstacle(_stationBossDoor);
+        ShowNotice("Station arena opened.");
+    }
+
+    private Vector2 FindSafeArenaDoorPoint(Rectangle door)
+    {
+        if (_stationBossArena is not Rectangle arena) return _player.Position;
+
+        var basePoint = new Vector2(arena.X + 28f, Math.Clamp(_player.Position.Y, arena.Y + 24f, arena.Y + arena.Height - 24f));
+        if (!MovementUtils.CircleHitsObstacle(basePoint, 16f, _obstacles)) return basePoint;
+
+        for (var offset = 24f; offset <= 240f; offset += 24f)
+        {
+            var up = new Vector2(basePoint.X, Math.Clamp(basePoint.Y - offset, arena.Y + 24f, arena.Y + arena.Height - 24f));
+            if (!MovementUtils.CircleHitsObstacle(up, 16f, _obstacles)) return up;
+
+            var down = new Vector2(basePoint.X, Math.Clamp(basePoint.Y + offset, arena.Y + 24f, arena.Y + arena.Height - 24f));
+            if (!MovementUtils.CircleHitsObstacle(down, 16f, _obstacles)) return down;
+        }
+
+        return new Vector2(door.X + door.Width + 28f, door.Y + door.Height * 0.5f);
+    }
+
+    private static bool CircleIntersectsRect(Vector2 center, float radius, Rectangle rect)
+    {
+        var nearest = new Vector2(
+            Math.Clamp(center.X, rect.X, rect.X + rect.Width),
+            Math.Clamp(center.Y, rect.Y, rect.Y + rect.Height));
+        return Vector2.DistanceSquared(center, nearest) < radius * radius;
     }
 
     private void RemoveObstacle(Rectangle? rect)
@@ -822,6 +882,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             guardHit.Damage(damage);
             ApplyPlayerHitEffects(guardHit, poisonDamagePerSecond, poisonDuration);
+            guardHit.ForceAggro(_player.Position);
             AggroWitnesses(guardHit.Position, true);
             return true;
         }
@@ -834,8 +895,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             toxicHit.Damage(damage);
             ApplyPlayerHitEffects(toxicHit, poisonDamagePerSecond, poisonDuration);
-            toxicHit.ForceAggro(_player.Position);
-            AggroWitnesses(toxicHit.Position, true);
+            var targetAggroed = toxicHit.ReactToShot(shotSource, _obstacles);
+            AggroWitnesses(toxicHit.Position, targetAggroed);
             return true;
         }
 
@@ -915,6 +976,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             guard.Damage(projectile.ExplosionDamage);
             ApplyPlayerHitEffects(guard);
+            guard.ForceAggro(_player.Position);
             aggroWitnesses = true;
         }
 
@@ -922,7 +984,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             toxic.Damage(projectile.ExplosionDamage);
             ApplyPlayerHitEffects(toxic);
-            aggroWitnesses = true;
+            aggroWitnesses |= toxic.ReactToShot(projectile.SourcePosition, _obstacles);
         }
 
         foreach (var generator in _generators.Where(g => !g.Destroyed && Vector2.Distance(g.Position, projectile.Position) <= projectile.ExplosionRadius + 24f))
@@ -1124,6 +1186,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 {
                     g.Damage(_player.GetMeleeDamage());
                     ApplyPlayerHitEffects(g);
+                    g.ForceAggro(_player.Position);
                     AggroWitnesses(g.Position, true);
                 }
             }
@@ -2277,7 +2340,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
-        if (code == "RAMGUNGOD")
+        if (code == "RAMGUNGUS")
         {
             var result = ApplyRamGunGodCode();
             SetCodeStatus(result.Success, result.Message);
@@ -2285,7 +2348,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
-        if (code == "RAMARMORGOD")
+        if (code == "RAMARMORGUS")
         {
             var result = ApplyRamArmorGodCode();
             SetCodeStatus(result.Success, result.Message);
@@ -2318,7 +2381,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private (bool Success, string Message) ApplyRamGunGodCode()
     {
-        const string code = "RAMGUNGOD";
+        const string code = "RAMGUNGUS";
         if (!CanUsePromoCode(code, null, false, out var error))
         {
             return (false, error);
@@ -2355,7 +2418,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private (bool Success, string Message) ApplyRamArmorGodCode()
     {
-        const string code = "RAMARMORGOD";
+        const string code = "RAMARMORGUS";
         if (!CanUsePromoCode(code, null, false, out var error))
         {
             return (false, error);
@@ -3127,60 +3190,110 @@ public sealed partial class SciFiRogueGame : IDisposable
     private void AddStationLayout(Rectangle rect)
     {
         const float wall = 26f;
-        var entranceGap = 240f;
-        var entranceX = rect.X + rect.Width * 0.5f - entranceGap * 0.5f;
+        var x = rect.X;
+        var y = rect.Y;
+        var w = rect.Width;
+        var h = rect.Height;
+        var leftW = w * 0.54f;
+        var bossWallX = x + leftW;
+        var entranceGap = 260f;
+        var entranceX = bossWallX - 250f;
+        var bossDoorY = y + h - 150f;
+        var bossDoorHeight = 125f;
 
-        _obstacles.Add(new Obstacle(new Rectangle(rect.X, rect.Y, rect.Width, wall)));
-        _obstacles.Add(new Obstacle(new Rectangle(rect.X, rect.Y, wall, rect.Height)));
-        _obstacles.Add(new Obstacle(new Rectangle(rect.X + rect.Width - wall, rect.Y, wall, rect.Height)));
-        _obstacles.Add(new Obstacle(new Rectangle(rect.X, rect.Y + rect.Height - wall, entranceX - rect.X, wall)));
-        _obstacles.Add(new Obstacle(new Rectangle(entranceX + entranceGap, rect.Y + rect.Height - wall, rect.X + rect.Width - entranceX - entranceGap, wall)));
+        void AddWall(float wx, float wy, float ww, float wh)
+            => _obstacles.Add(new Obstacle(new Rectangle(wx, wy, ww, wh)));
 
-        _stationEntranceDoor = new Rectangle(entranceX, rect.Y + rect.Height - wall, entranceGap, wall);
+        void AddHorizontal(float wx, float wy, float ww) => AddWall(wx, wy, ww, wall);
+        void AddVertical(float wx, float wy, float wh) => AddWall(wx, wy, wall, wh);
+
+        AddHorizontal(x, y, w);
+        AddVertical(x, y, h);
+        AddVertical(x + w - wall, y, h);
+        AddHorizontal(x, y + h - wall, entranceX - x);
+        AddHorizontal(entranceX + entranceGap, y + h - wall, x + w - entranceX - entranceGap);
+
+        _stationEntranceDoor = new Rectangle(entranceX, y + h - wall, entranceGap, wall);
         _obstacles.Add(new Obstacle(_stationEntranceDoor.Value));
 
-        var bossWallX = rect.X + rect.Width * 0.54f;
-        var bossDoorY = rect.Y + rect.Height - 330f;
-        var bossDoorHeight = 220f;
-        _stationBossArena = new Rectangle(bossWallX + wall, rect.Y + wall, rect.Width - (bossWallX - rect.X) - wall * 2f, rect.Height - wall * 2f);
+        _stationBossArena = new Rectangle(bossWallX + wall, y + wall, w - leftW - wall * 2f, h - wall * 2f);
         _stationBossDoor = new Rectangle(bossWallX, bossDoorY, wall, bossDoorHeight);
+        AddVertical(bossWallX, y, bossDoorY - y);
+        AddVertical(bossWallX, bossDoorY + bossDoorHeight, y + h - bossDoorY - bossDoorHeight);
 
-        _obstacles.Add(new Obstacle(new Rectangle(bossWallX, rect.Y, wall, bossDoorY - rect.Y)));
-        _obstacles.Add(new Obstacle(new Rectangle(bossWallX, bossDoorY + bossDoorHeight, wall, rect.Y + rect.Height - bossDoorY - bossDoorHeight)));
+        var lx0 = x + wall;
+        var lx1 = bossWallX - wall;
+        var ly0 = y + wall;
+        var ly1 = y + h - wall;
+        var lw = lx1 - lx0;
+        var lh = ly1 - ly0;
 
-        var leftWidth = bossWallX - rect.X;
-        var verticals = new[]
-        {
-            new Rectangle(rect.X + leftWidth * 0.18f, rect.Y + 260f, wall, 520f),
-            new Rectangle(rect.X + leftWidth * 0.36f, rect.Y + 680f, wall, 640f),
-            new Rectangle(rect.X + leftWidth * 0.62f, rect.Y + 120f, wall, 720f),
-            new Rectangle(rect.X + leftWidth * 0.62f, rect.Y + 1100f, wall, 660f),
-            new Rectangle(rect.X + leftWidth * 0.84f, rect.Y + 200f, wall, 520f),
-            new Rectangle(rect.X + leftWidth * 0.84f, rect.Y + 880f, wall, 560f)
-        };
-        var horizontals = new[]
-        {
-            new Rectangle(rect.X + 120f, rect.Y + 300f, 520f, wall),
-            new Rectangle(rect.X + 120f, rect.Y + 680f, 960f, wall),
-            new Rectangle(rect.X + 360f, rect.Y + 980f, 840f, wall),
-            new Rectangle(rect.X + 120f, rect.Y + 1320f, 620f, wall),
-            new Rectangle(rect.X + 820f, rect.Y + 1540f, 780f, wall)
-        };
+        var c1 = lx0 + lw * 0.13f;
+        var c2 = lx0 + lw * 0.33f;
+        var c3 = lx0 + lw * 0.52f;
+        var c4 = lx0 + lw * 0.72f;
+        var r1 = ly0 + lh * 0.13f;
+        var r2 = ly0 + lh * 0.26f;
+        var r3 = ly0 + lh * 0.42f;
+        var r4 = ly0 + lh * 0.60f;
+        var r5 = ly0 + lh * 0.78f;
 
-        foreach (var obstacle in verticals.Concat(horizontals)) _obstacles.Add(new Obstacle(obstacle));
+        // Left-side room maze, roughly matching the reference sketch.
+        AddVertical(c1, r1, lh * 0.14f);
+        AddVertical(c1, r2, lh * 0.22f);
+        AddVertical(c1, r4, lh * 0.14f);
+        AddVertical(c1, r5, ly1 - r5);
+
+        AddVertical(c2, r2, lh * 0.16f);
+        AddVertical(c2, r4, lh * 0.18f);
+        AddVertical(c2, r5, lh * 0.20f);
+
+        AddVertical(c3, ly0, lh * 0.08f);
+        AddVertical(c3, r1, lh * 0.18f);
+        AddVertical(c3, r3, lh * 0.22f);
+        AddVertical(c3, r5, ly1 - r5);
+
+        AddVertical(c4, ly0, lh * 0.08f);
+        AddVertical(c4, r1, lh * 0.28f);
+        AddVertical(c4, r4 - lh * 0.06f, lh * 0.24f);
+
+        AddHorizontal(lx0, r1, lw * 0.10f);
+        AddHorizontal(lx0, r2, lw * 0.62f);
+        AddHorizontal(lx0, r3, lw * 0.20f);
+        AddHorizontal(c1, r3, lw * 0.18f);
+        AddHorizontal(c2 + lw * 0.07f, r3, lw * 0.16f);
+        AddHorizontal(c3 - lw * 0.08f, r3, lw * 0.20f);
+        AddHorizontal(c4 - lw * 0.10f, r3, lw * 0.20f);
+        AddHorizontal(lx0, r4, lw * 0.22f);
+        AddHorizontal(c2 - lw * 0.05f, r4, lw * 0.34f);
+        AddHorizontal(c3, r4, lw * 0.18f);
+        AddHorizontal(c4 - lw * 0.08f, r4, lw * 0.18f);
+        AddHorizontal(lx0, r5, lw * 0.12f);
+        AddHorizontal(c1 - lw * 0.06f, r5, lw * 0.14f);
+        AddHorizontal(c3 - lw * 0.02f, r5, lw * 0.32f);
+        AddHorizontal(c4 - lw * 0.06f, ly1 - wall, lw * 0.18f);
+
+        // Short broken segments for the corridor feel from the reference.
+        AddHorizontal(c2 - lw * 0.05f, r2 + lh * 0.15f, lw * 0.12f);
+        AddHorizontal(c2 + lw * 0.12f, r2 + lh * 0.15f, lw * 0.13f);
+        AddHorizontal(c3 + lw * 0.02f, r2 + lh * 0.15f, lw * 0.10f);
+        AddHorizontal(c4 - lw * 0.10f, r2 + lh * 0.15f, lw * 0.10f);
+        AddHorizontal(c4 + lw * 0.06f, r2 + lh * 0.15f, lw * 0.10f);
+        AddHorizontal(c2, r4 + lh * 0.16f, lw * 0.12f);
+        AddHorizontal(c3 - lw * 0.08f, r4 + lh * 0.16f, lw * 0.12f);
 
         var potentialCrates = new[]
         {
-            new Vector2(rect.X + 120f, rect.Y + 110f),
-            new Vector2(rect.X + 150f, rect.Y + 520f),
-            new Vector2(rect.X + 150f, rect.Y + 920f),
-            new Vector2(rect.X + 180f, rect.Y + 1660f),
-            new Vector2(rect.X + 560f, rect.Y + 360f),
-            new Vector2(rect.X + 860f, rect.Y + 930f),
-            new Vector2(rect.X + 1240f, rect.Y + 360f),
-            new Vector2(rect.X + 1440f, rect.Y + 1120f),
-            new Vector2(rect.X + 330f, rect.Y + 1560f),
-            new Vector2(rect.X + 760f, rect.Y + 1650f)
+            new Vector2(lx0 + 55f, ly0 + 55f),
+            new Vector2(lx0 + 62f, r2 - 46f),
+            new Vector2(lx0 + 60f, r3 + 50f),
+            new Vector2(lx0 + 70f, ly1 - 58f),
+            new Vector2(c1 - 45f, r5 - 44f),
+            new Vector2(c1 + 42f, r2 + 28f),
+            new Vector2(c1 + 80f, ly1 - 56f),
+            new Vector2(c3 - 55f, r4 + 38f),
+            new Vector2(c3 + 72f, r2 + 24f),
+            new Vector2(c4 + 86f, r4 + 88f)
         };
 
         foreach (var pos in potentialCrates.OrderBy(_ => _rng.Next()).Take(_rng.Next(4, 8)))

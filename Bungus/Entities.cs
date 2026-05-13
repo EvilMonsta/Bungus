@@ -62,6 +62,7 @@ public sealed class Player
     private float _shield;
     private float _lastShieldMax = -1f;
     private float _stickyBulletsTimer;
+    private float _poisonDurationMax;
 
     public Vector2 Position { get; private set; }
     public float Health { get; private set; }
@@ -72,6 +73,11 @@ public sealed class Player
     public float Shield => _shield;
     public float ShieldCapacity => Armor?.ShieldMax ?? 0f;
     public bool StickyBulletsActive => _stickyBulletsTimer > 0f;
+    public bool StimActive => _stim > 0f;
+    public bool Poisoned => _poison > 0f;
+    public float StimEffectProgress => Math.Clamp(_stim / 6f, 0f, 1f);
+    public float StickyBulletsEffectProgress => Math.Clamp(_stickyBulletsTimer / StickyBulletsDuration, 0f, 1f);
+    public float PoisonEffectProgress => Math.Clamp(_poison / MathF.Max(_poisonDurationMax, 0.001f), 0f, 1f);
     public bool IsMoving { get; private set; }
     public bool IsSniperEquipped => ActiveWeaponClass == WeaponClass.Ranged && RangedWeapon?.Pattern == WeaponPattern.SniperRifle;
     public bool IsLegendarySniperEquipped => IsSniperEquipped && RangedWeapon?.Rarity == ArmorRarity.Legendary;
@@ -121,6 +127,8 @@ public sealed class Player
     public static Player Create(Vector2 p, float globalMaxHealthBonus, float globalDamageBonus, int baseStrength, int baseDexterity, int baseSpeed, int baseGuns, ItemStack? rangedWeapon, ItemStack? meleeWeapon, ItemStack? armor, ItemStack? quickSlotQ, ItemStack? quickSlotR)
         => new(p, globalMaxHealthBonus, globalDamageBonus, baseStrength, baseDexterity, baseSpeed, baseGuns, rangedWeapon, meleeWeapon, armor, quickSlotQ, quickSlotR);
 
+    public void PlaceAt(Vector2 position) => Position = position;
+
     public void Update(float dt, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages)
     {
         SyncArmorState();
@@ -144,6 +152,7 @@ public sealed class Player
             _timeSinceLastDamage = 0f;
             _regenTickTimer = 0f;
             Health = MathF.Max(0f, Health - MaxHealth * 0.03f * dt);
+            if (_poison <= 0f) _poisonDurationMax = 0f;
         }
 
         var d = Vector2.Zero;
@@ -527,7 +536,11 @@ public sealed class Player
 
     public void ApplyBleed(float duration) => _bleed = MathF.Max(_bleed, duration);
 
-    public void ApplyPoison(float duration) => _poison = MathF.Max(_poison, duration);
+    public void ApplyPoison(float duration)
+    {
+        if (duration >= _poison) _poisonDurationMax = duration;
+        _poison = MathF.Max(_poison, duration);
+    }
     public void TickEffects(float dt) { }
 
     public void TakeDamage(float value, bool isExplosion = false)
@@ -1282,7 +1295,6 @@ public sealed class GeneratorGuardianEnemy
     {
         if (!Alive) return;
         Health = MathF.Max(0f, Health - amount);
-        _alert = true;
     }
 
     public void ApplyStickySlow(float duration = 1f) => _slowTimer = MathF.Max(_slowTimer, duration);
@@ -1367,8 +1379,8 @@ public sealed class GeneratorGuardianEnemy
 public sealed class ToxicTriangleEnemy
 {
     public Vector2 Position;
-    public float MaxHealth = 382.5f;
-    public float Health = 382.5f;
+    public float MaxHealth = 300f;
+    public float Health = 300f;
     public int ZoneId = -1;
     public bool Alive => Health > 0f;
     public bool KillAwarded;
@@ -1382,7 +1394,7 @@ public sealed class ToxicTriangleEnemy
     private float _poisonDamagePerSecond;
     private Vector2 _facing = new(1f, 0f);
 
-    private const float ViewDistance = 435f;
+    private const float ViewDistance = 375f;
     private const float FovHalf = MathF.PI / 3f;
 
     public ToxicTriangleEnemy(Vector2 position, int zoneId)
@@ -1455,10 +1467,20 @@ public sealed class ToxicTriangleEnemy
     public bool CanNoticeCombatPoint(Vector2 point, List<Obstacle> obstacles)
     {
         var to = point - Position;
-        if (to.LengthSquared() < 0.01f) return false;
+        var dist = to.Length();
+        if (dist > ViewDistance || dist < 0.01f) return false;
+
         var dir = Vector2.Normalize(to);
         var angle = MathF.Acos(Math.Clamp(Vector2.Dot(_facing, dir), -1f, 1f));
         return angle <= FovHalf && VisibilityUtils.HasLineOfSight(Position, point, obstacles);
+    }
+
+    public bool ReactToShot(Vector2 shotSource, List<Obstacle> obstacles)
+    {
+        if (!CanSeePoint(shotSource, obstacles)) return false;
+
+        ForceAggro(shotSource);
+        return true;
     }
 
     public void ForceAggro(Vector2 target)
@@ -1754,7 +1776,7 @@ public sealed class MiniBossEnemySquare
     private float _poisonTimer;
     private float _poisonDamagePerSecond;
 
-    private const float ViewDistance = 690f;
+    private const float ViewDistance = 650f;
     private const float AlertViewMultiplier = 1.25f;
     private const float FovHalf = MathF.PI / 3f;
 
@@ -1976,11 +1998,12 @@ public sealed class MiniBossEnemySquare
 public sealed class StationBossEnemy
 {
     public Vector2 Position;
-    public float MaxHealth = 3500f;
-    public float Health = 3500f;
+    public float MaxHealth = 4000f;
+    public float Health = 4000f;
     public bool Alive => Health > 0f;
     public bool KillAwarded;
     public bool Active { get; private set; }
+    public bool PhaseTwo { get; private set; }
 
     private readonly Rectangle _arena;
     private Vector2 _dashDir;
@@ -2013,10 +2036,14 @@ public sealed class StationBossEnemy
         TickPoison(dt);
         if (!Alive || !Active) return;
 
+        var toPlayer = playerPos - Position;
+        var dir = toPlayer == Vector2.Zero ? new Vector2(1f, 0f) : Vector2.Normalize(toPlayer);
+
         if (_grayHealTimer > 0f)
         {
             _grayHealTimer -= dt;
             Health = MathF.Min(MaxHealth, Health + MaxHealth * 0.03f * dt);
+            if (_grayHealTimer <= 0f && !PhaseTwo) EnterPhaseTwo(dir);
             return;
         }
 
@@ -2027,12 +2054,10 @@ public sealed class StationBossEnemy
             return;
         }
 
-        var toPlayer = playerPos - Position;
-        var dir = toPlayer == Vector2.Zero ? new Vector2(1f, 0f) : Vector2.Normalize(toPlayer);
-
         if (_stunTimer > 0f)
         {
             _stunTimer -= dt;
+            if (PhaseTwo && _stunTimer <= 0f) StartDash(dir, 0.15f);
             return;
         }
 
@@ -2048,22 +2073,27 @@ public sealed class StationBossEnemy
 
         if (_dashing)
         {
-            var next = MovementUtils.MoveWithCollisions(Position, _dashDir * 1000f * dt, 32f, obstacles, worldSize);
-            var hitWall = Vector2.DistanceSquared(next, Position) < 1f
-                || next.X <= _arena.X + 36f || next.Y <= _arena.Y + 36f
-                || next.X >= _arena.X + _arena.Width - 36f || next.Y >= _arena.Y + _arena.Height - 36f;
-            Position = Vector2.Clamp(next, new Vector2(_arena.X + 36f, _arena.Y + 36f), new Vector2(_arena.X + _arena.Width - 36f, _arena.Y + _arena.Height - 36f));
+            var dashSpeed = PhaseTwo ? 1250f : 1000f;
+            var (next, hitWall) = MoveDashUntilCollision(Position, _dashDir * dashSpeed * dt, 32f, obstacles, worldSize);
+            Position = next;
             if (Vector2.Distance(Position, player.Position) <= 96f) player.TakeDamage(100f);
             if (hitWall)
             {
                 _dashing = false;
-                _stunTimer = 4f;
+                FireRadialBurst(projectiles);
+                _stunTimer = PhaseTwo ? 0.75f : 4f;
             }
             return;
         }
 
         Position = MovementUtils.MoveWithCollisions(Position, dir * 200f * GetMovementSpeedMultiplier() * dt, 32f, obstacles, worldSize);
         Position = Vector2.Clamp(Position, new Vector2(_arena.X + 36f, _arena.Y + 36f), new Vector2(_arena.X + _arena.Width - 36f, _arena.Y + _arena.Height - 36f));
+
+        if (PhaseTwo)
+        {
+            if (_dashWindup <= 0f && !_dashing) StartDash(dir, 0.15f);
+            return;
+        }
 
         _fireCd -= dt;
         if (_fireCd <= 0f && _burstShotsLeft <= 0)
@@ -2101,9 +2131,46 @@ public sealed class StationBossEnemy
 
         if (Random.Shared.NextSingle() < dt * 0.22f)
         {
-            _dashDir = dir;
-            _dashWindup = 1f;
+            StartDash(dir, 1f);
         }
+    }
+
+    private void EnterPhaseTwo(Vector2 dir)
+    {
+        PhaseTwo = true;
+        _burstShotsLeft = 0;
+        _grenadesLeft = 0;
+        _fireCd = 999f;
+        _grenadeCd = 999f;
+        _stunTimer = 0.75f;
+        _dashDir = dir;
+    }
+
+    private void StartDash(Vector2 dir, float windup)
+    {
+        _dashDir = dir == Vector2.Zero ? new Vector2(1f, 0f) : Vector2.Normalize(dir);
+        _dashWindup = windup;
+    }
+
+    private (Vector2 Position, bool HitWall) MoveDashUntilCollision(Vector2 position, Vector2 delta, float radius, List<Obstacle> obstacles, int worldSize)
+    {
+        var steps = Math.Max(1, (int)MathF.Ceiling(delta.Length() / MathF.Max(4f, radius * 0.5f)));
+        var step = delta / steps;
+        var next = position;
+        var min = new Vector2(_arena.X + radius, _arena.Y + radius);
+        var max = new Vector2(_arena.X + _arena.Width - radius, _arena.Y + _arena.Height - radius);
+
+        for (var i = 0; i < steps; i++)
+        {
+            var candidate = next + step;
+            var clamped = Vector2.Clamp(candidate, min, max);
+            if (clamped != candidate) return (next, true);
+            if (MovementUtils.CircleHitsObstacle(candidate, radius, obstacles)) return (next, true);
+            if (candidate.X < radius || candidate.Y < radius || candidate.X > worldSize - radius || candidate.Y > worldSize - radius) return (next, true);
+            next = candidate;
+        }
+
+        return (next, false);
     }
 
     public void Damage(float amount)
@@ -2161,17 +2228,33 @@ public sealed class StationBossEnemy
         return Vector2.Distance(p, a + ab * t);
     }
 
+    private void FireRadialBurst(List<Projectile> projectiles)
+    {
+        const int count = 18;
+        for (var i = 0; i < count; i++)
+        {
+            var angle = i / (float)count * MathF.Tau;
+            var dir = new Vector2(MathF.Cos(angle), MathF.Sin(angle));
+            projectiles.Add(new Projectile(Position + dir * 34f, dir, 620f, 1.5f, Palette.C(255, 120, 120), true, 16f));
+        }
+    }
+
     public void DrawSight() { }
 
     public void Draw()
     {
         if (!Alive) return;
-        var fill = _grayHealTimer > 0f ? Palette.C(130, 130, 130) : Palette.C(210, 40, 44);
+        var fill = _grayHealTimer > 0f ? Palette.C(130, 130, 130) : PhaseTwo ? Palette.C(120, 30, 32) : Palette.C(210, 40, 44);
         Raylib.DrawCircleV(Position, 34f, fill);
         if (_dashing) Raylib.DrawCircleV(Position, 68f, Palette.C(255, 70, 70, 60));
         var tri = _dashWindup > 0f ? Color.Yellow : Color.White;
         Raylib.DrawPoly(Position + new Vector2(-8f, 0f), 3, 13f, 90f, tri);
         Raylib.DrawPoly(Position + new Vector2(10f, 0f), 3, 13f, -90f, Color.Black);
+        if (PhaseTwo)
+        {
+            Raylib.DrawPoly(Position + new Vector2(0f, -13f), 3, 11f, 180f, Color.Black);
+            Raylib.DrawPoly(Position + new Vector2(0f, 13f), 3, 11f, 0f, Color.Black);
+        }
         Raylib.DrawCircleLines((int)Position.X, (int)Position.Y, 36f, Color.White);
         var hp = Health / MaxHealth;
         Raylib.DrawRectangle((int)Position.X - 58, (int)Position.Y - 54, 116, 7, Palette.C(20, 20, 20, 230));
@@ -2182,8 +2265,8 @@ public sealed class StationBossEnemy
 public sealed class BossEnemyDestroyer
 {
     public Vector2 Position;
-    public float MaxHealth = 6000f;
-    public float Health = 6000f;
+    public float MaxHealth = 4500f;
+    public float Health = 4500f;
     public bool Alive => Health > 0f;
     public bool KillAwarded;
     public bool PhaseTwo => Health <= MaxHealth * 0.5f;
@@ -2193,11 +2276,11 @@ public sealed class BossEnemyDestroyer
     private const float DestroyedShieldNodeSize = ShieldNodeSize * 0.5f;
 
     private Vector2 _facing = new(1f, 0f);
-    private float _forwardDashCd = 1.4f;
+    private float _forwardDashCd = 1.5f;
     private float _sideDashCd = 2.3f;
-    private float _shootCd = 1.1f;
+    private float _shootCd = 1.2f;
     private float _grenadeCd = 4.6f;
-    private float _radialShotCd = 3f;
+    private float _radialShotCd = 3.3f;
     private float _strafeSwitch;
     private int _burstShotsLeft;
     private float _burstShotCd;
@@ -2207,15 +2290,15 @@ public sealed class BossEnemyDestroyer
     private float _poisonTimer;
     private float _poisonDamagePerSecond;
 
-    private const float ViewDistance = 999.6f;
+    private const float ViewDistance = 825f;
     private const float AlertViewMultiplier = 1.25f;
     private const float PhaseOneSpeed = 72.5f;
-    private const float PhaseTwoSpeed = 265.625f;
+    private const float PhaseTwoSpeed = 190.625f;
     private const float DesiredDistance = 270f;
-    private const float DashDistance = 162.5f;
+    private const float DashDistance = 152.5f;
     private const float SideDashDistance = DashDistance * 0.5f;
     private const float CollisionRadius = 52f;
-    private const float BulletSpeed = 620f;
+    private const float BulletSpeed = 520f;
     private const float BulletDamage = 16f;
     private const float BulletLifetime = 1.25f;
     private const float PhaseTwoRangeMultiplier = 1.25f;
@@ -2661,4 +2744,3 @@ public sealed class BossEnemyDestroyer
         return Vector2.Distance(point, from + delta * t);
     }
 }
-

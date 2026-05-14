@@ -224,6 +224,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             case GameState.MainMenu: UpdateMainMenu(); break;
             case GameState.MapSelect: UpdateMapSelect(); break;
             case GameState.Storage: UpdateStorage(); break;
+            case GameState.Armory: UpdateArmory(); break;
             case GameState.Character: UpdateCharacter(); break;
             case GameState.Settings: UpdateSettings(); break;
             case GameState.Playing: UpdatePlaying(dt); break;
@@ -248,10 +249,11 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (Clicked(MainMenuButtonRect(0))) { ClearUiInteraction(); _state = GameState.MapSelect; }
         if (Clicked(MainMenuButtonRect(1))) { ClearUiInteraction(); _state = GameState.Storage; }
-        if (Clicked(MainMenuButtonRect(2))) { ClearUiInteraction(); _state = GameState.Character; }
-        if (Clicked(MainMenuButtonRect(3))) { ClearUiInteraction(); _state = GameState.Settings; }
+        if (Clicked(MainMenuButtonRect(2))) { ClearUiInteraction(); _state = GameState.Armory; }
+        if (Clicked(MainMenuButtonRect(3))) { ClearUiInteraction(); _state = GameState.Character; }
+        if (Clicked(MainMenuButtonRect(4))) { ClearUiInteraction(); _state = GameState.Settings; }
         if (Clicked(MainMenuCodesButtonRect())) OpenCodesPopup();
-        if (Clicked(MainMenuButtonRect(4))) _requestExit = true;
+        if (Clicked(MainMenuButtonRect(5))) _requestExit = true;
     }
 
     private void UpdateMapSelect()
@@ -284,6 +286,66 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         UpdateStorageUi();
+    }
+
+    private void UpdateArmory()
+    {
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(new Rectangle(70, 620, 220, 52)))
+        {
+            ClearUiInteraction();
+            _state = GameState.MainMenu;
+            return;
+        }
+
+        UpdateArmoryUi();
+    }
+
+    private void UpdateArmoryUi()
+    {
+        _hovered = null;
+        var mouse = Raylib.GetMousePosition();
+
+        for (var i = 0; i < _meta.ArmoryOffers.Count; i++)
+        {
+            var offer = _meta.ArmoryOffers[i];
+            var rect = ArmoryOfferRect(i);
+            if (!Raylib.CheckCollisionPointRec(mouse, rect)) continue;
+
+            _hovered = offer.Item;
+            if (Raylib.IsMouseButtonPressed(MouseButton.Left)) TryBuyArmoryOffer(i);
+            return;
+        }
+    }
+
+    private void TryBuyArmoryOffer(int index)
+    {
+        if (index < 0 || index >= _meta.ArmoryOffers.Count) return;
+
+        var offer = _meta.ArmoryOffers[index];
+        if (offer.Purchased)
+        {
+            ShowNotice("This armory item is already sold.");
+            return;
+        }
+
+        var price = GetArmoryPrice(offer.Item);
+        if (_meta.SynthCoins < price)
+        {
+            ShowNotice("Not enough SynthCoins.");
+            return;
+        }
+
+        if (!_meta.HasFreeStorageSlot())
+        {
+            ShowNotice("Storage is full.");
+            return;
+        }
+
+        _meta.SynthCoins -= price;
+        offer.Purchased = true;
+        _meta.AddToStorage(offer.Item);
+        SavePersistentState();
+        ShowNotice($"Bought {offer.Item.Name} for {price} SynthCoins.");
     }
 
     private void UpdateCharacter()
@@ -555,6 +617,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 guard.KillAwarded = true;
                 var generator = _generators.FirstOrDefault(g => g.ZoneId == guard.ZoneId);
                 if (generator is not null) generator.GuardDefeated = true;
+                TryDropStationKey(guard.Position);
                 TryDropEnemyConsumable(guard.Position);
                 _player.RegisterKill(4);
                 AddRunScore(80);
@@ -603,9 +666,15 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (!_stationEntranceOpen && _generators.Count(g => g.Destroyed) >= 3)
         {
-            _stationEntranceOpen = true;
-            RemoveObstacle(_stationEntranceDoor);
-            ShowNotice("Station entrance unlocked.");
+            OpenStationEntrance("Station entrance unlocked.");
+        }
+
+        if (!_stationEntranceOpen
+            && _stationEntranceDoor is Rectangle entranceDoor
+            && CircleIntersectsRect(_player.Position, 70f, entranceDoor)
+            && TryConsumeStationKey())
+        {
+            OpenStationEntrance("S.T.A.T.I.O.N key used.");
         }
 
         if (!_stationBossFightStarted
@@ -641,6 +710,39 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         _obstacles.Add(new Obstacle(door));
         ShowNotice("Station arena sealed.");
+    }
+
+    private void OpenStationEntrance(string notice)
+    {
+        _stationEntranceOpen = true;
+        RemoveObstacle(_stationEntranceDoor);
+        ShowNotice(notice);
+    }
+
+    private bool TryConsumeStationKey()
+    {
+        if (_player.Inventory.QuickSlotQ?.IsStationKey == true)
+        {
+            _player.Inventory.QuickSlotQ = null;
+            _player.Inventory.AutoFillConsumableSlots();
+            return true;
+        }
+
+        if (_player.Inventory.QuickSlotR?.IsStationKey == true)
+        {
+            _player.Inventory.QuickSlotR = null;
+            _player.Inventory.AutoFillConsumableSlots();
+            return true;
+        }
+
+        for (var i = 0; i < _player.Inventory.BackpackSlots.Count; i++)
+        {
+            if (_player.Inventory.BackpackSlots[i]?.IsStationKey != true) continue;
+            _player.Inventory.BackpackSlots[i] = null;
+            return true;
+        }
+
+        return false;
     }
 
     private void OpenStationBossDoor()
@@ -882,8 +984,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             guardHit.Damage(damage);
             ApplyPlayerHitEffects(guardHit, poisonDamagePerSecond, poisonDuration);
-            guardHit.ForceAggro(_player.Position);
-            AggroWitnesses(guardHit.Position, true);
+            var targetAggroed = guardHit.TryAggroFromPlayerHit(_player.Position);
+            AggroWitnesses(guardHit.Position, targetAggroed);
             return true;
         }
 
@@ -976,8 +1078,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             guard.Damage(projectile.ExplosionDamage);
             ApplyPlayerHitEffects(guard);
-            guard.ForceAggro(_player.Position);
-            aggroWitnesses = true;
+            aggroWitnesses |= guard.TryAggroFromPlayerHit(_player.Position);
         }
 
         foreach (var toxic in _toxicEnemies.Where(e => e.Alive && Vector2.Distance(e.Position, projectile.Position) <= projectile.ExplosionRadius + 12f))
@@ -1424,7 +1525,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             return MoveChestItemToBackpack(slot.Index);
         }
 
-        if (slot.Item?.Type == ItemType.Consumable)
+        if (slot.Item?.Type == ItemType.Consumable && !slot.Item.IsStationKey)
         {
             return MoveConsumableToQuickSlotQ(slot);
         }
@@ -1446,7 +1547,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         var slot = slots.FirstOrDefault(s => Raylib.CheckCollisionPointRec(mouse, s.Rect));
-        if (slot?.Item?.Type != ItemType.Consumable || slot.Kind == SlotKind.Trash || slot.Kind == SlotKind.Chest)
+        if (slot?.Item?.Type != ItemType.Consumable || slot.Item.IsStationKey || slot.Kind == SlotKind.Trash || slot.Kind == SlotKind.Chest)
         {
             ResetInventoryUseHold();
             return;
@@ -1478,6 +1579,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private bool MoveConsumableToQuickSlotQ(UiSlot slot)
     {
         if (slot.Item?.Type != ItemType.Consumable) return false;
+        if (slot.Item.IsStationKey) return false;
         if (slot.Kind == SlotKind.QuickSlotQ) return false;
         if (slot.Kind is not (SlotKind.Backpack or SlotKind.QuickSlotR)) return false;
 
@@ -1512,15 +1614,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (Raylib.CheckCollisionPointRec(mouse, slot.Rect)) _hovered = slot.Item;
         }
 
-        if (Raylib.IsMouseButtonPressed(MouseButton.Right))
-        {
-            var from = slots.FirstOrDefault(s => Raylib.CheckCollisionPointRec(mouse, s.Rect));
-            if (from is not null && TryMoveStorageSlotToTrash(from))
-            {
-                _drag = null;
-                return;
-            }
-        }
+        UpdateStorageSellHold(slots, mouse);
 
         if (Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
@@ -1656,8 +1750,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             new UiSlot(new Rectangle(238, 294, 58, 58), SlotKind.RangedWeapon, -1, _meta.RangedWeapon, -1),
             new UiSlot(new Rectangle(238, 362, 58, 58), SlotKind.MeleeWeapon, -1, _meta.MeleeWeapon, -1),
             new UiSlot(new Rectangle(206, 454, 58, 58), SlotKind.QuickSlotQ, -1, _meta.QuickSlotQ, -1),
-            new UiSlot(new Rectangle(272, 454, 58, 58), SlotKind.QuickSlotR, -1, _meta.QuickSlotR, -1),
-            new UiSlot(new Rectangle(468, 562, 58, 58), SlotKind.Trash, -1, _meta.Trash, -1)
+            new UiSlot(new Rectangle(272, 454, 58, 58), SlotKind.QuickSlotR, -1, _meta.QuickSlotR, -1)
         ]);
 
         return list;
@@ -1929,7 +2022,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
-        if (target.Kind == SlotKind.QuickSlotQ && drag.Item.Type == ItemType.Consumable)
+        if (target.Kind == SlotKind.QuickSlotQ && drag.Item.Type == ItemType.Consumable && !drag.Item.IsStationKey)
         {
             var old = _player.Inventory.QuickSlotQ;
             _player.Inventory.QuickSlotQ = drag.Item;
@@ -1938,7 +2031,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
-        if (target.Kind == SlotKind.QuickSlotR && drag.Item.Type == ItemType.Consumable)
+        if (target.Kind == SlotKind.QuickSlotR && drag.Item.Type == ItemType.Consumable && !drag.Item.IsStationKey)
         {
             var old = _player.Inventory.QuickSlotR;
             _player.Inventory.QuickSlotR = drag.Item;
@@ -2233,6 +2326,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         AddMetaScore(_runScore);
+        RefreshArmoryOffers();
         SavePersistentState();
         ClearUiInteraction();
         _extractPortals.Clear();
@@ -2264,6 +2358,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         _lastChanceActive = false;
         _lastChanceTimer = 0f;
         ClearUiInteraction();
+        RefreshArmoryOffers();
+        SavePersistentState();
         _deathHeader = header;
         _deathBody = body;
         _state = GameState.Death;
@@ -2274,6 +2370,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _drag = null;
         _hovered = null;
         _openedChestIndex = null;
+        ResetInventoryUseHold();
         ClearPendingLevelUpPoints();
     }
 
@@ -2359,6 +2456,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (code == "BLUEKING")
         {
             var result = ApplyBlueKingCode();
+            SetCodeStatus(result.Success, result.Message);
+            if (result.Success) _codeInput = string.Empty;
+            return;
+        }
+
+        if (code == "SKEYFORRAM")
+        {
+            var result = ApplyStationKeyCode();
             SetCodeStatus(result.Success, result.Message);
             if (result.Success) _codeInput = string.Empty;
             return;
@@ -2478,6 +2583,24 @@ public sealed partial class SciFiRogueGame : IDisposable
         SavePersistentState();
         var lost = rewards.Count - stored;
         return (true, lost > 0 ? $"Success: {stored} blue item(s) delivered, {lost} lost due to full storage." : "Success");
+    }
+
+    private (bool Success, string Message) ApplyStationKeyCode()
+    {
+        const string code = "SKEYFORRAM";
+        if (!CanUsePromoCode(code, null, false, out var error))
+        {
+            return (false, error);
+        }
+
+        if (!_meta.AddToStorage(ItemStack.StationKey()))
+        {
+            return (false, "Storage is full.");
+        }
+
+        RegisterPromoCodeUse(code, false);
+        SavePersistentState();
+        return (true, "Success");
     }
 
     private bool CanUsePromoCode(string code, int? maxUses, bool sessionOnly, out string error)
@@ -2607,6 +2730,70 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private int GetStoredItemCount() => _meta.StorageSlots.Count(item => item is not null);
 
+    private static int GetSellValue(ItemStack item)
+    {
+        if (item.IsStationKey) return 900;
+
+        if (item.Type == ItemType.Consumable)
+        {
+            return item.ConsumableKind switch
+            {
+                ConsumableType.Medkit => 20,
+                ConsumableType.ProtectiveDome => 30,
+                _ => 15
+            };
+        }
+
+        return item.Rarity switch
+        {
+            ArmorRarity.Damaged => 25,
+            ArmorRarity.Common => 25,
+            ArmorRarity.Rare => 100,
+            ArmorRarity.Epic => 500,
+            ArmorRarity.Legendary => 2000,
+            ArmorRarity.Red => 3000,
+            _ => 25
+        };
+    }
+
+    private static int GetArmoryPrice(ItemStack item)
+    {
+        var price = item.Rarity == ArmorRarity.Epic ? 2500 : 500;
+        if (item.Type == ItemType.Armor)
+        {
+            price = (int)MathF.Ceiling(price * (1f + GetArmorModifierCount(item) * 0.2f));
+        }
+
+        return price;
+    }
+
+    private static int GetArmorModifierCount(ItemStack item)
+    {
+        if (item.Type != ItemType.Armor) return 0;
+
+        var count = 0;
+        if (item.SpeedBonusPercent > 0f) count++;
+        if (item.ExplosionResistancePercent > 0f) count++;
+        if (item.HealingBonusPercent > 0f) count++;
+        if (item.DashRecoveryPercent > 0f) count++;
+        if (item.ShieldMax > 0f) count++;
+        if (item.RegenPercentPerSecond > 0f) count++;
+        return count;
+    }
+
+    private void RefreshArmoryOffers()
+    {
+        _meta.ArmoryOffers.Clear();
+        for (var i = 0; i < 7; i++) _meta.ArmoryOffers.Add(new ArmoryOffer { Item = RollArmoryEquipment(ArmorRarity.Rare) });
+        for (var i = 0; i < 3; i++) _meta.ArmoryOffers.Add(new ArmoryOffer { Item = RollArmoryEquipment(ArmorRarity.Epic) });
+    }
+
+    private ItemStack RollArmoryEquipment(ArmorRarity rarity)
+    {
+        if (_rng.NextSingle() < 0.35f) return ItemStack.Armor(rarity, _rng);
+        return ItemStack.Weapon(_rng.NextSingle() < 0.5f ? WeaponClass.Ranged : WeaponClass.Melee, rarity, _rng);
+    }
+
     private ItemStack? TakeMetaLoadoutItem(SlotKind kind)
     {
         var item = GetMetaLoadoutItem(kind);
@@ -2623,8 +2810,8 @@ public sealed partial class SciFiRogueGame : IDisposable
             SlotKind.Armor => item.Type == ItemType.Armor,
             SlotKind.RangedWeapon => item.Type == ItemType.Weapon && item.WeaponKind == WeaponClass.Ranged,
             SlotKind.MeleeWeapon => item.Type == ItemType.Weapon && item.WeaponKind == WeaponClass.Melee,
-            SlotKind.QuickSlotQ => item.Type == ItemType.Consumable,
-            SlotKind.QuickSlotR => item.Type == ItemType.Consumable,
+            SlotKind.QuickSlotQ => item.Type == ItemType.Consumable && !item.IsStationKey,
+            SlotKind.QuickSlotR => item.Type == ItemType.Consumable && !item.IsStationKey,
             _ => false
         };
 
@@ -2661,7 +2848,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (item.Type == ItemType.Armor) return SlotKind.Armor;
         if (item.Type == ItemType.Weapon && item.WeaponKind == WeaponClass.Ranged) return SlotKind.RangedWeapon;
         if (item.Type == ItemType.Weapon && item.WeaponKind == WeaponClass.Melee) return SlotKind.MeleeWeapon;
-        if (item.Type == ItemType.Consumable) return _meta.QuickSlotQ is null ? SlotKind.QuickSlotQ : SlotKind.QuickSlotR;
+        if (item.Type == ItemType.Consumable && !item.IsStationKey) return _meta.QuickSlotQ is null ? SlotKind.QuickSlotQ : SlotKind.QuickSlotR;
         return null;
     }
 
@@ -2685,7 +2872,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (weapon is null) return string.Empty;
 
         var total = player.GetWeaponDamage(weapon);
-        if (weapon.Pattern == WeaponPattern.GrenadeLauncher) return $"blast {total:0.0} / direct {total + 200f:0.0}";
+        if (weapon.Pattern == WeaponPattern.GrenadeLauncher) return $"blast {total:0.0} / direct {total + 150f:0.0}";
         if (weapon.Pattern == WeaponPattern.SniperRifle)
         {
             var shotDamage = player.GetSniperShotDamage(weapon);
@@ -2697,8 +2884,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var perShot = player.GetPulseShotDamage(weapon);
             var shots = player.GetPulseBurstShotCount(weapon);
+            var poisonDps = 30f + total * 0.4f;
             return weapon.Pattern == WeaponPattern.Toxikus
-                ? $"toxic burst {perShot:0.0}x{shots} + poison"
+                ? $"toxic burst {perShot:0.0}x{shots} + poison {poisonDps:0.0}/s"
                 : $"burst {perShot:0.0}x{shots}={perShot * shots:0.0}";
         }
 
@@ -2810,6 +2998,52 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         return true;
+    }
+
+    private void UpdateStorageSellHold(List<UiSlot> slots, Vector2 mouse)
+    {
+        if (_drag is not null || !Raylib.IsKeyDown(KeyboardKey.X))
+        {
+            ResetInventoryUseHold();
+            return;
+        }
+
+        var slot = slots.FirstOrDefault(s => Raylib.CheckCollisionPointRec(mouse, s.Rect));
+        if (slot?.Item is null || slot.Kind == SlotKind.Trash)
+        {
+            ResetInventoryUseHold();
+            return;
+        }
+
+        if (slot.Kind != SlotKind.Storage && slot.Kind != SlotKind.RunBackpack && !IsMetaLoadoutSlot(slot.Kind))
+        {
+            ResetInventoryUseHold();
+            return;
+        }
+
+        if (_inventoryUseHoldKind != slot.Kind || _inventoryUseHoldIndex != slot.Index)
+        {
+            _inventoryUseHoldKind = slot.Kind;
+            _inventoryUseHoldIndex = slot.Index;
+            _inventoryUseHoldTimer = 0f;
+        }
+
+        _inventoryUseHoldTimer += Raylib.GetFrameTime();
+        if (_inventoryUseHoldTimer < InventoryConsumableUseHoldDuration) return;
+
+        SellStorageSlot(slot);
+        ResetInventoryUseHold();
+    }
+
+    private void SellStorageSlot(UiSlot slot)
+    {
+        if (slot.Item is null) return;
+
+        var value = GetSellValue(slot.Item);
+        _meta.SynthCoins += value;
+        ReplaceStorageSourceWith(new DragPayload(slot.Kind, slot.Index, slot.Item), null);
+        SavePersistentState();
+        ShowNotice($"Sold {slot.Item.Name} for {value} SynthCoins.");
     }
 
     private Rectangle GetDeadZoneStationRect()
@@ -3016,6 +3250,12 @@ public sealed partial class SciFiRogueGame : IDisposable
         _groundConsumables.Add(new GroundConsumablePickup(position, ItemStack.Consumable(RollConsumableType())));
     }
 
+    private void TryDropStationKey(Vector2 position)
+    {
+        if (_rng.NextSingle() >= 0.05f) return;
+        _groundConsumables.Add(new GroundConsumablePickup(position, ItemStack.StationKey()));
+    }
+
     private bool TryPickGroundItem(ItemStack item)
     {
         if (_player.Inventory.HasFreeBackpackSlot()) return _player.Inventory.AddToBackpack(item);
@@ -3154,14 +3394,16 @@ public sealed partial class SciFiRogueGame : IDisposable
         foreach (var hangar in _hangars)
         {
             AddHangarWalls(hangar.Rect);
-            var clusters = _rng.Next(7, 11);
+            var clusterCenters = new List<Vector2>();
+            var clusters = _rng.Next(8, 12);
             for (var i = 0; i < clusters; i++)
             {
-                var center = RandomPointInZoneSafe(hangar.Rect, 40f);
-                var blobs = _rng.Next(5, 9);
+                var center = RandomToxicClusterCenter(hangar.Rect, clusterCenters);
+                clusterCenters.Add(center);
+                var blobs = _rng.Next(9, 13);
                 for (var b = 0; b < blobs; b++)
                 {
-                    var offset = new Vector2(_rng.Next(-105, 106), _rng.Next(-105, 106));
+                    var offset = new Vector2(_rng.Next(-46, 47), _rng.Next(-34, 35));
                     _toxicPools.Add(new ToxicPool(center + offset, _rng.Next(44, 86), _rng.Next(30, 74)));
                 }
             }
@@ -3171,6 +3413,18 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             AddStationLayout(_stationZone.Rect);
         }
+    }
+
+    private Vector2 RandomToxicClusterCenter(Rectangle rect, List<Vector2> existing)
+    {
+        const float minDistance = 260f;
+        for (var i = 0; i < 80; i++)
+        {
+            var point = RandomPointInZoneSafe(rect, 130f);
+            if (existing.All(other => Vector2.DistanceSquared(point, other) >= minDistance * minDistance)) return point;
+        }
+
+        return RandomPointInZoneSafe(rect, 130f);
     }
 
     private void AddHangarWalls(Rectangle rect)
@@ -3194,107 +3448,140 @@ public sealed partial class SciFiRogueGame : IDisposable
         var y = rect.Y;
         var w = rect.Width;
         var h = rect.Height;
-        var leftW = w * 0.54f;
-        var bossWallX = x + leftW;
-        var entranceGap = 260f;
-        var entranceX = bossWallX - 250f;
-        var bossDoorY = y + h - 150f;
-        var bossDoorHeight = 125f;
 
         void AddWall(float wx, float wy, float ww, float wh)
             => _obstacles.Add(new Obstacle(new Rectangle(wx, wy, ww, wh)));
 
-        void AddHorizontal(float wx, float wy, float ww) => AddWall(wx, wy, ww, wall);
-        void AddVertical(float wx, float wy, float wh) => AddWall(wx, wy, wall, wh);
+        var rawRows = new[]
+        {
+            "#############################################################################################",
+            "# G                           #                #                                            #",
+            "#                             #                #                                            #",
+            "#                                                                                           #",
+            "####   ######                                                                               #",
+            "#           #                 #                #                                            #",
+            "# G         #                 #                #                                            #",
+            "##################################             #                                            #",
+            "#          #          #       G  #             #                                            #",
+            "#          #          #          #             #                                            #",
+            "#                     #          #             #                                            #",
+            "#          #          ###     #########   ######                                            #",
+            "# G        #          #                        #                                            #",
+            "###############     ###                        #                                            #",
+            "#          #                     #######   #####                                            #",
+            "#                                #             #                                            #",
+            "#                                #             #                                            #",
+            "# G        #                     #             #                  BOSS                      #",
+            "###############    ###############   ###########                                            #",
+            "#          #           # G       #             #                                            #",
+            "#          #           #         #             #                                            #",
+            "#                      #         #             #                                            #",
+            "#                      #         #           G #                                            #",
+            "###############    ###############   ###########                                            #",
+            "#          #           #G        #             #                                            #",
+            "#          #           #         #             #                                            #",
+            "#                      #         #             #                                            #",
+            "#                      #         #           G #                                            #",
+            "#          #           ####   ##################                                            #",
+            "#          #                     #             #                                            #",
+            "#        G #                     #             #                                            #",
+            "####   #####                                   #                                            #",
+            "#          #                                   #                                            #",
+            "#          #                     #             #                                            #",
+            "# G        # G                   #             #                                            #",
+            "###################################    ######################################################"
+        };
 
-        AddHorizontal(x, y, w);
-        AddVertical(x, y, h);
-        AddVertical(x + w - wall, y, h);
-        AddHorizontal(x, y + h - wall, entranceX - x);
-        AddHorizontal(entranceX + entranceGap, y + h - wall, x + w - entranceX - entranceGap);
+        var cols = rawRows.Max(row => row.Length);
+        var rows = rawRows
+            .Select(row => (row.EndsWith('#') ? row[..^1] : row).PadRight(cols - 1) + "#")
+            .ToArray();
+        var cellW = w / (cols - 1);
+        var cellH = h / (rows.Length - 1);
+        var bossRow = Array.FindIndex(rows, row => row.Contains("BOSS", StringComparison.Ordinal));
+        var bossTextCol = bossRow >= 0 ? rows[bossRow].IndexOf("BOSS", StringComparison.Ordinal) : -1;
+        var bossWallCol = bossTextCol > 0 ? rows[bossRow].LastIndexOf('#', bossTextCol - 1) : -1;
+        bossWallCol = Math.Clamp(bossWallCol > 1 ? bossWallCol : cols / 2, 1, cols - 2);
 
-        _stationEntranceDoor = new Rectangle(entranceX, y + h - wall, entranceGap, wall);
+        float GridX(int col) => x + col * cellW;
+        float GridY(int row) => y + row * cellH;
+        float WallX(int col) => Math.Clamp(GridX(col) - wall * 0.5f, x, x + w - wall);
+        float WallY(int row) => Math.Clamp(GridY(row) - wall * 0.5f, y, y + h - wall);
+
+        void AddGridHorizontal(int row, int startCol, int endCol)
+        {
+            var left = GridX(startCol);
+            var right = GridX(Math.Min(endCol + 1, cols - 1));
+            AddWall(left, WallY(row), MathF.Max(wall, right - left), wall);
+        }
+
+        void AddGridVertical(int col, int startRow, int endRow)
+        {
+            var top = GridY(startRow);
+            var bottom = GridY(Math.Min(endRow + 1, rows.Length - 1));
+            AddWall(WallX(col), top, wall, MathF.Max(wall, bottom - top));
+        }
+
+        for (var row = 0; row < rows.Length; row++)
+        {
+            var start = -1;
+            for (var col = 0; col < cols; col++)
+            {
+                var isWall = rows[row][col] == '#';
+                if (isWall && start < 0) start = col;
+                if ((!isWall || col == cols - 1) && start >= 0)
+                {
+                    var end = isWall && col == cols - 1 ? col : col - 1;
+                    if (end - start >= 1) AddGridHorizontal(row, start, end);
+                    start = -1;
+                }
+            }
+        }
+
+        for (var col = 0; col < cols; col++)
+        {
+            var start = -1;
+            for (var row = 0; row < rows.Length; row++)
+            {
+                var isWall = rows[row][col] == '#';
+                if (isWall && start < 0) start = row;
+                if ((!isWall || row == rows.Length - 1) && start >= 0)
+                {
+                    var end = isWall && row == rows.Length - 1 ? row : row - 1;
+                    if (end - start >= 1) AddGridVertical(col, start, end);
+                    start = -1;
+                }
+            }
+        }
+
+        var bottomRow = rows[^1];
+        var entranceStartCol = bottomRow.IndexOf(' ');
+        var entranceEndCol = entranceStartCol;
+        while (entranceEndCol < cols && bottomRow[entranceEndCol] == ' ') entranceEndCol++;
+
+        var entranceX = GridX(entranceStartCol);
+        var entranceWidth = GridX(entranceEndCol) - entranceX;
+        _stationEntranceDoor = new Rectangle(entranceX, y + h - wall, entranceWidth, wall);
         _obstacles.Add(new Obstacle(_stationEntranceDoor.Value));
 
-        _stationBossArena = new Rectangle(bossWallX + wall, y + wall, w - leftW - wall * 2f, h - wall * 2f);
+        var bossDoorRow = 3;
+        var bossDoorHeightRows = 2.2f;
+        var bossWallX = WallX(bossWallCol);
+        var bossDoorY = GridY(bossDoorRow);
+        var bossDoorHeight = cellH * bossDoorHeightRows;
+        AddWall(bossWallX, y, wall, MathF.Max(wall, bossDoorY - y));
+        AddWall(bossWallX, bossDoorY + bossDoorHeight, wall, MathF.Max(wall, y + h - bossDoorY - bossDoorHeight));
         _stationBossDoor = new Rectangle(bossWallX, bossDoorY, wall, bossDoorHeight);
-        AddVertical(bossWallX, y, bossDoorY - y);
-        AddVertical(bossWallX, bossDoorY + bossDoorHeight, y + h - bossDoorY - bossDoorHeight);
+        _stationBossArena = new Rectangle(bossWallX + wall, y + wall, x + w - bossWallX - wall * 2f, h - wall * 2f);
 
-        var lx0 = x + wall;
-        var lx1 = bossWallX - wall;
-        var ly0 = y + wall;
-        var ly1 = y + h - wall;
-        var lw = lx1 - lx0;
-        var lh = ly1 - ly0;
-
-        var c1 = lx0 + lw * 0.13f;
-        var c2 = lx0 + lw * 0.33f;
-        var c3 = lx0 + lw * 0.52f;
-        var c4 = lx0 + lw * 0.72f;
-        var r1 = ly0 + lh * 0.13f;
-        var r2 = ly0 + lh * 0.26f;
-        var r3 = ly0 + lh * 0.42f;
-        var r4 = ly0 + lh * 0.60f;
-        var r5 = ly0 + lh * 0.78f;
-
-        // Left-side room maze, roughly matching the reference sketch.
-        AddVertical(c1, r1, lh * 0.14f);
-        AddVertical(c1, r2, lh * 0.22f);
-        AddVertical(c1, r4, lh * 0.14f);
-        AddVertical(c1, r5, ly1 - r5);
-
-        AddVertical(c2, r2, lh * 0.16f);
-        AddVertical(c2, r4, lh * 0.18f);
-        AddVertical(c2, r5, lh * 0.20f);
-
-        AddVertical(c3, ly0, lh * 0.08f);
-        AddVertical(c3, r1, lh * 0.18f);
-        AddVertical(c3, r3, lh * 0.22f);
-        AddVertical(c3, r5, ly1 - r5);
-
-        AddVertical(c4, ly0, lh * 0.08f);
-        AddVertical(c4, r1, lh * 0.28f);
-        AddVertical(c4, r4 - lh * 0.06f, lh * 0.24f);
-
-        AddHorizontal(lx0, r1, lw * 0.10f);
-        AddHorizontal(lx0, r2, lw * 0.62f);
-        AddHorizontal(lx0, r3, lw * 0.20f);
-        AddHorizontal(c1, r3, lw * 0.18f);
-        AddHorizontal(c2 + lw * 0.07f, r3, lw * 0.16f);
-        AddHorizontal(c3 - lw * 0.08f, r3, lw * 0.20f);
-        AddHorizontal(c4 - lw * 0.10f, r3, lw * 0.20f);
-        AddHorizontal(lx0, r4, lw * 0.22f);
-        AddHorizontal(c2 - lw * 0.05f, r4, lw * 0.34f);
-        AddHorizontal(c3, r4, lw * 0.18f);
-        AddHorizontal(c4 - lw * 0.08f, r4, lw * 0.18f);
-        AddHorizontal(lx0, r5, lw * 0.12f);
-        AddHorizontal(c1 - lw * 0.06f, r5, lw * 0.14f);
-        AddHorizontal(c3 - lw * 0.02f, r5, lw * 0.32f);
-        AddHorizontal(c4 - lw * 0.06f, ly1 - wall, lw * 0.18f);
-
-        // Short broken segments for the corridor feel from the reference.
-        AddHorizontal(c2 - lw * 0.05f, r2 + lh * 0.15f, lw * 0.12f);
-        AddHorizontal(c2 + lw * 0.12f, r2 + lh * 0.15f, lw * 0.13f);
-        AddHorizontal(c3 + lw * 0.02f, r2 + lh * 0.15f, lw * 0.10f);
-        AddHorizontal(c4 - lw * 0.10f, r2 + lh * 0.15f, lw * 0.10f);
-        AddHorizontal(c4 + lw * 0.06f, r2 + lh * 0.15f, lw * 0.10f);
-        AddHorizontal(c2, r4 + lh * 0.16f, lw * 0.12f);
-        AddHorizontal(c3 - lw * 0.08f, r4 + lh * 0.16f, lw * 0.12f);
-
-        var potentialCrates = new[]
+        var potentialCrates = new List<Vector2>();
+        for (var row = 0; row < rows.Length; row++)
         {
-            new Vector2(lx0 + 55f, ly0 + 55f),
-            new Vector2(lx0 + 62f, r2 - 46f),
-            new Vector2(lx0 + 60f, r3 + 50f),
-            new Vector2(lx0 + 70f, ly1 - 58f),
-            new Vector2(c1 - 45f, r5 - 44f),
-            new Vector2(c1 + 42f, r2 + 28f),
-            new Vector2(c1 + 80f, ly1 - 56f),
-            new Vector2(c3 - 55f, r4 + 38f),
-            new Vector2(c3 + 72f, r2 + 24f),
-            new Vector2(c4 + 86f, r4 + 88f)
-        };
+            for (var col = 0; col < cols; col++)
+            {
+                if (rows[row][col] == 'G') potentialCrates.Add(new Vector2(GridX(col), GridY(row)));
+            }
+        }
 
         foreach (var pos in potentialCrates.OrderBy(_ => _rng.Next()).Take(_rng.Next(4, 8)))
         {
@@ -3460,4 +3747,3 @@ public sealed partial class SciFiRogueGame : IDisposable
     }
 
 }
-

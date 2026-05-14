@@ -13,6 +13,7 @@ public sealed partial class SciFiRogueGame
         {
             if (!File.Exists(SaveFilePath))
             {
+                RefreshArmoryOffers();
                 SavePersistentState();
                 return;
             }
@@ -180,8 +181,12 @@ public sealed partial class SciFiRogueGame
             BaseDexterity = _meta.BaseDexterity,
             BaseSpeed = _meta.BaseSpeed,
             BaseGuns = _meta.BaseGuns,
+            SynthCoins = _meta.SynthCoins,
             StorageSlots = _meta.StorageSlots.Select(ItemStack.ToSaveData).ToList(),
             RunBackpackSlots = _meta.RunBackpackSlots.Select(ItemStack.ToSaveData).ToList(),
+            ArmoryOffers = _meta.ArmoryOffers
+                .Select(offer => new ArmoryOfferSaveData { Item = ItemStack.ToSaveData(offer.Item), Purchased = offer.Purchased })
+                .ToList(),
             Armor = ItemStack.ToSaveData(_meta.Armor),
             RangedWeapon = ItemStack.ToSaveData(_meta.RangedWeapon),
             MeleeWeapon = ItemStack.ToSaveData(_meta.MeleeWeapon),
@@ -199,8 +204,10 @@ public sealed partial class SciFiRogueGame
         _meta.BaseDexterity = Math.Max(0, data?.BaseDexterity ?? 4);
         _meta.BaseSpeed = Math.Max(0, data?.BaseSpeed ?? 4);
         _meta.BaseGuns = Math.Max(0, data?.BaseGuns ?? 4);
+        _meta.SynthCoins = Math.Max(0, data?.SynthCoins ?? 0);
         _meta.StorageSlots.Clear();
         _meta.RunBackpackSlots.Clear();
+        _meta.ArmoryOffers.Clear();
 
         var savedSlots = data?.StorageSlots ?? [];
         for (var i = 0; i < MetaProfile.StorageCapacity; i++)
@@ -220,6 +227,14 @@ public sealed partial class SciFiRogueGame
         _meta.QuickSlotQ = ItemStack.FromSaveData(data?.QuickSlotQ);
         _meta.QuickSlotR = ItemStack.FromSaveData(data?.QuickSlotR);
         _meta.Trash = ItemStack.FromSaveData(data?.Trash);
+
+        foreach (var savedOffer in data?.ArmoryOffers ?? [])
+        {
+            var item = ItemStack.FromSaveData(savedOffer.Item);
+            if (item is not null) _meta.ArmoryOffers.Add(new ArmoryOffer { Item = item, Purchased = savedOffer.Purchased });
+        }
+
+        if (_meta.ArmoryOffers.Count == 0) RefreshArmoryOffers();
     }
 
     public void Dispose()

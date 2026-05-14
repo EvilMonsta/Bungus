@@ -32,8 +32,8 @@ public sealed class Player
     private const float EmpoweredSniperDamageMultiplier = 13.875f;
     private const float SniperCooldown = 1.75f;
     private const float SniperProjectileSpeed = 2100f;
-    private const float SniperProjectileLifetime = 1.3f;
-    private const float PulseProjectileLifetime = 1.15f;
+    private const float SniperProjectileLifetime = 2500f / SniperProjectileSpeed;
+    private const float PulseProjectileLifetime = 660f / 560f;
     private const float SniperIdleRequirement = 1f;
     private const float LegendarySniperChargeDuration = 2.5f;
 
@@ -231,30 +231,30 @@ public sealed class Player
                     0.72f,
                     weapon.Color,
                     false,
-                    damage + 200f,
+                    damage + 150f,
                     ProjectileKind.Grenade,
                     120f,
                     damage,
                     7f,
                     false,
                     Position));
-                _attackCd = 1f;
+                _attackCd = 1f / 1.35f;
                 return true;
             }
             else if (weapon.Pattern is WeaponPattern.PulseRifle or WeaponPattern.Toxikus)
             {
                 var pulseShotDamage = GetPulseShotDamage(weapon);
-                var poisonDps = weapon.Pattern == WeaponPattern.Toxikus ? 40f : 0f;
+                var poisonDps = weapon.Pattern == WeaponPattern.Toxikus ? 30f + damage * 0.4f : 0f;
                 var poisonDuration = weapon.Pattern == WeaponPattern.Toxikus ? 3f : 0f;
                 FirePulseShot(projectiles, dir, weapon.Color, pulseShotDamage, poisonDps, poisonDuration);
                 _pulseQueuedShots = GetPulseBurstShotCount(weapon) - 1;
-                _pulseShotCd = weapon.Pattern == WeaponPattern.Toxikus ? 0.083f : 0.064f;
+                _pulseShotCd = weapon.Pattern == WeaponPattern.Toxikus ? 0.0664f : 0.064f;
                 _pulseDir = dir;
                 _pulseColor = weapon.Color;
                 _pulseDamage = pulseShotDamage;
                 _pulsePoisonDamagePerSecond = poisonDps;
                 _pulsePoisonDuration = poisonDuration;
-                _attackCd = weapon.Pattern == WeaponPattern.Toxikus ? 0.486f : 0.374f;
+                _attackCd = weapon.Pattern == WeaponPattern.Toxikus ? 1f / 2.2f : 0.374f;
                 return true;
             }
             else if (weapon.Pattern == WeaponPattern.SniperRifle)
@@ -345,7 +345,7 @@ public sealed class Player
     {
         var shotDir = angleOffset == 0f ? dir : VisibilityUtils.Rotate(dir, angleOffset);
         shotDir = ApplyMovementSpread(shotDir);
-        projectiles.Add(new Projectile(Position + shotDir * 18f, shotDir, 520f, 1.15f, color, false, damage, sourcePosition: Position));
+        projectiles.Add(new Projectile(Position + shotDir * 18f, shotDir, 520f, 600f / 520f, color, false, damage, sourcePosition: Position));
     }
 
     public float GetMeleeDamage()
@@ -368,7 +368,7 @@ public sealed class Player
     public float GetWeaponBaseDamage(ItemStack weapon)
     {
         if (weapon.Type != ItemType.Weapon) return 0f;
-        if (weapon.Pattern == WeaponPattern.GrenadeLauncher && weapon.BaseDamage <= 0f) return 150f;
+        if (weapon.Pattern == WeaponPattern.GrenadeLauncher && weapon.BaseDamage <= 0f) return 100f;
         return MathF.Max(0f, weapon.BaseDamage);
     }
 
@@ -511,6 +511,7 @@ public sealed class Player
     private ConsumableType? TryUseConsumable(ItemStack? slot)
     {
         if (slot?.Type != ItemType.Consumable || slot.ConsumableKind is null) return null;
+        if (slot.IsStationKey) return null;
 
         if (slot.ConsumableKind == ConsumableType.Medkit)
         {
@@ -1191,9 +1192,10 @@ public sealed class GeneratorGuardianEnemy
     private Vector2 _facing = new(1f, 0f);
 
     private const float SpearStartDistance = 24f;
-    private const float GoldenSpearEndDistance = 145f;
-    private const float SpearHitRadius = 18f;
+    private const float SpearEndDistance = 140f;
+    private const float SpearHitRadius = 15f;
     private const float SpearVisualDuration = 0.18f;
+    private const float AggroRange = 980f;
 
     public GeneratorGuardianEnemy(Vector2 position, int zoneId)
     {
@@ -1213,7 +1215,7 @@ public sealed class GeneratorGuardianEnemy
 
         var toPlayer = playerPos - Position;
         var playerDistance = toPlayer.Length();
-        if (_alert && playerDistance > 980f)
+        if (_alert && playerDistance > AggroRange)
         {
             ReturnToSpawn(dt, obstacles, worldSize);
             return;
@@ -1247,10 +1249,10 @@ public sealed class GeneratorGuardianEnemy
         }
 
         _attackCd -= dt;
-        if (_attackCd <= 0f && playerDistance <= GoldenSpearEndDistance + 16f)
+        if (_attackCd <= 0f && playerDistance <= SpearEndDistance + 16f)
         {
             _spearStart = Position + dir * SpearStartDistance;
-            _spearEnd = Position + dir * GoldenSpearEndDistance;
+            _spearEnd = Position + dir * SpearEndDistance;
             _spearVisualTimer = SpearVisualDuration;
             if (DistanceToSegment(player.Position, _spearStart, _spearEnd) <= SpearHitRadius)
             {
@@ -1289,6 +1291,18 @@ public sealed class GeneratorGuardianEnemy
     {
         _alert = true;
         if (target != Position) _facing = Vector2.Normalize(target - Position);
+    }
+
+    public bool TryAggroFromPlayerHit(Vector2 playerPosition)
+    {
+        if (Vector2.Distance(Position, playerPosition) > AggroRange)
+        {
+            _alert = false;
+            return false;
+        }
+
+        ForceAggro(playerPosition);
+        return true;
     }
 
     public void Damage(float amount)
@@ -2009,6 +2023,7 @@ public sealed class StationBossEnemy
     private Vector2 _dashDir;
     private float _dashWindup;
     private bool _dashing;
+    private bool _dashHitPlayer;
     private float _stunTimer;
     private float _fireCd;
     private int _burstShotsLeft;
@@ -2018,6 +2033,11 @@ public sealed class StationBossEnemy
     private float _grenadeShotCd;
     private bool _grayHealUsed;
     private float _grayHealTimer;
+    private int _queuedRadialBursts;
+    private float _queuedRadialBurstTimer;
+    private float _queuedRadialBurstAngleOffset;
+    private readonly List<DashTrailPoint> _dashTrail = [];
+    private float _dashTrailSpawnTimer;
     private float _slowTimer;
     private float _poisonTimer;
     private float _poisonDamagePerSecond;
@@ -2035,6 +2055,7 @@ public sealed class StationBossEnemy
         _slowTimer = MathF.Max(0f, _slowTimer - dt);
         TickPoison(dt);
         if (!Alive || !Active) return;
+        UpdateDashTrail(dt);
 
         var toPlayer = playerPos - Position;
         var dir = toPlayer == Vector2.Zero ? new Vector2(1f, 0f) : Vector2.Normalize(toPlayer);
@@ -2056,6 +2077,7 @@ public sealed class StationBossEnemy
 
         if (_stunTimer > 0f)
         {
+            UpdateQueuedRadialBursts(dt, projectiles);
             _stunTimer -= dt;
             if (PhaseTwo && _stunTimer <= 0f) StartDash(dir, 0.15f);
             return;
@@ -2073,20 +2095,26 @@ public sealed class StationBossEnemy
 
         if (_dashing)
         {
-            var dashSpeed = PhaseTwo ? 1250f : 1000f;
+            var dashSpeed = PhaseTwo ? 1350f : 1100f;
             var (next, hitWall) = MoveDashUntilCollision(Position, _dashDir * dashSpeed * dt, 32f, obstacles, worldSize);
             Position = next;
-            if (Vector2.Distance(Position, player.Position) <= 96f) player.TakeDamage(100f);
+            SpawnDashTrailPoint(dt);
+            if (!_dashHitPlayer && Vector2.Distance(Position, player.Position) <= 96f)
+            {
+                player.TakeDamage(100f);
+                _dashHitPlayer = true;
+            }
             if (hitWall)
             {
                 _dashing = false;
-                FireRadialBurst(projectiles);
+                if (PhaseTwo) QueuePhaseTwoRadialBursts();
+                else FireRadialBurst(projectiles);
                 _stunTimer = PhaseTwo ? 0.75f : 4f;
             }
             return;
         }
 
-        Position = MovementUtils.MoveWithCollisions(Position, dir * 200f * GetMovementSpeedMultiplier() * dt, 32f, obstacles, worldSize);
+        Position = MovementUtils.MoveWithCollisions(Position, dir * 300f * GetMovementSpeedMultiplier() * dt, 32f, obstacles, worldSize);
         Position = Vector2.Clamp(Position, new Vector2(_arena.X + 36f, _arena.Y + 36f), new Vector2(_arena.X + _arena.Width - 36f, _arena.Y + _arena.Height - 36f));
 
         if (PhaseTwo)
@@ -2106,7 +2134,7 @@ public sealed class StationBossEnemy
         _burstShotCd -= dt;
         while (_burstShotsLeft > 0 && _burstShotCd <= 0f)
         {
-            projectiles.Add(new Projectile(Position + dir * 28f, dir, 620f, 1.5f, Palette.C(255, 120, 120), true, 20f));
+            projectiles.Add(new Projectile(Position + dir * 28f, dir, 620f, 2.25f, Palette.C(255, 120, 120), true, 20f));
             _burstShotsLeft--;
             _burstShotCd += _burstShotsLeft == 2 ? 0.18f : 0.06f;
         }
@@ -2124,7 +2152,7 @@ public sealed class StationBossEnemy
         {
             var spread = ((Random.Shared.NextSingle() * 60f) - 30f) * MathF.PI / 180f;
             var grenadeDir = VisibilityUtils.Rotate(dir, spread);
-            projectiles.Add(new Projectile(Position + grenadeDir * 32f, grenadeDir, 300f, 1.125f, Palette.C(255, 155, 90), true, 0f, ProjectileKind.Grenade, 40f, 25f, 5f));
+            projectiles.Add(new Projectile(Position + grenadeDir * 32f, grenadeDir, 300f, 1.6875f, Palette.C(255, 155, 90), true, 0f, ProjectileKind.Grenade, 40f, 25f, 5f));
             _grenadesLeft--;
             _grenadeShotCd += 0.107f;
         }
@@ -2150,6 +2178,29 @@ public sealed class StationBossEnemy
     {
         _dashDir = dir == Vector2.Zero ? new Vector2(1f, 0f) : Vector2.Normalize(dir);
         _dashWindup = windup;
+        _dashHitPlayer = false;
+        _dashTrailSpawnTimer = 0f;
+    }
+
+    private void UpdateDashTrail(float dt)
+    {
+        for (var i = _dashTrail.Count - 1; i >= 0; i--)
+        {
+            var point = _dashTrail[i];
+            point.TimeLeft -= dt;
+            if (point.TimeLeft <= 0f) _dashTrail.RemoveAt(i);
+            else _dashTrail[i] = point;
+        }
+    }
+
+    private void SpawnDashTrailPoint(float dt)
+    {
+        _dashTrailSpawnTimer -= dt;
+        if (_dashTrailSpawnTimer > 0f) return;
+
+        _dashTrail.Add(new DashTrailPoint(Position, 0.24f));
+        if (_dashTrail.Count > 10) _dashTrail.RemoveAt(0);
+        _dashTrailSpawnTimer = 0.035f;
     }
 
     private (Vector2 Position, bool HitWall) MoveDashUntilCollision(Vector2 position, Vector2 delta, float radius, List<Obstacle> obstacles, int worldSize)
@@ -2228,14 +2279,35 @@ public sealed class StationBossEnemy
         return Vector2.Distance(p, a + ab * t);
     }
 
-    private void FireRadialBurst(List<Projectile> projectiles)
+    private void QueuePhaseTwoRadialBursts()
+    {
+        _queuedRadialBursts = 4;
+        _queuedRadialBurstTimer = 0f;
+        _queuedRadialBurstAngleOffset = Random.Shared.NextSingle() * MathF.Tau;
+    }
+
+    private void UpdateQueuedRadialBursts(float dt, List<Projectile> projectiles)
+    {
+        if (_queuedRadialBursts <= 0) return;
+
+        _queuedRadialBurstTimer -= dt;
+        while (_queuedRadialBursts > 0 && _queuedRadialBurstTimer <= 0f)
+        {
+            FireRadialBurst(projectiles, _queuedRadialBurstAngleOffset);
+            _queuedRadialBursts--;
+            _queuedRadialBurstAngleOffset += MathF.Tau / 36f;
+            _queuedRadialBurstTimer += 0.16f;
+        }
+    }
+
+    private void FireRadialBurst(List<Projectile> projectiles, float angleOffset = 0f)
     {
         const int count = 18;
         for (var i = 0; i < count; i++)
         {
-            var angle = i / (float)count * MathF.Tau;
+            var angle = angleOffset + i / (float)count * MathF.Tau;
             var dir = new Vector2(MathF.Cos(angle), MathF.Sin(angle));
-            projectiles.Add(new Projectile(Position + dir * 34f, dir, 620f, 1.5f, Palette.C(255, 120, 120), true, 16f));
+            projectiles.Add(new Projectile(Position + dir * 34f, dir, 620f, 2.25f, Palette.C(255, 120, 120), true, 16f));
         }
     }
 
@@ -2244,6 +2316,13 @@ public sealed class StationBossEnemy
     public void Draw()
     {
         if (!Alive) return;
+        foreach (var point in _dashTrail)
+        {
+            var alpha = (byte)Math.Clamp(point.TimeLeft / 0.24f * 170f, 0f, 170f);
+            var radius = 32f + point.TimeLeft * 18f;
+            Raylib.DrawCircleV(point.Position, radius, Palette.C(235, 245, 255, alpha));
+        }
+
         var fill = _grayHealTimer > 0f ? Palette.C(130, 130, 130) : PhaseTwo ? Palette.C(120, 30, 32) : Palette.C(210, 40, 44);
         Raylib.DrawCircleV(Position, 34f, fill);
         if (_dashing) Raylib.DrawCircleV(Position, 68f, Palette.C(255, 70, 70, 60));
@@ -2259,6 +2338,12 @@ public sealed class StationBossEnemy
         var hp = Health / MaxHealth;
         Raylib.DrawRectangle((int)Position.X - 58, (int)Position.Y - 54, 116, 7, Palette.C(20, 20, 20, 230));
         Raylib.DrawRectangle((int)Position.X - 58, (int)Position.Y - 54, (int)(116 * hp), 7, Color.Green);
+    }
+
+    private struct DashTrailPoint(Vector2 position, float timeLeft)
+    {
+        public Vector2 Position = position;
+        public float TimeLeft = timeLeft;
     }
 }
 

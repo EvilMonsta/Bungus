@@ -12,9 +12,11 @@ public sealed class MetaProfile
     public int BaseDexterity { get; set; } = 4;
     public int BaseSpeed { get; set; } = 4;
     public int BaseGuns { get; set; } = 4;
+    public int SynthCoins { get; set; }
 
     public List<ItemStack?> StorageSlots { get; } = Enumerable.Repeat<ItemStack?>(null, StorageCapacity).ToList();
     public List<ItemStack?> RunBackpackSlots { get; } = Enumerable.Repeat<ItemStack?>(null, Inventory.BackpackCapacity).ToList();
+    public List<ArmoryOffer> ArmoryOffers { get; } = [];
     public ItemStack? Armor { get; set; }
     public ItemStack? RangedWeapon { get; set; }
     public ItemStack? MeleeWeapon { get; set; }
@@ -62,8 +64,10 @@ public sealed class MetaProfileSaveData
     public int BaseDexterity { get; set; } = 4;
     public int BaseSpeed { get; set; } = 4;
     public int BaseGuns { get; set; } = 4;
+    public int SynthCoins { get; set; }
     public List<ItemStackSaveData?> StorageSlots { get; set; } = [];
     public List<ItemStackSaveData?> RunBackpackSlots { get; set; } = [];
+    public List<ArmoryOfferSaveData> ArmoryOffers { get; set; } = [];
     public ItemStackSaveData? Armor { get; set; }
     public ItemStackSaveData? RangedWeapon { get; set; }
     public ItemStackSaveData? MeleeWeapon { get; set; }
@@ -96,6 +100,18 @@ public sealed class ItemStackSaveData
     public float RegenPercentPerSecond { get; set; }
     public float WeaponDamage { get; set; }
     public float PowerBonus { get; set; }
+}
+
+public sealed class ArmoryOffer
+{
+    public ItemStack Item { get; set; } = ItemStack.Weapon(WeaponClass.Ranged, ArmorRarity.Rare, new Random());
+    public bool Purchased { get; set; }
+}
+
+public sealed class ArmoryOfferSaveData
+{
+    public ItemStackSaveData? Item { get; set; }
+    public bool Purchased { get; set; }
 }
 
 public sealed class Inventory
@@ -133,6 +149,7 @@ public sealed class Inventory
     private bool TryPlaceIntoConsumableSlot(ItemStack item)
     {
         if (item.Type != ItemType.Consumable) return false;
+        if (item.IsStationKey) return false;
 
         if (QuickSlotQ is null)
         {
@@ -152,6 +169,7 @@ public sealed class Inventory
     public bool TryReceiveGroundConsumableWhenBackpackFull(ItemStack item)
     {
         if (item.Type != ItemType.Consumable) return false;
+        if (item.IsStationKey) return false;
         if (HasFreeBackpackSlot()) return false;
         if (QuickSlotQ is not null || QuickSlotR is not null) return false;
         if (BackpackSlots.Any(slot => slot?.Type == ItemType.Consumable)) return false;
@@ -166,6 +184,7 @@ public sealed class Inventory
         {
             var item = BackpackSlots[i];
             if (item?.Type != ItemType.Consumable) continue;
+            if (item.IsStationKey) continue;
             BackpackSlots[i] = null;
             return item;
         }
@@ -186,6 +205,9 @@ public sealed class ItemStack
     public WeaponPattern Pattern { get; }
     public ConsumableType? ConsumableKind { get; }
     public bool IsStarter { get; }
+    public bool IsStationKey
+        => Type == ItemType.KeyItem && Name.Equals("S.T.A.T.I.O.N", StringComparison.OrdinalIgnoreCase)
+           || Type == ItemType.Consumable && ConsumableKind == ConsumableType.StationKey;
 
     public float Defense { get; }
     public float ResiliencePercent { get; }
@@ -271,6 +293,7 @@ public sealed class ItemStack
     public static ItemStack? FromSaveData(ItemStackSaveData? data)
     {
         if (data is null) return null;
+        if (data.Type == ItemType.Consumable && data.ConsumableKind == ConsumableType.StationKey) return StationKey();
 
         return new ItemStack(
             data.Type,
@@ -474,7 +497,7 @@ public sealed class ItemStack
         {
             name = "Toxikus";
             description = "Unique pulse rifle. Slower 2-round burst; bullets poison enemies.";
-            baseDamage = 20f + rng.NextSingle() * 5f;
+            baseDamage = 22.857143f + rng.NextSingle() * 3.809524f;
         }
         else if (kind == WeaponClass.Melee && pattern == WeaponPattern.Lancelot)
         {
@@ -594,7 +617,7 @@ public sealed class ItemStack
         return new ItemStack(
             ItemType.Weapon,
             "Destroyer Grenade Launcher",
-            "Boss weapon. Explosive shell deals 150 blast damage and 350 on direct hit.",
+            "Boss weapon. Explosive shell deals 100 blast damage and 250 on direct hit.",
             ArmorRarity.Red,
             Palette.Rarity(ArmorRarity.Red),
             WeaponClass.Ranged,
@@ -608,7 +631,7 @@ public sealed class ItemStack
             0f,
             0f,
             0f,
-            150f,
+            100f,
             false);
     }
 
@@ -618,6 +641,27 @@ public sealed class ItemStack
     public static ItemStack Lancelot(Random rng)
         => CreatePatternWeapon(WeaponClass.Melee, WeaponPattern.Lancelot, ArmorRarity.Red, rng);
 
+    public static ItemStack StationKey()
+        => new(
+            ItemType.KeyItem,
+            "S.T.A.T.I.O.N",
+            "Opens the Dead Zone station entrance without destroying generators.",
+            ArmorRarity.Epic,
+            Palette.Rarity(ArmorRarity.Epic),
+            null,
+            WeaponPattern.Standard,
+            null,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            false);
+
     public static ItemStack Consumable(ConsumableType t)
     {
         return t switch
@@ -625,6 +669,7 @@ public sealed class ItemStack
             ConsumableType.Medkit => new ItemStack(ItemType.Consumable, "Medkit", "Restore HP. Hotkey Q/R.", ArmorRarity.Common, Palette.C(130, 210, 120), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
             ConsumableType.Stim => new ItemStack(ItemType.Consumable, "Stim", "Move speed boost. Hotkey Q/R.", ArmorRarity.Common, Palette.C(220, 220, 120), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
             ConsumableType.ProtectiveDome => new ItemStack(ItemType.Consumable, "Protective Dome", "Deploy a dome that blocks enemy shots and absorbs 200 damage. Hotkey Q/R.", ArmorRarity.Common, Palette.C(120, 190, 255), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
+            ConsumableType.StationKey => StationKey(),
             _ => new ItemStack(ItemType.Consumable, "Sticky Bullets", "For 15 seconds your damage slows enemies by 30% for 1 second. Hotkey Q/R.", ArmorRarity.Common, Palette.C(235, 235, 235), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false)
         };
     }
@@ -647,7 +692,8 @@ public enum SlotKind
     Backpack,
     QuickSlotQ,
     QuickSlotR,
-    Chest
+    Chest,
+    Armory
 }
 
 public sealed class UiSlot(Rectangle rect, SlotKind kind, int? index, ItemStack? item, int slotId)

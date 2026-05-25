@@ -240,6 +240,7 @@ public sealed partial class SciFiRogueGame
     public void Dispose()
     {
         SavePersistentState();
+        Raylib.ShowCursor();
         Raylib.CloseWindow();
     }
 }

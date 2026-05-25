@@ -232,10 +232,24 @@ public sealed partial class SciFiRogueGame : IDisposable
             case GameState.Death: UpdateDeath(); break;
         }
 
+        UpdateCursorVisibility();
+
         if (_noticeTimer > 0f)
         {
             _noticeTimer -= dt;
             if (_noticeTimer <= 0f) _noticeText = string.Empty;
+        }
+    }
+
+    private void UpdateCursorVisibility()
+    {
+        if (_state == GameState.Playing && !_player.InventoryOpen && !_mapOpen)
+        {
+            Raylib.HideCursor();
+        }
+        else
+        {
+            Raylib.ShowCursor();
         }
     }
 
@@ -403,16 +417,17 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
-        if (Raylib.IsKeyPressed(KeyboardKey.Escape)) { _state = GameState.Paused; return; }
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape))
+        {
+            if (_player.InventoryOpen) CloseRunInventory();
+            else _state = GameState.Paused;
+            return;
+        }
+
         if (Raylib.IsKeyPressed(KeyboardKey.Tab))
         {
             _player.InventoryOpen = !_player.InventoryOpen;
-            if (!_player.InventoryOpen)
-            {
-                _openedChestIndex = null;
-                ClearPendingLevelUpPoints();
-                ResetInventoryUseHold();
-            }
+            if (!_player.InventoryOpen) CloseRunInventory();
             else
             {
                 ResetInventoryUseHold();
@@ -455,6 +470,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         var desiredCameraTarget = GetDesiredCameraTarget(mouseWorld);
         _camera.Target = Vector2.Lerp(_camera.Target, desiredCameraTarget, _player.IsSniperEquipped ? 0.035f : 0.2f);
         if (_player.Health <= 0) FailRun("You Died", "All carried items were lost.");
+    }
+
+    private void CloseRunInventory()
+    {
+        _player.InventoryOpen = false;
+        _openedChestIndex = null;
+        ClearPendingLevelUpPoints();
+        ResetInventoryUseHold();
     }
 
     private Vector2 GetDesiredCameraTarget(Vector2 mouseWorld)
@@ -1301,6 +1324,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 {
                     toxic.Damage(_player.GetMeleeDamage());
                     ApplyPlayerHitEffects(toxic);
+                    toxic.ForceAggro(_player.Position);
                     AggroWitnesses(toxic.Position, true);
                 }
             }
@@ -3474,8 +3498,8 @@ public sealed partial class SciFiRogueGame : IDisposable
             "# G        #                     #             #                  BOSS                      #",
             "###############    ###############   ###########                                            #",
             "#          #           # G       #             #                                            #",
-            "#          #           #         #             #                                            #",
-            "#                      #         #             #                                            #",
+            "#          #           #                       #                                            #",
+            "#                      #                       #                                            #",
             "#                      #         #           G #                                            #",
             "###############    ###############   ###########                                            #",
             "#          #           #G        #             #                                            #",

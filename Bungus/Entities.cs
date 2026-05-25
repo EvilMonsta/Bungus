@@ -670,6 +670,8 @@ public sealed class Enemy
     private Vector2 _investigateTarget;
     private Vector2 _investigateReturnPoint;
     private float _investigateWait;
+    private float _investigateReturnStartDistance;
+    private float _investigateReturnStartHealth;
 
     private float _sweepPhase;
     private float _sweepDir = 1f;
@@ -754,6 +756,7 @@ public sealed class Enemy
             }
 
             _alert = false;
+            StartLostAggroReturn();
             return;
         }
 
@@ -786,10 +789,19 @@ public sealed class Enemy
 
     public void ForceAggro(Vector2 target)
     {
+        if (!_alert && !_investigating) _investigateReturnPoint = Position;
         _alert = true;
         _investigating = false;
         _returningFromInvestigation = false;
         _target = target;
+    }
+
+    private void StartLostAggroReturn()
+    {
+        _investigating = true;
+        _returningFromInvestigation = false;
+        _investigateTarget = Position;
+        _investigateWait = 3f;
     }
 
     public bool ReactToShot(Vector2 shotSource, List<Obstacle> obstacles)
@@ -887,7 +899,7 @@ public sealed class Enemy
         if (!_returningFromInvestigation && _investigateWait > 0f)
         {
             _investigateWait -= dt;
-            if (_investigateWait <= 0f) _returningFromInvestigation = true;
+            if (_investigateWait <= 0f) StartInvestigationReturn();
             return;
         }
 
@@ -897,17 +909,33 @@ public sealed class Enemy
         {
             if (_returningFromInvestigation)
             {
+                Health = MaxHealth;
                 _investigating = false;
                 return;
             }
 
-            _investigateWait = 3f;
+            _investigateWait = 1f;
             return;
         }
 
         var dir = Vector2.Normalize(to);
         _baseFacing = dir;
         Position = MovementUtils.MoveWithCollisions(Position, dir * (IsStrong ? 102.5f : 120f) * GetMovementSpeedMultiplier() * dt, 14f, obstacles, worldSize);
+        if (_returningFromInvestigation) HealDuringInvestigationReturn();
+    }
+
+    private void StartInvestigationReturn()
+    {
+        _returningFromInvestigation = true;
+        _investigateReturnStartDistance = MathF.Max(1f, Vector2.Distance(Position, _investigateReturnPoint));
+        _investigateReturnStartHealth = Health;
+    }
+
+    private void HealDuringInvestigationReturn()
+    {
+        var remaining = Vector2.Distance(Position, _investigateReturnPoint);
+        var progress = 1f - Math.Clamp(remaining / _investigateReturnStartDistance, 0f, 1f);
+        Health = MathF.Max(Health, _investigateReturnStartHealth + (MaxHealth - _investigateReturnStartHealth) * progress);
     }
 
     public void ApplyStickySlow(float duration = 1f)
@@ -1400,6 +1428,13 @@ public sealed class ToxicTriangleEnemy
     public bool KillAwarded;
 
     private bool _alert;
+    private bool _investigating;
+    private bool _returningFromInvestigation;
+    private Vector2 _investigateTarget;
+    private Vector2 _investigateReturnPoint;
+    private float _investigateWait;
+    private float _investigateReturnStartDistance;
+    private float _investigateReturnStartHealth;
     private float _fireCd;
     private int _burstLeft;
     private float _burstShotCd;
@@ -1409,6 +1444,7 @@ public sealed class ToxicTriangleEnemy
     private Vector2 _facing = new(1f, 0f);
 
     private const float ViewDistance = 375f;
+    private const float AlertViewMultiplier = 1.25f;
     private const float FovHalf = MathF.PI / 3f;
 
     public ToxicTriangleEnemy(Vector2 position, int zoneId)
@@ -1428,9 +1464,16 @@ public sealed class ToxicTriangleEnemy
         var dist = toPlayer.Length();
         var dir = Vector2.Normalize(toPlayer);
 
+        if (_alert && dist > GetAlertViewDistance())
+        {
+            _alert = false;
+            StartLostAggroReturn();
+        }
+
         if (!_alert)
         {
-            if (CanSeePoint(playerPos, obstacles)) _alert = true;
+            if (CanSeePoint(playerPos, obstacles)) ForceAggro(playerPos);
+            else if (_investigating) UpdateInvestigation(dt, obstacles, worldSize);
             else return;
         }
 
@@ -1464,7 +1507,6 @@ public sealed class ToxicTriangleEnemy
     {
         if (!Alive) return;
         Health = MathF.Max(0f, Health - amount);
-        _alert = true;
     }
 
     public bool CanSeePoint(Vector2 point, List<Obstacle> obstacles)
@@ -1491,7 +1533,11 @@ public sealed class ToxicTriangleEnemy
 
     public bool ReactToShot(Vector2 shotSource, List<Obstacle> obstacles)
     {
-        if (!CanSeePoint(shotSource, obstacles)) return false;
+        if (!CanSeePoint(shotSource, obstacles))
+        {
+            StartInvestigation(shotSource);
+            return false;
+        }
 
         ForceAggro(shotSource);
         return true;
@@ -1499,9 +1545,75 @@ public sealed class ToxicTriangleEnemy
 
     public void ForceAggro(Vector2 target)
     {
+        if (!_alert && !_investigating) _investigateReturnPoint = Position;
         _alert = true;
+        _investigating = false;
+        _returningFromInvestigation = false;
         var dir = target - Position;
         if (dir != Vector2.Zero) _facing = Vector2.Normalize(dir);
+    }
+
+    private void StartLostAggroReturn()
+    {
+        _investigating = true;
+        _returningFromInvestigation = false;
+        _investigateTarget = Position;
+        _investigateWait = 3f;
+    }
+
+    private void StartInvestigation(Vector2 target)
+    {
+        if (_alert) return;
+
+        if (!_investigating) _investigateReturnPoint = Position;
+        _investigating = true;
+        _returningFromInvestigation = false;
+        _investigateTarget = target;
+        _investigateWait = 0f;
+    }
+
+    private void UpdateInvestigation(float dt, List<Obstacle> obstacles, int worldSize)
+    {
+        if (!_returningFromInvestigation && _investigateWait > 0f)
+        {
+            _investigateWait -= dt;
+            if (_investigateWait <= 0f) StartInvestigationReturn();
+            return;
+        }
+
+        var target = _returningFromInvestigation ? _investigateReturnPoint : _investigateTarget;
+        var to = target - Position;
+        if (to.Length() < 12f)
+        {
+            if (_returningFromInvestigation)
+            {
+                Health = MaxHealth;
+                _investigating = false;
+                return;
+            }
+
+            _investigateWait = 1f;
+            return;
+        }
+
+        var dir = Vector2.Normalize(to);
+        _facing = dir;
+        Position = MovementUtils.MoveWithCollisions(Position, dir * 120f * GetMovementSpeedMultiplier() * dt, 16f, obstacles, worldSize);
+        if (_returningFromInvestigation) HealDuringInvestigationReturn();
+    }
+
+    private void StartInvestigationReturn()
+    {
+        _returningFromInvestigation = true;
+        _investigateReturnStartDistance = MathF.Max(1f, Vector2.Distance(Position, _investigateReturnPoint));
+        _investigateReturnStartHealth = Health;
+    }
+
+    private void HealDuringInvestigationReturn()
+    {
+        var remaining = Vector2.Distance(Position, _investigateReturnPoint);
+        var progress = 1f - Math.Clamp(remaining / _investigateReturnStartDistance, 0f, 1f);
+        Health = MathF.Max(Health, _investigateReturnStartHealth + (MaxHealth - _investigateReturnStartHealth) * progress);
     }
 
     public void ApplyStickySlow(float duration = 1f) => _slowTimer = MathF.Max(_slowTimer, duration);
@@ -1521,6 +1633,8 @@ public sealed class ToxicTriangleEnemy
     }
 
     private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.7f : 1f;
+    private static float GetAlertViewDistance() => ViewDistance * AlertViewMultiplier;
+
     public void DrawSight()
     {
         if (!Alive || _alert) return;
@@ -1785,6 +1899,8 @@ public sealed class MiniBossEnemySquare
     private Vector2 _investigateTarget;
     private Vector2 _investigateReturnPoint;
     private float _investigateWait;
+    private float _investigateReturnStartDistance;
+    private float _investigateReturnStartHealth;
     private Vector2 _facing = new(1f, 0f);
     private float _slowTimer;
     private float _poisonTimer;
@@ -1813,7 +1929,11 @@ public sealed class MiniBossEnemySquare
 
         if (_alert)
         {
-            if (distanceToPlayer > GetAlertViewDistance()) _alert = false;
+            if (distanceToPlayer > GetAlertViewDistance())
+            {
+                _alert = false;
+                StartLostAggroReturn();
+            }
         }
         else if (CanSeePoint(playerPos, obstacles))
         {
@@ -1891,11 +2011,20 @@ public sealed class MiniBossEnemySquare
 
     public void ForceAggro(Vector2 target)
     {
+        if (!_alert && !_investigating) _investigateReturnPoint = Position;
         _alert = true;
         _investigating = false;
         _returningFromInvestigation = false;
         var dir = target - Position;
         if (dir != Vector2.Zero) _facing = Vector2.Normalize(dir);
+    }
+
+    private void StartLostAggroReturn()
+    {
+        _investigating = true;
+        _returningFromInvestigation = false;
+        _investigateTarget = Position;
+        _investigateWait = 3f;
     }
 
     public bool ReactToShot(Vector2 shotSource, List<Obstacle> obstacles)
@@ -1926,7 +2055,7 @@ public sealed class MiniBossEnemySquare
         if (!_returningFromInvestigation && _investigateWait > 0f)
         {
             _investigateWait -= dt;
-            if (_investigateWait <= 0f) _returningFromInvestigation = true;
+            if (_investigateWait <= 0f) StartInvestigationReturn();
             return;
         }
 
@@ -1936,17 +2065,33 @@ public sealed class MiniBossEnemySquare
         {
             if (_returningFromInvestigation)
             {
+                Health = MaxHealth;
                 _investigating = false;
                 return;
             }
 
-            _investigateWait = 3f;
+            _investigateWait = 1f;
             return;
         }
 
         var dir = Vector2.Normalize(to);
         _facing = dir;
         Position = MovementUtils.MoveWithCollisions(Position, dir * 47.5f * GetMovementSpeedMultiplier() * dt, 28f, obstacles, worldSize);
+        if (_returningFromInvestigation) HealDuringInvestigationReturn();
+    }
+
+    private void StartInvestigationReturn()
+    {
+        _returningFromInvestigation = true;
+        _investigateReturnStartDistance = MathF.Max(1f, Vector2.Distance(Position, _investigateReturnPoint));
+        _investigateReturnStartHealth = Health;
+    }
+
+    private void HealDuringInvestigationReturn()
+    {
+        var remaining = Vector2.Distance(Position, _investigateReturnPoint);
+        var progress = 1f - Math.Clamp(remaining / _investigateReturnStartDistance, 0f, 1f);
+        Health = MathF.Max(Health, _investigateReturnStartHealth + (MaxHealth - _investigateReturnStartHealth) * progress);
     }
 
     public void Damage(float amount)

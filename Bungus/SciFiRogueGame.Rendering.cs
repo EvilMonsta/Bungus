@@ -33,6 +33,7 @@ public sealed partial class SciFiRogueGame
             case GameState.Playing:
                 DrawWorld();
                 DrawHud();
+                DrawCombatCursor();
                 if (_mapOpen) DrawMapWindow();
                 else DrawInventory();
                 break;
@@ -360,6 +361,32 @@ public sealed partial class SciFiRogueGame
         DrawStatusEffects();
         Raylib.DrawText("WASD move | LMB attack | E switch active weapon | TAB inventory | ESC menu", 20, Raylib.GetScreenHeight() - 28, 18, Color.Gray);
         DrawZoneArrows();
+    }
+
+    private void DrawCombatCursor()
+    {
+        if (_player.InventoryOpen || _mapOpen) return;
+
+        var mouse = Raylib.GetMousePosition();
+        var color = Color.White;
+
+        if (_player.ActiveWeaponClass == WeaponClass.Ranged)
+        {
+            const float gap = 5f;
+            const float length = 14f;
+            Raylib.DrawLineEx(new Vector2(mouse.X - length, mouse.Y), new Vector2(mouse.X - gap, mouse.Y), 2f, color);
+            Raylib.DrawLineEx(new Vector2(mouse.X + gap, mouse.Y), new Vector2(mouse.X + length, mouse.Y), 2f, color);
+            Raylib.DrawLineEx(new Vector2(mouse.X, mouse.Y - length), new Vector2(mouse.X, mouse.Y - gap), 2f, color);
+            Raylib.DrawLineEx(new Vector2(mouse.X, mouse.Y + gap), new Vector2(mouse.X, mouse.Y + length), 2f, color);
+            Raylib.DrawCircleLines((int)mouse.X, (int)mouse.Y, 3f, color);
+            return;
+        }
+
+        var top = mouse;
+        var left = new Vector2(mouse.X - 12f, mouse.Y + 23f);
+        var right = new Vector2(mouse.X + 12f, mouse.Y + 23f);
+        Raylib.DrawLineEx(top, left, 2.5f, color);
+        Raylib.DrawLineEx(top, right, 2.5f, color);
     }
 
     private void DrawMapWindow()
@@ -1134,7 +1161,6 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawCircle((int)card.X + 432, (int)card.Y + 244, 22, map.IsDeadZone ? Palette.C(90, 230, 110) : Palette.C(220, 92, 82));
 
         Raylib.DrawText(map.Name, (int)card.X + 42, (int)card.Y + 174, 32, Color.White);
-        Raylib.DrawText($"{map.WorldSize}x{map.WorldSize}", (int)card.X + 42, (int)card.Y + 212, 20, Color.LightGray);
         DrawDifficultySkulls(map.Difficulty, new Vector2(card.X + 42, card.Y + 308));
         Raylib.DrawText("Click to deploy", (int)(card.X + card.Width - 172), (int)card.Y + 310, 20, Palette.C(170, 220, 255));
     }

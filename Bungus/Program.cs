@@ -37,6 +37,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private List<GeneratorGuardianEnemy> _generatorGuards = [];
     private List<ToxicTriangleEnemy> _toxicEnemies = [];
     private StationBossEnemy? _stationBoss;
+    private readonly List<StationBossEnemy> _pitStationBosses = [];
     private List<Projectile> _projectiles = [];
     private List<Explosion> _explosions = [];
     private List<SwingArc> _swings = [];
@@ -80,6 +81,22 @@ public sealed partial class SciFiRogueGame : IDisposable
     private string _selectedMapName = "Baselands";
     private MapDefinition _currentMap = MapDefinition.Baselands;
     private int _worldSize = MapDefinition.Baselands.WorldSize;
+    private DeploymentListMode _deploymentListMode = DeploymentListMode.Expeditions;
+    private bool _challengeMode;
+    private int _pitNextWave = 1;
+    private float _pitWaveTimer;
+    private readonly Dictionary<object, int> _pitEnemyWaves = new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<int> _pitCompletedWaves = [];
+    private readonly List<ItemStack> _pitRewardOffers = [];
+    private readonly List<List<ItemStack>> _pitRouletteItems = [];
+    private readonly bool[] _pitRewardClaimed = [false, false, false];
+    private bool _pitRewardOpen;
+    private float _pitRewardSpinElapsed;
+    private readonly float[] _pitConsumableSpawnTimers = [0f, 0f];
+    private readonly GroundConsumablePickup?[] _pitConsumablePickups = [null, null];
+    private Vector2[] _pitConsumableSpawnPoints = [];
+    private int _pitRunXpEarned;
+    private int _pitRunCoinsEarned;
     private Rectangle? _stationEntranceDoor;
     private Rectangle? _stationBossDoor;
     private Rectangle? _stationBossArena;
@@ -105,6 +122,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private bool _codeStatusSuccess;
 
     private static readonly Rectangle TakeAllButtonRect = new(740, 266, 220, 34);
+    private static readonly float[] PitRewardSpinDurations = [3f, 4f, 5f];
     private const float InventoryConsumableUseHoldDuration = 1f;
     private sealed record MapDefinition(
         string Name,
@@ -142,6 +160,14 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void StartRun(string mapName)
     {
+        _challengeMode = false;
+        _pitRewardOpen = false;
+        _pitRewardOffers.Clear();
+        _pitRouletteItems.Clear();
+        _pitEnemyWaves.Clear();
+        _pitCompletedWaves.Clear();
+        _pitRunXpEarned = 0;
+        _pitRunCoinsEarned = 0;
         _currentMap = MapDefinition.All.FirstOrDefault(m => m.Name.Equals(mapName, StringComparison.OrdinalIgnoreCase)) ?? MapDefinition.Baselands;
         _selectedMapName = _currentMap.Name;
         _worldSize = _currentMap.WorldSize;
@@ -185,6 +211,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _generatorGuards = GenerateGeneratorGuards();
         _toxicEnemies = GenerateToxicEnemies();
         _stationBoss = GenerateStationBoss();
+        _pitStationBosses.Clear();
         _nextHexSpawnTimer = NextHexSpawnDelay();
         _extractPortals.Clear();
         _runScore = 0;
@@ -201,6 +228,86 @@ public sealed partial class SciFiRogueGame : IDisposable
         _hovered = null;
         ClearPendingLevelUpPoints();
         LoadMetaRunBackpackIntoPlayer();
+
+        _camera.Offset = new Vector2(Raylib.GetScreenWidth() / 2f, Raylib.GetScreenHeight() / 2f);
+        _camera.Target = _player.Position;
+        SavePersistentState();
+    }
+
+    private void StartPitChallenge()
+    {
+        _challengeMode = true;
+        _currentMap = MapDefinition.Baselands;
+        _selectedMapName = "Pit";
+        _worldSize = 2000;
+        _buildings = [];
+        _outposts = [];
+        _generatorZones = [];
+        _hangars = [];
+        _stationZone = null;
+        _obstacles = [];
+        _chests = [];
+        _groundConsumables = [];
+        _protectiveDomes = [];
+        _generators = [];
+        _toxicPools = [];
+        _stationEntranceDoor = null;
+        _stationBossDoor = null;
+        _stationBossArena = null;
+        _stationEntranceOpen = false;
+        _stationBossFightStarted = false;
+        _stationBossDoorSealed = false;
+        _stationBossDoorSealTimer = -1f;
+        _player = Player.Create(
+            new Vector2(_worldSize / 2f, _worldSize / 2f),
+            GetCommonHealthBonus(),
+            GetCommonDamageBonus(),
+            _meta.BaseStrength,
+            _meta.BaseDexterity,
+            _meta.BaseSpeed,
+            _meta.BaseGuns,
+            ItemStack.StartingPistol(),
+            ItemStack.StartingMelee(),
+            ItemStack.StartingArmor(),
+            null,
+            null);
+        _projectiles = [];
+        _explosions = [];
+        _swings = [];
+        _dashAfterImages = [];
+        _motionAfterImages = [];
+        _enemies = [];
+        _hexEnemies = [];
+        _turrets = [];
+        _miniBosses = [];
+        _destroyerBoss = null;
+        _generatorGuards = [];
+        _toxicEnemies = [];
+        _stationBoss = null;
+        _pitStationBosses.Clear();
+        _extractPortals.Clear();
+        _runScore = 0;
+        _lastChanceActive = false;
+        _lastChanceTimer = 0f;
+        _pitNextWave = 1;
+        _pitWaveTimer = 0f;
+        _pitEnemyWaves.Clear();
+        _pitCompletedWaves.Clear();
+        _pitRewardOffers.Clear();
+        _pitRewardOpen = false;
+        _pitRouletteItems.Clear();
+        _pitRewardSpinElapsed = 0f;
+        _pitRunXpEarned = 0;
+        _pitRunCoinsEarned = 0;
+        ResetPitConsumableSpawns();
+        _player.InventoryOpen = false;
+        _openedChestIndex = null;
+        _mapOpen = false;
+        _mapMarker = null;
+        _drag = null;
+        _hovered = null;
+        ClearPendingLevelUpPoints();
+        SpawnPitWave();
 
         _camera.Offset = new Vector2(Raylib.GetScreenWidth() / 2f, Raylib.GetScreenHeight() / 2f);
         _camera.Target = _player.Position;
@@ -244,7 +351,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateCursorVisibility()
     {
-        if (_state == GameState.Playing && !_player.InventoryOpen && !_mapOpen)
+        if (_state == GameState.Playing && !_player.InventoryOpen && !_mapOpen && !_pitRewardOpen)
         {
             Raylib.HideCursor();
         }
@@ -273,10 +380,31 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateMapSelect()
     {
+        if (Clicked(DeploymentToggleRect()))
+        {
+            _deploymentListMode = _deploymentListMode == DeploymentListMode.Expeditions
+                ? DeploymentListMode.Challenges
+                : DeploymentListMode.Expeditions;
+            ClearUiInteraction();
+            return;
+        }
+
         if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(new Rectangle(70, 620, 220, 52)))
         {
             ClearUiInteraction();
             _state = GameState.MainMenu;
+            return;
+        }
+
+        if (_deploymentListMode == DeploymentListMode.Challenges)
+        {
+            if (Clicked(MapCardRect(0)))
+            {
+                ClearUiInteraction();
+                StartPitChallenge();
+                _state = GameState.Playing;
+            }
+
             return;
         }
 
@@ -398,12 +526,24 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateDeath()
     {
-        if (Clicked(CenterRect(0, 320, 320, 62))) { StartRun(_selectedMapName); _state = GameState.Playing; }
+        if (Clicked(CenterRect(0, 320, 320, 62)))
+        {
+            if (_challengeMode) StartPitChallenge();
+            else StartRun(_selectedMapName);
+            _state = GameState.Playing;
+        }
         if (Clicked(CenterRect(0, 400, 320, 62))) { ClearUiInteraction(); _state = GameState.MainMenu; }
     }
 
     private void UpdatePlaying(float dt)
     {
+        if (_challengeMode && _pitRewardOpen)
+        {
+            UpdatePitRewardSelection(dt);
+            UpdateCursorVisibility();
+            return;
+        }
+
         if (Raylib.IsKeyPressed(KeyboardKey.M))
         {
             _mapOpen = !_mapOpen;
@@ -435,6 +575,14 @@ public sealed partial class SciFiRogueGame : IDisposable
             }
         }
 
+        if (_challengeMode && _player.InventoryOpen)
+        {
+            UpdateInventoryUi();
+            UpdateLevelUi();
+            if (_drag is null) _player.Inventory.AutoFillConsumableSlots();
+            return;
+        }
+
         var enemyCollisionObstacles = BuildEnemyCollisionObstacles();
         var playerPreviousPosition = _player.Position;
         _player.Update(dt, _obstacles, _worldSize, _dashAfterImages);
@@ -458,6 +606,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         UpdateDeadZoneEnemies(dt, enemyCollisionObstacles);
         UpdateDeadZoneHazards(dt);
         UpdateDeadZoneProgress(dt);
+        if (_challengeMode) UpdatePitChallenge(dt);
         UpdateProjectiles(dt);
         UpdateSwings(dt);
         UpdateEffects(dt);
@@ -467,7 +616,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         UpdateInventoryUi();
         UpdateLevelUi();
         if (_drag is null) _player.Inventory.AutoFillConsumableSlots();
-        UpdateExtraction(dt);
+        if (!_challengeMode) UpdateExtraction(dt);
         if (_state != GameState.Playing) return;
 
         var desiredCameraTarget = GetDesiredCameraTarget(mouseWorld);
@@ -543,7 +692,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var previousPosition = e.Position;
             e.UpdateVisionSweep(dt);
-            e.UpdateAwareness(_player.Position, dt, enemyCollisionObstacles);
+            if (_challengeMode) e.ForceAggro(_player.Position);
+            else e.UpdateAwareness(_player.Position, dt, enemyCollisionObstacles);
             e.UpdateMovement(dt, _player.Position, enemyCollisionObstacles, _worldSize);
             AddMotionTrail(previousPosition, e.Position, e.IsStrong ? Theme.EnemyStrong : Theme.Enemy, e.IsStrong ? 11f : 12f, e.IsStrong ? MotionTrailShape.Triangle : MotionTrailShape.Circle);
             e.TryShootBurst(_player.Position, _projectiles);
@@ -556,11 +706,18 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (!e.Alive && !e.KillAwarded)
             {
                 e.KillAwarded = true;
+                if (_challengeMode)
+                {
+                    HandlePitEnemyDeath(e);
+                    continue;
+                }
                 TryDropEnemyConsumable(e.Position);
                 _player.RegisterKill(e.IsStrong ? 2 : 1);
                 AddRunScore(e.IsStrong ? 20 : 10);
             }
         }
+
+        if (_challengeMode) return;
 
         _nextHexSpawnTimer -= dt;
         if (_nextHexSpawnTimer <= 0f)
@@ -584,6 +741,11 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (!h.Alive && !h.KillAwarded)
             {
                 h.KillAwarded = true;
+                if (_challengeMode)
+                {
+                    HandlePitEnemyDeath(h);
+                    continue;
+                }
                 TryDropEnemyConsumable(h.Position);
                 _player.RegisterKill(2);
                 AddRunScore(25);
@@ -596,11 +758,16 @@ public sealed partial class SciFiRogueGame : IDisposable
         foreach (var turret in _turrets)
         {
             var previousPosition = turret.Position;
-            turret.Update(dt, _player.Position, _projectiles, enemyCollisionObstacles);
+            turret.Update(dt, _player.Position, _projectiles, enemyCollisionObstacles, _challengeMode);
             AddMotionTrail(previousPosition, turret.Position, Palette.C(230, 80, 80), 15f, MotionTrailShape.Square, rotateWithMovement: false);
             if (!turret.Alive && !turret.KillAwarded)
             {
                 turret.KillAwarded = true;
+                if (_challengeMode)
+                {
+                    HandlePitEnemyDeath(turret);
+                    continue;
+                }
                 TryDropEnemyConsumable(turret.Position);
                 _player.RegisterKill(2);
                 AddRunScore(20);
@@ -613,11 +780,16 @@ public sealed partial class SciFiRogueGame : IDisposable
         foreach (var b in _miniBosses)
         {
             var previousPosition = b.Position;
-            b.Update(dt, _player.Position, _projectiles, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages);
+            b.Update(dt, _player.Position, _projectiles, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages, _challengeMode);
             AddMotionTrail(previousPosition, b.Position, Palette.C(230, 100, 100), 21f, MotionTrailShape.Square, 0.2f, rotateWithMovement: false);
             if (!b.Alive && !b.KillAwarded)
             {
                 b.KillAwarded = true;
+                if (_challengeMode)
+                {
+                    HandlePitEnemyDeath(b);
+                    continue;
+                }
                 TryDropEnemyConsumable(b.Position);
                 _chests.Add(new LootChest(b.Position, RollMiniBossLoot()));
                 _player.RegisterKill(5);
@@ -636,6 +808,11 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (!_destroyerBoss.Alive && !_destroyerBoss.KillAwarded)
         {
             _destroyerBoss.KillAwarded = true;
+            if (_challengeMode)
+            {
+                HandlePitEnemyDeath(_destroyerBoss);
+                return;
+            }
             TryDropEnemyConsumable(_destroyerBoss.Position);
             _player.RegisterKill(25);
             AddRunScore(1000);
@@ -648,11 +825,16 @@ public sealed partial class SciFiRogueGame : IDisposable
         foreach (var guard in _generatorGuards)
         {
             var previousPosition = guard.Position;
-            guard.Update(dt, _player.Position, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages);
+            guard.Update(dt, _player.Position, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages, _challengeMode);
             AddMotionTrail(previousPosition, guard.Position, Palette.C(255, 170, 95), 17f, MotionTrailShape.Triangle, 0.2f);
             if (!guard.Alive && !guard.KillAwarded)
             {
                 guard.KillAwarded = true;
+                if (_challengeMode)
+                {
+                    HandlePitEnemyDeath(guard);
+                    continue;
+                }
                 var generator = _generators.FirstOrDefault(g => g.ZoneId == guard.ZoneId);
                 if (generator is not null) generator.GuardDefeated = true;
                 TryDropStationKey(guard.Position);
@@ -665,11 +847,16 @@ public sealed partial class SciFiRogueGame : IDisposable
         foreach (var toxic in _toxicEnemies)
         {
             var previousPosition = toxic.Position;
-            toxic.Update(dt, _player.Position, _projectiles, enemyCollisionObstacles, _worldSize);
+            toxic.Update(dt, _player.Position, _projectiles, enemyCollisionObstacles, _worldSize, _challengeMode);
             AddMotionTrail(previousPosition, toxic.Position, Palette.C(220, 110, 100), 12f, MotionTrailShape.Triangle);
             if (!toxic.Alive && !toxic.KillAwarded)
             {
                 toxic.KillAwarded = true;
+                if (_challengeMode)
+                {
+                    HandlePitEnemyDeath(toxic);
+                    continue;
+                }
                 TryDropEnemyConsumable(toxic.Position);
                 _player.RegisterKill(2);
                 AddRunScore(25);
@@ -684,10 +871,27 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (!_stationBoss.Alive && !_stationBoss.KillAwarded)
             {
                 _stationBoss.KillAwarded = true;
+                if (_challengeMode)
+                {
+                    HandlePitEnemyDeath(_stationBoss);
+                    return;
+                }
                 _player.RegisterKill(25);
                 AddRunScore(1300);
                 _chests.Add(new LootChest(_stationBoss.Position, RollStationBossLoot()));
                 OpenStationBossDoor();
+            }
+        }
+
+        foreach (var boss in _pitStationBosses)
+        {
+            var previousPosition = boss.Position;
+            boss.Update(dt, _player.Position, _projectiles, _player, enemyCollisionObstacles, _worldSize);
+            AddMotionTrail(previousPosition, boss.Position, Palette.C(255, 40, 40), 30f, MotionTrailShape.Circle, 0.2f);
+            if (!boss.Alive && !boss.KillAwarded)
+            {
+                boss.KillAwarded = true;
+                HandlePitEnemyDeath(boss);
             }
         }
     }
@@ -700,6 +904,363 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             _player.ApplyPoison(5f);
         }
+    }
+
+    private void UpdatePitChallenge(float dt)
+    {
+        _pitWaveTimer -= dt;
+        if (_pitWaveTimer <= 0f) SpawnPitWave();
+
+        for (var i = 0; i < _pitConsumableSpawnPoints.Length; i++)
+        {
+            if (_pitConsumablePickups[i] is not null) continue;
+            _pitConsumableSpawnTimers[i] -= dt;
+            if (_pitConsumableSpawnTimers[i] <= 0f) SpawnPitConsumable(i);
+        }
+    }
+
+    private void ResetPitConsumableSpawns()
+    {
+        var center = _worldSize / 2f;
+        _pitConsumableSpawnPoints =
+        [
+            new Vector2(center - 250f, center),
+            new Vector2(center + 250f, center)
+        ];
+
+        for (var i = 0; i < _pitConsumableSpawnTimers.Length; i++)
+        {
+            _pitConsumableSpawnTimers[i] = 30f;
+            _pitConsumablePickups[i] = null;
+        }
+    }
+
+    private void SpawnPitConsumable(int index)
+    {
+        if (index < 0 || index >= _pitConsumableSpawnPoints.Length) return;
+        var pickup = new GroundConsumablePickup(_pitConsumableSpawnPoints[index], RandomPitConsumable());
+        _pitConsumablePickups[index] = pickup;
+        _groundConsumables.Add(pickup);
+    }
+
+    private void SpawnPitWave()
+    {
+        var wave = _pitNextWave++;
+        _pitWaveTimer = wave % 10 == 0 ? 60f : 30f;
+
+        void AddEnemy(object enemy)
+        {
+            _pitEnemyWaves[enemy] = wave;
+            switch (enemy)
+            {
+                case Enemy e: _enemies.Add(e); break;
+                case HexEnemy h: _hexEnemies.Add(h); break;
+                case MiniBossEnemySquare b: _miniBosses.Add(b); break;
+                case GeneratorGuardianEnemy g: _generatorGuards.Add(g); break;
+                case ToxicTriangleEnemy t: _toxicEnemies.Add(t); break;
+                case StationBossEnemy s:
+                    s.Activate();
+                    _pitStationBosses.Add(s);
+                    break;
+            }
+        }
+
+        void AddCircles(int count, bool enhanced = false)
+        {
+            for (var i = 0; i < count; i++)
+            {
+                var point = RandomPitSpawnPoint(14f);
+                AddEnemy(Enemy.CreatePatrol(point, point, false, enhanced: enhanced));
+            }
+        }
+
+        void AddTriangles(int count, bool enhanced = false)
+        {
+            for (var i = 0; i < count; i++) AddEnemy(Enemy.CreateStrong(RandomPitSpawnPoint(14f), enhanced: enhanced));
+        }
+
+        void AddSquares(int count)
+        {
+            for (var i = 0; i < count; i++) AddEnemy(new MiniBossEnemySquare(RandomPitSpawnPoint(28f)));
+        }
+
+        void AddHexes(int count)
+        {
+            for (var i = 0; i < count; i++) AddEnemy(HexEnemy.Create(RandomPitSpawnPoint(16f), _rng));
+        }
+
+        void AddToxic(int count)
+        {
+            for (var i = 0; i < count; i++) AddEnemy(new ToxicTriangleEnemy(RandomPitSpawnPoint(16f), -1));
+        }
+
+        void AddGuards(int count)
+        {
+            for (var i = 0; i < count; i++) AddEnemy(new GeneratorGuardianEnemy(RandomPitSpawnPoint(22f), -1));
+        }
+
+        void AddStationBosses(int count)
+        {
+            var arena = new Rectangle(0, 0, _worldSize, _worldSize);
+            for (var i = 0; i < count; i++) AddEnemy(new StationBossEnemy(RandomPitSpawnPoint(36f), arena));
+        }
+
+        if (wave <= 5)
+        {
+            AddCircles(3 + wave);
+        }
+        else if (wave <= 9)
+        {
+            AddTriangles(wave - 4);
+            AddCircles(3);
+        }
+        else if (wave == 10)
+        {
+            AddTriangles(6, true);
+            AddCircles(3, true);
+        }
+        else if (wave <= 19)
+        {
+            AddTriangles(2, true);
+            AddCircles(wave - 8, true);
+        }
+        else if (wave == 20)
+        {
+            AddHexes(10);
+        }
+        else if (wave <= 29)
+        {
+            AddTriangles(3, true);
+            AddCircles(2, true);
+            AddHexes(wave - 20);
+            AddToxic(1);
+        }
+        else if (wave == 30)
+        {
+            AddSquares(2);
+        }
+        else if (wave <= 39)
+        {
+            AddToxic(3);
+            AddTriangles(wave - 30, true);
+        }
+        else if (wave == 40)
+        {
+            AddSquares(4);
+        }
+        else if (wave <= 49)
+        {
+            AddCircles(19 + wave - 40, true);
+        }
+        else if (wave == 50)
+        {
+            AddGuards(3);
+        }
+        else if (wave <= 51)
+        {
+            AddSquares(1);
+            AddCircles(3);
+        }
+        else if (wave <= 55)
+        {
+            AddSquares(1);
+            AddCircles(3);
+            AddTriangles(wave - 51, true);
+        }
+        else if (wave == 56)
+        {
+            AddSquares(2);
+        }
+        else if (wave <= 59)
+        {
+            AddSquares(2);
+            AddTriangles(wave - 56, true);
+        }
+        else if (wave == 60)
+        {
+            AddStationBosses(1);
+            AddHexes(5);
+        }
+        else if (wave <= 69)
+        {
+            AddSquares(3);
+        }
+        else if (wave == 70)
+        {
+            AddStationBosses(2);
+        }
+        else if (wave <= 79)
+        {
+            AddSquares(4);
+        }
+        else if (wave == 80)
+        {
+            AddStationBosses(3);
+        }
+        else
+        {
+            AddSquares(5);
+            AddGuards(2);
+        }
+
+        ShowNotice($"Wave {wave} started.");
+    }
+
+    private void HandlePitEnemyDeath(object enemy)
+    {
+        if (!_pitEnemyWaves.Remove(enemy, out var wave)) return;
+        if (_pitCompletedWaves.Contains(wave)) return;
+        if (_pitEnemyWaves.ContainsValue(wave)) return;
+
+        _pitCompletedWaves.Add(wave);
+        _player.GrantLevel();
+        var rewardXp = wave % 10 == 0 ? 200 : 50;
+        var rewardCoins = wave % 10 == 0 ? 50 : 20;
+        AddMetaScore(rewardXp);
+        _meta.SynthCoins += rewardCoins;
+        _runScore += rewardXp;
+        _pitRunXpEarned += rewardXp;
+        _pitRunCoinsEarned += rewardCoins;
+        if (_pitWaveTimer > 3f) _pitWaveTimer = 3f;
+        if (wave % 3 == 0) OpenPitRewardSelection(wave);
+        SavePersistentState();
+    }
+
+    private void OpenPitRewardSelection(int wave)
+    {
+        _pitRewardOffers.Clear();
+        _pitRewardOffers.Add(RollPitReward(WeaponClass.Melee, wave));
+        _pitRewardOffers.Add(RollPitReward(WeaponClass.Ranged, wave));
+        _pitRewardOffers.Add(RollPitReward(null, wave));
+        _pitRouletteItems.Clear();
+        _pitRouletteItems.Add(BuildPitRouletteItems(WeaponClass.Melee, wave, _pitRewardOffers[0]));
+        _pitRouletteItems.Add(BuildPitRouletteItems(WeaponClass.Ranged, wave, _pitRewardOffers[1]));
+        _pitRouletteItems.Add(BuildPitRouletteItems(null, wave, _pitRewardOffers[2]));
+        Array.Fill(_pitRewardClaimed, false);
+        _pitRewardSpinElapsed = 0f;
+        _pitRewardOpen = true;
+    }
+
+    private void UpdatePitRewardSelection(float dt)
+    {
+        _hovered = null;
+        _pitRewardSpinElapsed += dt;
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape)) return;
+
+        var ready = PitRewardReady;
+        if (!ready) return;
+
+        if (ready && Clicked(PitRewardSkipButtonRect()))
+        {
+            ClosePitRewardSelection();
+            return;
+        }
+
+        for (var i = 0; i < _pitRewardOffers.Count; i++)
+        {
+            if (!_pitRewardClaimed[i] && Clicked(PitRewardTakeButtonRect(i)))
+            {
+                EquipPitReward(_pitRewardOffers[i]);
+                _pitRewardClaimed[i] = true;
+                if (_pitRewardClaimed.Take(_pitRewardOffers.Count).All(claimed => claimed))
+                {
+                    ClosePitRewardSelection();
+                }
+                return;
+            }
+        }
+    }
+
+    private bool PitRewardReady
+        => _pitRewardOpen && _pitRewardSpinElapsed >= PitRewardSpinDurations[^1];
+
+    private void ClosePitRewardSelection()
+    {
+        _pitRewardOpen = false;
+        _pitRewardOffers.Clear();
+        _pitRouletteItems.Clear();
+        Array.Fill(_pitRewardClaimed, false);
+        _pitRewardSpinElapsed = 0f;
+    }
+
+    private void EquipPitReward(ItemStack item)
+    {
+        if (item.Type == ItemType.Armor) _player.Armor = item;
+        else if (item.WeaponKind == WeaponClass.Ranged) _player.RangedWeapon = item;
+        else if (item.WeaponKind == WeaponClass.Melee) _player.MeleeWeapon = item;
+        ShowNotice($"Equipped {item.Name}.");
+    }
+
+    private ItemStack RollPitReward(WeaponClass? weaponClass, int wave)
+    {
+        var rarity = RollPitRewardRarity(Math.Max(1, wave / 3));
+        if (weaponClass is null && rarity == ArmorRarity.Red) rarity = ArmorRarity.Legendary;
+        return weaponClass is null
+            ? ItemStack.Armor(rarity, _rng)
+            : ItemStack.Weapon(weaponClass.Value, rarity, _rng);
+    }
+
+    private List<ItemStack> BuildPitRouletteItems(WeaponClass? weaponClass, int wave, ItemStack finalItem)
+    {
+        var result = new List<ItemStack>();
+        for (var i = 0; i < 18; i++) result.Add(RollPitReward(weaponClass, wave));
+        result.Add(finalItem);
+        return result;
+    }
+
+    private ArmorRarity RollPitRewardRarity(int roulette)
+    {
+        var roll = _rng.NextSingle();
+        if (roulette <= 5)
+        {
+            var rareChance = 0.05f * roulette;
+            return roll < rareChance ? ArmorRarity.Rare : ArmorRarity.Common;
+        }
+
+        if (roulette <= 10)
+        {
+            if (roll < 0.05f) return ArmorRarity.Epic;
+            if (roll < 0.35f) return ArmorRarity.Rare;
+            return ArmorRarity.Common;
+        }
+
+        if (roulette <= 15)
+        {
+            if (roll < 0.15f) return ArmorRarity.Epic;
+            if (roll < 0.70f) return ArmorRarity.Rare;
+            return ArmorRarity.Common;
+        }
+
+        if (roulette <= 20)
+        {
+            if (roll < 0.05f) return ArmorRarity.Legendary;
+            if (roll < 0.50f) return ArmorRarity.Epic;
+            return ArmorRarity.Rare;
+        }
+
+        if (roll < 0.01f) return ArmorRarity.Red;
+        if (roll < 0.16f) return ArmorRarity.Legendary;
+        if (roll < 0.91f) return ArmorRarity.Epic;
+        return ArmorRarity.Rare;
+    }
+
+    private Vector2 RandomPitSpawnPoint(float radius)
+    {
+        var center = new Vector2(_worldSize / 2f, _worldSize / 2f);
+        for (var i = 0; i < 120; i++)
+        {
+            var point = RandomMapPointSafe(radius);
+            if (MathF.Abs(point.X - center.X) <= 250f && MathF.Abs(point.Y - center.Y) <= 250f) continue;
+            return point;
+        }
+
+        return new Vector2(radius + 20f, radius + 20f);
+    }
+
+    private ItemStack RandomPitConsumable()
+    {
+        var values = new[] { ConsumableType.Medkit, ConsumableType.Stim, ConsumableType.ProtectiveDome, ConsumableType.StickyBullets };
+        return ItemStack.Consumable(values[_rng.Next(values.Length)]);
     }
 
     private void UpdateDeadZoneProgress(float dt)
@@ -841,8 +1402,22 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (!Raylib.IsKeyPressed(KeyboardKey.F)) continue;
             if (!TryPickGroundItem(pickup.Item)) continue;
 
+            MarkPitConsumablePicked(pickup);
             _groundConsumables.RemoveAt(i);
             break;
+        }
+    }
+
+    private void MarkPitConsumablePicked(GroundConsumablePickup pickup)
+    {
+        if (!_challengeMode) return;
+
+        for (var i = 0; i < _pitConsumablePickups.Length; i++)
+        {
+            if (!ReferenceEquals(_pitConsumablePickups[i], pickup)) continue;
+            _pitConsumablePickups[i] = null;
+            _pitConsumableSpawnTimers[i] = 30f;
+            return;
         }
     }
 
@@ -967,6 +1542,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (_toxicEnemies.Any(e => e.Alive && Vector2.Distance(e.Position, position) < radius + 12f)) return true;
         if (_generators.Any(g => !g.Destroyed && Vector2.Distance(g.Position, position) < radius + 24f)) return true;
         if (_stationBoss is not null && _stationBoss.IntersectsAnyHitZone(position, radius)) return true;
+        if (_pitStationBosses.Any(b => b.Alive && b.IntersectsAnyHitZone(position, radius))) return true;
         return _destroyerBoss is not null
             && _destroyerBoss.Alive
             && _destroyerBoss.IntersectsAnyHitZone(position, radius);
@@ -1068,6 +1644,14 @@ public sealed partial class SciFiRogueGame : IDisposable
             return true;
         }
 
+        var pitStationBossHit = _pitStationBosses.FirstOrDefault(b => b.Alive && b.TryApplySegmentDamage(from, to, radius, damage));
+        if (pitStationBossHit is not null)
+        {
+            ApplyPlayerHitEffects(pitStationBossHit, poisonDamagePerSecond, poisonDuration);
+            AggroWitnesses(pitStationBossHit.Position, true);
+            return true;
+        }
+
         if (_destroyerBoss is not null && _destroyerBoss.Alive && _destroyerBoss.TryApplySegmentDamage(from, to, radius, damage))
         {
             ApplyPlayerHitEffects(_destroyerBoss, poisonDamagePerSecond, poisonDuration);
@@ -1148,6 +1732,16 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (_stationBoss.IntersectsAnyHitZone(projectile.Position, projectile.ExplosionRadius))
             {
                 ApplyPlayerHitEffects(_stationBoss);
+                aggroWitnesses = true;
+            }
+        }
+
+        foreach (var boss in _pitStationBosses.Where(b => b.Alive))
+        {
+            boss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, projectile.ExplosionDamage);
+            if (boss.IntersectsAnyHitZone(projectile.Position, projectile.ExplosionRadius))
+            {
+                ApplyPlayerHitEffects(boss);
                 aggroWitnesses = true;
             }
         }
@@ -2430,11 +3024,17 @@ public sealed partial class SciFiRogueGame : IDisposable
         _extractPortals.Clear();
         _lastChanceActive = false;
         _lastChanceTimer = 0f;
+        _pitRewardOpen = false;
+        _pitRewardOffers.Clear();
+        _pitRouletteItems.Clear();
+        _pitRewardSpinElapsed = 0f;
         ClearUiInteraction();
         RefreshArmoryOffers();
         SavePersistentState();
         _deathHeader = header;
-        _deathBody = body;
+        _deathBody = _challengeMode
+            ? $"{body}\nEarned: {_pitRunXpEarned} XP, {_pitRunCoinsEarned} SynthCoins."
+            : body;
         _state = GameState.Death;
     }
 
@@ -2537,6 +3137,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (code == "SKEYFORRAM")
         {
             var result = ApplyStationKeyCode();
+            SetCodeStatus(result.Success, result.Message);
+            if (result.Success) _codeInput = string.Empty;
+            return;
+        }
+
+        if (code == "LVL1RAM")
+        {
+            var result = ApplyLevelResetCode();
             SetCodeStatus(result.Success, result.Message);
             if (result.Success) _codeInput = string.Empty;
             return;
@@ -2674,6 +3282,21 @@ public sealed partial class SciFiRogueGame : IDisposable
         RegisterPromoCodeUse(code, false);
         SavePersistentState();
         return (true, "Success");
+    }
+
+    private (bool Success, string Message) ApplyLevelResetCode()
+    {
+        const string code = "LVL1RAM";
+        if (!CanUsePromoCode(code, null, false, out var error))
+        {
+            return (false, error);
+        }
+
+        _meta.Level = 1;
+        _meta.Score = 0;
+        RegisterPromoCodeUse(code, false);
+        SavePersistentState();
+        return (true, "Success: account level reset to 1.");
     }
 
     private bool CanUsePromoCode(string code, int? maxUses, bool sessionOnly, out string error)

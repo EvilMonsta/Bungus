@@ -187,6 +187,7 @@ public sealed partial class SciFiRogueGame
         foreach (var toxic in _toxicEnemies) toxic.DrawSight();
         _destroyerBoss?.DrawSight();
         _stationBoss?.DrawSight();
+        foreach (var boss in _pitStationBosses) boss.DrawSight();
         foreach (var e in _enemies) e.Draw(Theme);
         foreach (var h in _hexEnemies) h.Draw();
         foreach (var t in _turrets) t.Draw();
@@ -195,6 +196,7 @@ public sealed partial class SciFiRogueGame
         foreach (var toxic in _toxicEnemies) toxic.Draw();
         _destroyerBoss?.Draw();
         _stationBoss?.Draw();
+        foreach (var boss in _pitStationBosses) boss.Draw();
         foreach (var t in _turrets) t.DrawAimLine();
         DrawPlayerSniperAimLine();
 
@@ -349,24 +351,36 @@ public sealed partial class SciFiRogueGame
 
     private void DrawHud()
     {
-        DrawExperienceBar();
-        Raylib.DrawText($"Level {_player.Level} ({_player.Kills}/{_player.KillsTarget})", 20, 14, 24, Color.White);
+        if (!_challengeMode)
+        {
+            DrawExperienceBar();
+            Raylib.DrawText($"Level {_player.Level} ({_player.Kills}/{_player.KillsTarget})", 20, 14, 24, Color.White);
+        }
+        else
+        {
+            Raylib.DrawText($"Pit level {_player.Level}", 20, 14, 24, Color.White);
+            var timer = $"{MathF.Ceiling(MathF.Max(0f, _pitWaveTimer)):0}";
+            Raylib.DrawText(timer, Raylib.GetScreenWidth() / 2 - Raylib.MeasureText(timer, 56) / 2, 12, 56, Palette.C(130, 230, 255));
+            var waveText = $"Wave {Math.Max(1, _pitNextWave - 1)}";
+            Raylib.DrawText(waveText, Raylib.GetScreenWidth() / 2 - Raylib.MeasureText(waveText, 22) / 2, 72, 22, Color.White);
+        }
 
         var activeWeapon = _player.ActiveWeaponClass == WeaponClass.Ranged ? _player.RangedWeapon : _player.MeleeWeapon;
         Raylib.DrawText($"Current: {activeWeapon?.Name ?? "None"} {BuildWeaponDamageText(_player, activeWeapon, _player.ActiveWeaponClass)}", 20, 48, 22, activeWeapon?.Color ?? Color.LightGray);
         Raylib.DrawText($"Consumables: Q [{(_player.Inventory.QuickSlotQ?.Name ?? "-")}]  R [{(_player.Inventory.QuickSlotR?.Name ?? "-")}]", 20, 78, 20, Color.White);
-        Raylib.DrawText($"Run score {_runScore}", 20, 108, 20, Color.Gold);
+        if (!_challengeMode) Raylib.DrawText($"Run score {_runScore}", 20, 108, 20, Color.Gold);
         DrawExtractionHud();
         DrawVitalBars();
         DrawLevelUpIndicator();
         DrawStatusEffects();
+        if (_pitRewardOpen) DrawPitRewardSelection();
         Raylib.DrawText("WASD move | LMB attack | E switch active weapon | TAB inventory | ESC menu", 20, Raylib.GetScreenHeight() - 28, 18, Color.Gray);
         DrawZoneArrows();
     }
 
     private void DrawCombatCursor()
     {
-        if (_player.InventoryOpen || _mapOpen) return;
+        if (_player.InventoryOpen || _mapOpen || _pitRewardOpen) return;
 
         var mouse = Raylib.GetMousePosition();
         var color = Color.White;
@@ -1086,7 +1100,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMainMenu()
     {
-        Raylib.DrawText("a0.2.2", 86, 150, 24, Palette.C(150, 185, 220));
+        Raylib.DrawText("a0.2.3", 86, 150, 24, Palette.C(150, 185, 220));
         DrawMetaProgressHeader();
 
         DrawButton(MainMenuButtonRect(0), "Play");
@@ -1135,15 +1149,38 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMapSelect()
     {
-        DrawTitle("Select Map", 64, 66);
-        Raylib.DrawText("Choose your landing zone", 72, 118, 26, Color.LightGray);
+        DrawTitle(_deploymentListMode == DeploymentListMode.Expeditions ? "Expeditions" : "Challenges", 64, 66);
+        Raylib.DrawText(_deploymentListMode == DeploymentListMode.Expeditions ? "Choose your landing zone" : "Choose a trial", 72, 118, 26, Color.LightGray);
+        DrawButton(DeploymentToggleRect(), _deploymentListMode == DeploymentListMode.Expeditions ? "Challenges" : "Expeditions");
 
-        for (var i = 0; i < MapDefinition.All.Length; i++)
+        if (_deploymentListMode == DeploymentListMode.Challenges)
         {
-            DrawMapCard(MapDefinition.All[i], MapCardRect(i));
+            DrawChallengeCard(MapCardRect(0));
+        }
+        else
+        {
+            for (var i = 0; i < MapDefinition.All.Length; i++)
+            {
+                DrawMapCard(MapDefinition.All[i], MapCardRect(i));
+            }
         }
 
         DrawButton(new Rectangle(70, 620, 220, 52), "Back");
+    }
+
+    private void DrawChallengeCard(Rectangle card)
+    {
+        var hover = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), card);
+        Raylib.DrawRectangleRec(card, hover ? Palette.C(36, 30, 56) : Palette.C(18, 16, 34));
+        Raylib.DrawRectangleLinesEx(card, 2f, Palette.C(191, 120, 255));
+
+        var arena = new Rectangle(card.X + 28, card.Y + 28, card.Width - 56, 128);
+        Raylib.DrawRectangleRec(arena, Palette.C(22, 24, 34));
+        Raylib.DrawCircleGradient((int)(arena.X + arena.Width * 0.5f), (int)(arena.Y + arena.Height * 0.5f), 64, Palette.C(150, 90, 255, 120), Palette.C(40, 20, 80, 20));
+        Raylib.DrawRectangleLinesEx(new Rectangle(arena.X + 36, arena.Y + 22, arena.Width - 72, arena.Height - 44), 3f, Palette.C(120, 80, 200));
+
+        Raylib.DrawText("Pit", (int)card.X + 42, (int)card.Y + 174, 36, Color.White);
+        Raylib.DrawText("Wave survival trial", (int)card.X + 42, (int)card.Y + 220, 22, Color.LightGray);
     }
 
     private void DrawMapCard(MapDefinition map, Rectangle card)
@@ -1276,6 +1313,88 @@ public sealed partial class SciFiRogueGame
         if (_hovered is not null) DrawTooltip(_hovered, Raylib.GetMousePosition());
     }
 
+    private void DrawPitRewardSelection()
+    {
+        var ready = PitRewardReady;
+        var mouse = Raylib.GetMousePosition();
+        ItemStack? hoveredReward = null;
+        var comparison = new ComparisonContext(_player, _player.Armor, _player.RangedWeapon, _player.MeleeWeapon);
+        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(0, 0, 0, 170));
+        var panel = PitRewardPanelRect();
+        Raylib.DrawRectangleRec(panel, Palette.C(10, 16, 28, 245));
+        Raylib.DrawRectangleLinesEx(panel, 2f, Palette.C(191, 120, 255));
+        Raylib.DrawText("Wave reward", (int)panel.X + 32, (int)panel.Y + 28, 34, Color.White);
+        Raylib.DrawText(ready ? "Choose up to three items, or skip the offer." : "Rewards are rolling...", (int)panel.X + 32, (int)panel.Y + 72, 22, Color.LightGray);
+
+        var labels = new[] { "Melee", "Ranged", "Armor" };
+        for (var i = 0; i < _pitRewardOffers.Count; i++)
+        {
+            var rect = PitRewardCardRect(i);
+            var item = _pitRewardOffers[i];
+            Raylib.DrawRectangleRec(rect, Palette.C(18, 26, 42, 245));
+            Raylib.DrawRectangleLinesEx(rect, 2f, item.Color);
+            Raylib.DrawText(labels[i], (int)rect.X + 18, (int)rect.Y + 18, 24, Color.White);
+            DrawPitRoulette(i, rect, comparison);
+
+            if (_pitRewardSpinElapsed >= PitRewardSpinDurations[i])
+            {
+                Raylib.DrawText(item.Name, (int)rect.X + 18, (int)rect.Y + 52, 18, item.Color);
+                var rarity = item.Rarity == ArmorRarity.Rare ? "Rare" : item.Rarity.ToString();
+                Raylib.DrawText(rarity, (int)rect.X + 18, (int)rect.Y + 76, 16, Color.LightGray);
+                if (Raylib.CheckCollisionPointRec(mouse, PitRewardWinningIconRect(i))) hoveredReward = item;
+            }
+
+            var claimEnabled = ready && !_pitRewardClaimed[i];
+            DrawButton(PitRewardTakeButtonRect(i), _pitRewardClaimed[i] ? "Claimed" : "Claim", claimEnabled);
+        }
+
+        DrawButton(PitRewardSkipButtonRect(), "Skip", ready);
+        if (hoveredReward is not null) DrawTooltip(hoveredReward, mouse);
+    }
+
+    private void DrawPitRoulette(int index, Rectangle card, ComparisonContext comparison)
+    {
+        var reel = new Rectangle(card.X + 150, card.Y + 21, 640, 62);
+        Raylib.DrawRectangleRec(reel, Palette.C(6, 10, 18, 245));
+        Raylib.DrawRectangleLinesEx(reel, 2f, Palette.C(80, 120, 190));
+        Raylib.DrawRectangle((int)(reel.X + reel.Width / 2f - 30), (int)reel.Y, 60, (int)reel.Height, Palette.C(255, 255, 255, 24));
+        Raylib.DrawLine((int)(reel.X + reel.Width / 2f), (int)reel.Y, (int)(reel.X + reel.Width / 2f), (int)(reel.Y + reel.Height), Palette.C(255, 255, 255, 70));
+
+        if (index >= _pitRouletteItems.Count || _pitRouletteItems[index].Count == 0) return;
+
+        var items = _pitRouletteItems[index];
+        const float iconSize = 42f;
+        const float step = 58f;
+        var stopped = _pitRewardSpinElapsed >= PitRewardSpinDurations[index];
+        var spinDuration = PitRewardSpinDurations[index];
+        var spinProgress = Math.Clamp(_pitRewardSpinElapsed / spinDuration, 0f, 1f);
+        var easedProgress = 1f - MathF.Pow(1f - spinProgress, 3f);
+        var totalSteps = (3 + index) * items.Count + items.Count - 1;
+        var reelPosition = totalSteps * easedProgress;
+        var centerIndex = (int)MathF.Floor(reelPosition) % items.Count;
+        var offset = (reelPosition - MathF.Floor(reelPosition)) * step;
+
+        Raylib.BeginScissorMode((int)reel.X, (int)reel.Y, (int)reel.Width, (int)reel.Height);
+        for (var slot = -7; slot <= 7; slot++)
+        {
+            var itemIndex = (centerIndex + slot + items.Count) % items.Count;
+            var item = items[itemIndex];
+            var x = reel.X + reel.Width / 2f - iconSize / 2f + slot * step - offset;
+            var y = reel.Y + reel.Height / 2f - iconSize / 2f;
+            var distanceFromCenter = MathF.Abs(x + iconSize / 2f - (reel.X + reel.Width / 2f));
+            var alpha = Math.Clamp(1f - distanceFromCenter / 330f, 0.25f, 1f);
+
+            Raylib.DrawRectangleRec(new Rectangle(x - 5, y - 5, iconSize + 10, iconSize + 10), Palette.C(14, 20, 34, (int)(220 * alpha)));
+            var iconRect = new Rectangle(x, y, iconSize, iconSize);
+            DrawItemIcon(item, iconRect, comparison);
+            if (stopped && slot == 0)
+            {
+                Raylib.DrawRectangleLinesEx(new Rectangle(x - 4, y - 4, iconSize + 8, iconSize + 8), 3f, Color.White);
+            }
+        }
+        Raylib.EndScissorMode();
+    }
+
     private void DrawCharacter()
     {
         var previewPlayer = CreateLandingPreviewPlayer();
@@ -1352,7 +1471,12 @@ public sealed partial class SciFiRogueGame
     {
         Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(0, 0, 0, 180));
         DrawTitle(_deathHeader, 150, 68);
-        Raylib.DrawText(_deathBody, (Raylib.GetScreenWidth() - Raylib.MeasureText(_deathBody, 24)) / 2, 250, 24, Color.LightGray);
+        var lines = _deathBody.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            Raylib.DrawText(line, (Raylib.GetScreenWidth() - Raylib.MeasureText(line, 24)) / 2, 250 + i * 34, 24, Color.LightGray);
+        }
         DrawButton(CenterRect(0, 320, 320, 62), "Deploy again");
         DrawButton(CenterRect(0, 400, 320, 62), "Main menu");
     }
@@ -1374,13 +1498,13 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText(text, x, y, size, Color.White);
     }
 
-    private static void DrawButton(Rectangle rect, string text)
+    private static void DrawButton(Rectangle rect, string text, bool enabled = true)
     {
         var hover = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), rect);
-        Raylib.DrawRectangleRec(rect, hover ? Palette.C(68, 112, 186) : Palette.C(36, 56, 90));
-        Raylib.DrawRectangleLinesEx(rect, 2f, Color.White);
+        Raylib.DrawRectangleRec(rect, !enabled ? Palette.C(34, 38, 48) : hover ? Palette.C(68, 112, 186) : Palette.C(36, 56, 90));
+        Raylib.DrawRectangleLinesEx(rect, 2f, enabled ? Color.White : Color.DarkGray);
         const int fs = 24;
-        Raylib.DrawText(text, (int)(rect.X + rect.Width / 2 - Raylib.MeasureText(text, fs) / 2f), (int)(rect.Y + rect.Height / 2 - fs / 2f), fs, Color.White);
+        Raylib.DrawText(text, (int)(rect.X + rect.Width / 2 - Raylib.MeasureText(text, fs) / 2f), (int)(rect.Y + rect.Height / 2 - fs / 2f), fs, enabled ? Color.White : Color.Gray);
     }
 
     private static void DrawStorageGrid(Vector2 origin, int cols, int rows)
@@ -1397,6 +1521,13 @@ public sealed partial class SciFiRogueGame
 
     private void DrawExtractionHud()
     {
+        if (_challengeMode)
+        {
+            Raylib.DrawText($"Challenge {_selectedMapName}", 20, 138, 22, Palette.C(191, 120, 255));
+            Raylib.DrawText($"Completed waves {_pitCompletedWaves.Count}", 20, 168, 20, Palette.C(165, 195, 220));
+            return;
+        }
+
         string timerText;
         Color color;
 
@@ -1446,6 +1577,42 @@ public sealed partial class SciFiRogueGame
 
     private static Rectangle MapCardRect(int index)
         => new(70 + index * 585, 160, 555, 380);
+
+    private static Rectangle DeploymentToggleRect()
+        => new(Raylib.GetScreenWidth() - 292, 74, 220, 46);
+
+    private static Rectangle PitRewardPanelRect()
+        => new((Raylib.GetScreenWidth() - 1140f) / 2f, (Raylib.GetScreenHeight() - 560f) / 2f, 1140, 560);
+
+    private static Rectangle PitRewardCardRect(int index)
+    {
+        var panel = PitRewardPanelRect();
+        return new Rectangle(panel.X + 40, panel.Y + 90 + index * 120, 880, 104);
+    }
+
+    private static Rectangle PitRewardWinningIconRect(int index)
+    {
+        var card = PitRewardCardRect(index);
+        const float iconSize = 42f;
+        var reel = new Rectangle(card.X + 150, card.Y + 21, 640, 62);
+        return new Rectangle(
+            reel.X + reel.Width / 2f - iconSize / 2f,
+            reel.Y + reel.Height / 2f - iconSize / 2f,
+            iconSize,
+            iconSize);
+    }
+
+    private static Rectangle PitRewardTakeButtonRect(int index)
+    {
+        var card = PitRewardCardRect(index);
+        return new Rectangle(card.X + card.Width + 26, card.Y + 33, 132, 38);
+    }
+
+    private static Rectangle PitRewardSkipButtonRect()
+    {
+        var panel = PitRewardPanelRect();
+        return new Rectangle(panel.X + panel.Width / 2f - 90f, panel.Y + panel.Height - 60f, 180, 42);
+    }
 
     private static Rectangle ArmoryOfferRect(int index)
     {

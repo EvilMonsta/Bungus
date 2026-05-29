@@ -3,6 +3,7 @@ using Raylib_cs;
 namespace Bungus.Game;
 
 public enum GameState { MainMenu, MapSelect, Storage, Armory, Character, Settings, Playing, Paused, Death }
+public enum DeploymentListMode { Expeditions, Challenges }
 public enum WeaponClass { Melee, Ranged }
 public enum ItemType { Weapon, Armor, Consumable, KeyItem }
 public enum ConsumableType { Medkit, Stim, ProtectiveDome, StickyBullets, StationKey }

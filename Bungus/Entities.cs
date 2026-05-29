@@ -575,6 +575,13 @@ public sealed class Player
         }
     }
 
+    public void GrantLevel()
+    {
+        Level++;
+        StatPoints++;
+        ApplyHealing(MaxHealth * 0.25f);
+    }
+
     public void ApplyPoint(StatType stat)
     {
         if (StatPoints <= 0) return;
@@ -1093,7 +1100,7 @@ public sealed class HexEnemy
 
     public static HexEnemy Create(Vector2 pos, Random rng) => new(pos, rng.NextSingle() < 0.5f);
 
-    public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, List<Obstacle> obstacles, int worldSize)
+    public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, List<Obstacle> obstacles, int worldSize, bool infiniteAggro = false)
     {
         if (!Alive) return;
         _slowTimer = MathF.Max(0f, _slowTimer - dt);
@@ -1234,7 +1241,7 @@ public sealed class GeneratorGuardianEnemy
         _playerDashCd = NextPlayerDashCooldown();
     }
 
-    public void Update(float dt, Vector2 playerPos, Player player, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages)
+    public void Update(float dt, Vector2 playerPos, Player player, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages, bool infiniteAggro = false)
     {
         _slowTimer = MathF.Max(0f, _slowTimer - dt);
         _spearVisualTimer = MathF.Max(0f, _spearVisualTimer - dt);
@@ -1243,7 +1250,11 @@ public sealed class GeneratorGuardianEnemy
 
         var toPlayer = playerPos - Position;
         var playerDistance = toPlayer.Length();
-        if (_alert && playerDistance > AggroRange)
+        if (infiniteAggro)
+        {
+            ForceAggro(playerPos);
+        }
+        else if (_alert && playerDistance > AggroRange)
         {
             ReturnToSpawn(dt, obstacles, worldSize);
             return;
@@ -1453,7 +1464,7 @@ public sealed class ToxicTriangleEnemy
         ZoneId = zoneId;
     }
 
-    public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, List<Obstacle> obstacles, int worldSize)
+    public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, List<Obstacle> obstacles, int worldSize, bool infiniteAggro = false)
     {
         _slowTimer = MathF.Max(0f, _slowTimer - dt);
         TickPoison(dt);
@@ -1464,7 +1475,11 @@ public sealed class ToxicTriangleEnemy
         var dist = toPlayer.Length();
         var dir = Vector2.Normalize(toPlayer);
 
-        if (_alert && dist > GetAlertViewDistance())
+        if (infiniteAggro)
+        {
+            ForceAggro(playerPos);
+        }
+        else if (_alert && dist > GetAlertViewDistance())
         {
             _alert = false;
             StartLostAggroReturn();
@@ -1693,7 +1708,7 @@ public sealed class TurretEnemy
         _facing = new Vector2(MathF.Cos(angle), MathF.Sin(angle));
     }
 
-    public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, List<Obstacle> obstacles)
+    public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, List<Obstacle> obstacles, bool infiniteAggro = false)
     {
         if (!Alive) return;
         TickPoison(dt);
@@ -1703,6 +1718,23 @@ public sealed class TurretEnemy
         var distToPlayer = toPlayer.Length();
         _shootCd -= dt;
         _longRangeAlertTimer = MathF.Max(0f, _longRangeAlertTimer - dt);
+        if (infiniteAggro)
+        {
+            _alert = true;
+            _lastSeenPlayerPos = playerPos;
+            _hasAim = true;
+            _aimAt = playerPos;
+            var aimDir = playerPos - Position;
+            if (aimDir != Vector2.Zero) _facing = Vector2.Normalize(aimDir);
+            if (_shootCd <= 0f && aimDir != Vector2.Zero)
+            {
+                var dir = Vector2.Normalize(aimDir);
+                projectiles.Add(new Projectile(Position + dir * 20f, dir, 1785f, 1.84f, Palette.C(255, 40, 40), true, 56f));
+                _shootCd = 3f;
+            }
+            return;
+        }
+
         if (!_alert)
         {
             UpdateScanRotation(dt);
@@ -1912,7 +1944,7 @@ public sealed class MiniBossEnemySquare
 
     public MiniBossEnemySquare(Vector2 pos, int zoneId = -1) { Position = pos; ZoneId = zoneId; }
 
-    public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, Player player, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages)
+    public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, Player player, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages, bool infiniteAggro = false)
     {
         if (!Alive) return;
 
@@ -1927,7 +1959,11 @@ public sealed class MiniBossEnemySquare
         var toPlayer = playerPos - Position;
         var distanceToPlayer = toPlayer.Length();
 
-        if (_alert)
+        if (infiniteAggro)
+        {
+            ForceAggro(playerPos);
+        }
+        else if (_alert)
         {
             if (distanceToPlayer > GetAlertViewDistance())
             {

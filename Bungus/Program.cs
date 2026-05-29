@@ -41,6 +41,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private List<Explosion> _explosions = [];
     private List<SwingArc> _swings = [];
     private List<DashAfterImage> _dashAfterImages = [];
+    private List<MotionAfterImage> _motionAfterImages = [];
 
     private List<LootZone> _buildings = [];
     private List<LootZone> _outposts = [];
@@ -435,7 +436,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         var enemyCollisionObstacles = BuildEnemyCollisionObstacles();
+        var playerPreviousPosition = _player.Position;
         _player.Update(dt, _obstacles, _worldSize, _dashAfterImages);
+        AddMotionTrail(playerPreviousPosition, _player.Position, Theme.Player, 15f, MotionTrailShape.Circle, 0.18f, 13f);
         _player.UpdateCombat(dt, _projectiles);
         if (Raylib.IsKeyPressed(KeyboardKey.Q)) HandleConsumedQuickSlot(_player.UseQuickSlotQ());
         if (Raylib.IsKeyPressed(KeyboardKey.R)) HandleConsumedQuickSlot(_player.UseQuickSlotR());
@@ -538,9 +541,11 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         foreach (var e in _enemies)
         {
+            var previousPosition = e.Position;
             e.UpdateVisionSweep(dt);
             e.UpdateAwareness(_player.Position, dt, enemyCollisionObstacles);
             e.UpdateMovement(dt, _player.Position, enemyCollisionObstacles, _worldSize);
+            AddMotionTrail(previousPosition, e.Position, e.IsStrong ? Theme.EnemyStrong : Theme.Enemy, e.IsStrong ? 11f : 12f, e.IsStrong ? MotionTrailShape.Triangle : MotionTrailShape.Circle);
             e.TryShootBurst(_player.Position, _projectiles);
 
             if (e.TryMeleeHit(_player) && _rng.NextSingle() <= _player.GetStatusEffectChance(0.05f))
@@ -573,7 +578,9 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         foreach (var h in _hexEnemies)
         {
+            var previousPosition = h.Position;
             h.Update(dt, _player.Position, _projectiles, enemyCollisionObstacles, _worldSize);
+            AddMotionTrail(previousPosition, h.Position, Palette.C(255, 110, 180), 17f, MotionTrailShape.Hex, 0.08f);
             if (!h.Alive && !h.KillAwarded)
             {
                 h.KillAwarded = true;
@@ -588,7 +595,9 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         foreach (var turret in _turrets)
         {
+            var previousPosition = turret.Position;
             turret.Update(dt, _player.Position, _projectiles, enemyCollisionObstacles);
+            AddMotionTrail(previousPosition, turret.Position, Palette.C(230, 80, 80), 15f, MotionTrailShape.Square, rotateWithMovement: false);
             if (!turret.Alive && !turret.KillAwarded)
             {
                 turret.KillAwarded = true;
@@ -603,7 +612,9 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         foreach (var b in _miniBosses)
         {
+            var previousPosition = b.Position;
             b.Update(dt, _player.Position, _projectiles, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages);
+            AddMotionTrail(previousPosition, b.Position, Palette.C(230, 100, 100), 21f, MotionTrailShape.Square, 0.2f, rotateWithMovement: false);
             if (!b.Alive && !b.KillAwarded)
             {
                 b.KillAwarded = true;
@@ -619,7 +630,9 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         if (_destroyerBoss is null) return;
 
+        var previousPosition = _destroyerBoss.Position;
         _destroyerBoss.Update(dt, _player.Position, _projectiles, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages);
+        AddMotionTrail(previousPosition, _destroyerBoss.Position, Theme.Boss, 24f, MotionTrailShape.Square, 0.2f, rotateWithMovement: false);
         if (!_destroyerBoss.Alive && !_destroyerBoss.KillAwarded)
         {
             _destroyerBoss.KillAwarded = true;
@@ -634,7 +647,9 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         foreach (var guard in _generatorGuards)
         {
+            var previousPosition = guard.Position;
             guard.Update(dt, _player.Position, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages);
+            AddMotionTrail(previousPosition, guard.Position, Palette.C(255, 170, 95), 17f, MotionTrailShape.Triangle, 0.2f);
             if (!guard.Alive && !guard.KillAwarded)
             {
                 guard.KillAwarded = true;
@@ -649,7 +664,9 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         foreach (var toxic in _toxicEnemies)
         {
+            var previousPosition = toxic.Position;
             toxic.Update(dt, _player.Position, _projectiles, enemyCollisionObstacles, _worldSize);
+            AddMotionTrail(previousPosition, toxic.Position, Palette.C(220, 110, 100), 12f, MotionTrailShape.Triangle);
             if (!toxic.Alive && !toxic.KillAwarded)
             {
                 toxic.KillAwarded = true;
@@ -661,7 +678,9 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (_stationBoss is not null)
         {
+            var previousPosition = _stationBoss.Position;
             _stationBoss.Update(dt, _player.Position, _projectiles, _player, enemyCollisionObstacles, _worldSize);
+            AddMotionTrail(previousPosition, _stationBoss.Position, Palette.C(255, 40, 40), 30f, MotionTrailShape.Circle, 0.2f);
             if (!_stationBoss.Alive && !_stationBoss.KillAwarded)
             {
                 _stationBoss.KillAwarded = true;
@@ -856,6 +875,13 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var p = _projectiles[i];
             p.Update(dt);
+            AddMotionTrail(
+                p.PreviousPosition,
+                p.Position,
+                p.Color,
+                p.Kind == ProjectileKind.Grenade ? MathF.Max(5f, p.DrawRadius) : MathF.Max(2.5f, p.DrawRadius),
+                MotionTrailShape.Circle,
+                p.Kind == ProjectileKind.Grenade ? 0.2f : 0.26f);
 
             var hitWorldBounds = p.Position.X < 0 || p.Position.Y < 0 || p.Position.X > _worldSize || p.Position.Y > _worldSize;
             var hitObstacle = MovementUtils.CircleHitsObstacle(p.Position, p.DrawRadius, _obstacles);
@@ -1412,6 +1438,29 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             _dashAfterImages[i].Life -= dt * 3.75f;
             if (_dashAfterImages[i].Life <= 0f) _dashAfterImages.RemoveAt(i);
+        }
+
+        for (var i = _motionAfterImages.Count - 1; i >= 0; i--)
+        {
+            _motionAfterImages[i].Life -= dt * 7.5f;
+            if (_motionAfterImages[i].Life <= 0f) _motionAfterImages.RemoveAt(i);
+        }
+    }
+
+    private void AddMotionTrail(Vector2 previous, Vector2 current, Color color, float radius, MotionTrailShape shape, float alpha = 0.16f, float minRadius = -1f, bool rotateWithMovement = true)
+    {
+        var delta = current - previous;
+        if (delta.LengthSquared() < 0.25f) return;
+
+        var dir = Vector2.Normalize(delta);
+        var trailPosition = current - dir * MathF.Min(radius * 0.75f, delta.Length() * 0.5f);
+        var rotation = rotateWithMovement ? MathF.Atan2(dir.Y, dir.X) * 180f / MathF.PI : 0f;
+        _motionAfterImages.Add(new MotionAfterImage(trailPosition, color, alpha, radius, shape, rotation, minRadius));
+
+        const int maxMotionAfterImages = 700;
+        if (_motionAfterImages.Count > maxMotionAfterImages)
+        {
+            _motionAfterImages.RemoveRange(0, _motionAfterImages.Count - maxMotionAfterImages);
         }
     }
 

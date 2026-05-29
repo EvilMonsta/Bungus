@@ -177,6 +177,7 @@ public sealed partial class SciFiRogueGame
         }
 
         foreach (var ghost in _dashAfterImages) ghost.Draw();
+        foreach (var ghost in _motionAfterImages) ghost.Draw();
 
         foreach (var e in _enemies) e.DrawSight();
         foreach (var h in _hexEnemies) h.DrawSight();
@@ -292,7 +293,7 @@ public sealed partial class SciFiRogueGame
             }
             else
             {
-                VisibilityUtils.DrawDashedLine(swing.Origin, point, 14, color);
+                Raylib.DrawLineEx(swing.Origin, point, MathF.Max(1.5f, 5f - i * 0.35f), color);
             }
         }
     }

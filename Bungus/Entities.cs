@@ -1188,7 +1188,7 @@ public sealed class HexEnemy
             points[i] = Position + new Vector2(MathF.Cos(a), MathF.Sin(a)) * 15f;
         }
 
-        for (var i = 1; i < 5; i++) Raylib.DrawTriangle(points[0], points[i], points[i + 1], Palette.C(224, 84, 170));
+        for (var i = 1; i < 5; i++) Raylib.DrawTriangle(points[0], points[i], points[i + 1], Palette.C(0, 0, 0, 128));
         for (var i = 0; i < 6; i++) Raylib.DrawLineV(points[i], points[(i + 1) % 6], Color.Maroon);
 
         var hp = Health / MaxHealth;

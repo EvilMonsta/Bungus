@@ -11,6 +11,7 @@ public enum StatType { Strength, Dexterity, Speed, Gunsmith }
 public enum WeaponPattern { Standard, PulseRifle, EnergySpear, GrenadeLauncher, SniperRifle, Toxikus, Lancelot }
 public enum ProjectileKind { Bullet, Grenade }
 public enum SwingVisualStyle { ArcSlash, SpearThrust }
+public enum MotionTrailShape { Circle, Triangle, Square, Hex }
 public enum DisplayMode { Windowed, Fullscreen }
 public enum LootZoneKind { City, Outpost, Generator, Hangar, Station }
 

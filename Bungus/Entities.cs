@@ -1918,6 +1918,7 @@ public sealed class MiniBossEnemySquare
     public int ZoneId = -1;
     public bool Alive => Health > 0;
     public bool KillAwarded;
+    public bool IsFast { get; }
 
     private float _ramCd = 4f;
     private float _shootCd = 1.2f;
@@ -1941,8 +1942,20 @@ public sealed class MiniBossEnemySquare
     private const float ViewDistance = 650f;
     private const float AlertViewMultiplier = 1.25f;
     private const float FovHalf = MathF.PI / 3f;
+    private const float FastHealthMultiplier = 0.7f;
 
-    public MiniBossEnemySquare(Vector2 pos, int zoneId = -1) { Position = pos; ZoneId = zoneId; }
+    public MiniBossEnemySquare(Vector2 pos, int zoneId = -1, bool isFast = false)
+    {
+        Position = pos;
+        ZoneId = zoneId;
+        IsFast = isFast;
+        if (!IsFast) return;
+
+        MaxHealth *= FastHealthMultiplier;
+        Health = MaxHealth;
+        _shootCd *= 1.2f;
+        _slamCd *= GetSlamCooldownMultiplier();
+    }
 
     public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, Player player, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages, bool infiniteAggro = false)
     {
@@ -1986,7 +1999,7 @@ public sealed class MiniBossEnemySquare
 
         var dir = Vector2.Normalize(toPlayer);
         _facing = dir;
-        Position = MovementUtils.MoveWithCollisions(Position, dir * 52.5f * GetMovementSpeedMultiplier() * dt, 28f, obstacles, worldSize);
+        Position = MovementUtils.MoveWithCollisions(Position, dir * 52.5f * GetFastSpeedMultiplier() * GetMovementSpeedMultiplier() * dt, 28f, obstacles, worldSize);
 
         if (_ramCd <= 0f)
         {
@@ -2000,7 +2013,7 @@ public sealed class MiniBossEnemySquare
         {
             _burstShotsLeft = 6;
             _burstShotCd = 0f;
-            _shootCd = 1.9f;
+            _shootCd = 1.9f * GetShootCooldownMultiplier();
         }
 
         if (_burstShotsLeft > 0)
@@ -2019,8 +2032,8 @@ public sealed class MiniBossEnemySquare
         if (_slamCd <= 0f)
         {
             _slamVisual = 0.7f;
-            _slamCd = 3.6f;
-            if (Vector2.Distance(Position, playerPos) < 120f) player.TakeDamage(20f);
+            _slamCd = 3.6f * GetSlamCooldownMultiplier();
+            if (Vector2.Distance(Position, playerPos) < GetSlamRadius()) player.TakeDamage(20f);
         }
     }
 
@@ -2112,7 +2125,7 @@ public sealed class MiniBossEnemySquare
 
         var dir = Vector2.Normalize(to);
         _facing = dir;
-        Position = MovementUtils.MoveWithCollisions(Position, dir * 47.5f * GetMovementSpeedMultiplier() * dt, 28f, obstacles, worldSize);
+        Position = MovementUtils.MoveWithCollisions(Position, dir * 47.5f * GetFastSpeedMultiplier() * GetMovementSpeedMultiplier() * dt, 28f, obstacles, worldSize);
         if (_returningFromInvestigation) HealDuringInvestigationReturn();
     }
 
@@ -2156,6 +2169,10 @@ public sealed class MiniBossEnemySquare
     }
 
     private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.85f : 1f;
+    private float GetFastSpeedMultiplier() => IsFast ? 2.175f : 1f;
+    private float GetShootCooldownMultiplier() => IsFast ? 1.2f : 1f;
+    private float GetSlamCooldownMultiplier() => IsFast ? 0.7f : 1f;
+    private float GetSlamRadius() => IsFast ? 144f : 120f;
 
     private static float GetAlertViewDistance() => ViewDistance * AlertViewMultiplier;
 
@@ -2180,13 +2197,32 @@ public sealed class MiniBossEnemySquare
         if (_slamVisual > 0)
         {
             var alpha = (byte)(120 * (_slamVisual / 0.7f));
-            Raylib.DrawCircle((int)Position.X, (int)Position.Y, 120f, Palette.C(255, 100, 100, alpha));
+            Raylib.DrawCircle((int)Position.X, (int)Position.Y, GetSlamRadius(), Palette.C(255, 100, 100, alpha));
+        }
+
+        if (IsFast)
+        {
+            DrawFastChevrons();
         }
 
         var hp = Health / MaxHealth;
         var bar = new Rectangle(Position.X - 36, Position.Y - 34, 72, 6);
         Raylib.DrawRectangleRec(bar, Palette.C(20, 20, 20, 220));
         Raylib.DrawRectangle((int)bar.X, (int)bar.Y, (int)(bar.Width * hp), (int)bar.Height, Color.Green);
+    }
+
+    private void DrawFastChevrons()
+    {
+        var color = Palette.C(80, 255, 120);
+        for (var i = 0; i < 2; i++)
+        {
+            var y = Position.Y - 8f + i * 15f;
+            var tip = new Vector2(Position.X, y - 7f);
+            var left = new Vector2(Position.X - 7f, y + 5f);
+            var right = new Vector2(Position.X + 7f, y + 5f);
+            Raylib.DrawLineEx(left, tip, 3f, color);
+            Raylib.DrawLineEx(tip, right, 3f, color);
+        }
     }
 }
 

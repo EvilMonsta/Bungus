@@ -116,6 +116,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private string _deathBody = "All carried items were lost.";
     private readonly Dictionary<string, int> _promoCodeUses = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _sessionActiveCodes = new(StringComparer.OrdinalIgnoreCase);
+    private bool _isFunnyNextRun;
     private bool _codesPopupOpen;
     private string _codeInput = string.Empty;
     private string _codeStatusText = string.Empty;
@@ -200,6 +201,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             TakeMetaLoadoutItem(SlotKind.Armor),
             TakeMetaLoadoutItem(SlotKind.QuickSlotQ),
             TakeMetaLoadoutItem(SlotKind.QuickSlotR));
+        ApplyIsFunnyNextRunBonus();
         _projectiles = [];
         _explosions = [];
         _swings = [];
@@ -271,6 +273,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             ItemStack.StartingArmor(),
             null,
             null);
+        ApplyIsFunnyNextRunBonus();
         _projectiles = [];
         _explosions = [];
         _swings = [];
@@ -984,6 +987,11 @@ public sealed partial class SciFiRogueGame : IDisposable
             for (var i = 0; i < count; i++) AddEnemy(new MiniBossEnemySquare(RandomPitSpawnPoint(28f)));
         }
 
+        void AddFastSquares(int count)
+        {
+            for (var i = 0; i < count; i++) AddEnemy(new MiniBossEnemySquare(RandomPitSpawnPoint(28f), isFast: true));
+        }
+
         void AddHexes(int count)
         {
             for (var i = 0; i < count; i++) AddEnemy(HexEnemy.Create(RandomPitSpawnPoint(16f), _rng));
@@ -1030,14 +1038,16 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
         else if (wave <= 29)
         {
-            AddTriangles(3, true);
-            AddCircles(2, true);
-            AddHexes(wave - 20);
+            var growth = wave - 21;
+            AddTriangles(1 + (growth + 1) / 2, true);
+            AddCircles(3 + growth / 2, true);
+            AddHexes(1);
             AddToxic(1);
         }
         else if (wave == 30)
         {
-            AddSquares(2);
+            AddSquares(1);
+            AddFastSquares(1);
         }
         else if (wave <= 39)
         {
@@ -1046,7 +1056,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
         else if (wave == 40)
         {
-            AddSquares(4);
+            AddFastSquares(4);
         }
         else if (wave <= 49)
         {
@@ -1055,25 +1065,26 @@ public sealed partial class SciFiRogueGame : IDisposable
         else if (wave == 50)
         {
             AddGuards(3);
+            AddFastSquares(1);
         }
         else if (wave <= 51)
         {
-            AddSquares(1);
+            AddFastSquares(1);
             AddCircles(3);
         }
         else if (wave <= 55)
         {
-            AddSquares(1);
+            AddFastSquares(1);
             AddCircles(3);
             AddTriangles(wave - 51, true);
         }
         else if (wave == 56)
         {
-            AddSquares(2);
+            AddFastSquares(2);
         }
         else if (wave <= 59)
         {
-            AddSquares(2);
+            AddFastSquares(2);
             AddTriangles(wave - 56, true);
         }
         else if (wave == 60)
@@ -1083,7 +1094,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
         else if (wave <= 69)
         {
-            AddSquares(3);
+            AddFastSquares(3);
         }
         else if (wave == 70)
         {
@@ -1091,7 +1102,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
         else if (wave <= 79)
         {
-            AddSquares(4);
+            AddFastSquares(4);
         }
         else if (wave == 80)
         {
@@ -1099,7 +1110,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
         else
         {
-            AddSquares(5);
+            AddFastSquares(5);
             AddGuards(2);
         }
 
@@ -1121,10 +1132,21 @@ public sealed partial class SciFiRogueGame : IDisposable
         _runScore += rewardXp;
         _pitRunXpEarned += rewardXp;
         _pitRunCoinsEarned += rewardCoins;
-        if (_pitWaveTimer > 3f) _pitWaveTimer = 3f;
+        if (!HasAnyPitEnemyAlive() && _pitWaveTimer > 3f) _pitWaveTimer = 3f;
         if (wave % 3 == 0) OpenPitRewardSelection(wave);
         SavePersistentState();
     }
+
+    private bool HasAnyPitEnemyAlive()
+        => _enemies.Any(e => e.Alive)
+           || _hexEnemies.Any(h => h.Alive)
+           || _turrets.Any(t => t.Alive)
+           || _miniBosses.Any(b => b.Alive)
+           || _generatorGuards.Any(g => g.Alive)
+           || _toxicEnemies.Any(t => t.Alive)
+           || (_destroyerBoss is not null && _destroyerBoss.Alive)
+           || (_stationBoss is not null && _stationBoss.Alive)
+           || _pitStationBosses.Any(b => b.Alive);
 
     private void OpenPitRewardSelection(int wave)
     {
@@ -2568,12 +2590,12 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (Clicked(new Rectangle(252, 234, 22, 22))) QueuePendingLevelUpPoint(StatType.Speed);
         if (Clicked(new Rectangle(252, 264, 22, 22))) QueuePendingLevelUpPoint(StatType.Gunsmith);
 
-        if (GetPendingLevelUpPointCount() > 0 && Clicked(new Rectangle(54, 326, 120, 30)))
+        if (GetPendingLevelUpPointCount() > 0 && Clicked(new Rectangle(54, 350, 120, 30)))
         {
             ApplyPendingLevelUpPoints();
         }
 
-        if (GetPendingLevelUpPointCount() > 0 && Clicked(new Rectangle(184, 326, 120, 30)))
+        if (GetPendingLevelUpPointCount() > 0 && Clicked(new Rectangle(184, 350, 120, 30)))
         {
             ClearPendingLevelUpPoints();
         }
@@ -2848,6 +2870,15 @@ public sealed partial class SciFiRogueGame : IDisposable
     }
 
     private void AddRunScore(int amount) => _runScore += amount;
+
+    private void ApplyIsFunnyNextRunBonus()
+    {
+        if (!_isFunnyNextRun) return;
+
+        for (var i = 0; i < 250; i++) _player.GrantLevel();
+        _isFunnyNextRun = false;
+        ShowNotice("ISFUNNY activated. +250 run levels.");
+    }
 
     private void AddMetaScore(int amount)
     {
@@ -3150,6 +3181,14 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
+        if (code == "ISFUNNY")
+        {
+            var result = ApplyIsFunnyCode();
+            SetCodeStatus(result.Success, result.Message);
+            if (result.Success) _codeInput = string.Empty;
+            return;
+        }
+
         SetCodeStatus(false, "No such code.");
     }
 
@@ -3299,6 +3338,20 @@ public sealed partial class SciFiRogueGame : IDisposable
         return (true, "Success: account level reset to 1.");
     }
 
+    private (bool Success, string Message) ApplyIsFunnyCode()
+    {
+        const string code = "ISFUNNY";
+        if (!CanUsePromoCode(code, null, false, out var error))
+        {
+            return (false, error);
+        }
+
+        _isFunnyNextRun = true;
+        RegisterPromoCodeUse(code, false);
+        SavePersistentState();
+        return (true, "Success: next run starts with +250 levels.");
+    }
+
     private bool CanUsePromoCode(string code, int? maxUses, bool sessionOnly, out string error)
     {
         error = string.Empty;
@@ -3418,10 +3471,20 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         var x = (int)mouse.X + 20;
         var y = (int)mouse.Y + 14;
-        Raylib.DrawRectangle(x, y, 420, 72, Palette.C(0, 0, 0, 225));
-        Raylib.DrawRectangleLines(x, y, 420, 72, Color.SkyBlue);
+        const int width = 320;
+        const int padding = 8;
+        const int lineHeight = 19;
+        var bodyLines = WrapText(hit.Body, 16, width - padding * 2);
+        var height = 42 + bodyLines.Count * lineHeight + padding;
+        Raylib.DrawRectangle(x, y, width, height, Palette.C(0, 0, 0, 225));
+        Raylib.DrawRectangleLines(x, y, width, height, Color.SkyBlue);
         Raylib.DrawText(hit.Header, x + 8, y + 8, 18, Color.White);
-        Raylib.DrawText(hit.Body, x + 8, y + 34, 16, Color.LightGray);
+        var lineY = y + 34;
+        foreach (var line in bodyLines)
+        {
+            Raylib.DrawText(line, x + padding, lineY, 16, Color.LightGray);
+            lineY += lineHeight;
+        }
     }
 
     private int GetStoredItemCount() => _meta.StorageSlots.Count(item => item is not null);
@@ -3567,35 +3630,60 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         if (weapon is null) return string.Empty;
 
-        var total = player.GetWeaponDamage(weapon);
-        if (weapon.Pattern == WeaponPattern.GrenadeLauncher) return $"blast {total:0.0} / direct {total + 150f:0.0}";
+        var (totalDamage, bonusDamage, dps, label) = GetDisplayedWeaponStats(player, weapon, kind);
+        if (weapon.Pattern == WeaponPattern.Toxikus)
+        {
+            var basePoisonDamage = 30f + weapon.BaseDamage * 0.4f;
+            var poisonDamage = 30f + player.GetWeaponDamage(weapon) * 0.4f;
+            return $"{label} {totalDamage:0.0}(+{bonusDamage:0.0}) | Poison: {poisonDamage:0.0}(+{poisonDamage - basePoisonDamage:0.0}) | DPS: {dps:0.0}";
+        }
+
+        return $"{label} {totalDamage:0.0}(+{bonusDamage:0.0}) | DPS: {dps:0.0}";
+    }
+
+    private static (float TotalDamage, float BonusDamage, float Dps, string Label) GetDisplayedWeaponStats(Player player, ItemStack weapon, WeaponClass kind)
+    {
+        if (weapon.Pattern == WeaponPattern.GrenadeLauncher)
+        {
+            var baseDirect = weapon.BaseDamage + 150f;
+            var totalDirect = player.GetWeaponDamage(weapon) + 150f;
+            var directDps = totalDirect * 1.35f;
+            return (totalDirect, totalDirect - baseDirect, directDps, "direct");
+        }
+
         if (weapon.Pattern == WeaponPattern.SniperRifle)
         {
+            var baseShot = weapon.BaseDamage * 5.55f;
             var shotDamage = player.GetSniperShotDamage(weapon);
-            return weapon.Rarity == ArmorRarity.Legendary
-                ? $"shot {shotDamage:0.0} / charged {player.GetSniperShotDamage(weapon, true):0.0}"
-                : $"shot {shotDamage:0.0}";
+            var sniperDps = shotDamage / 1.75f;
+            return (shotDamage, shotDamage - baseShot, sniperDps, "shot");
         }
+
         if (weapon.Pattern is WeaponPattern.PulseRifle or WeaponPattern.Toxikus)
         {
+            var basePerShot = weapon.BaseDamage * 0.525f;
             var perShot = player.GetPulseShotDamage(weapon);
             var shots = player.GetPulseBurstShotCount(weapon);
-            var poisonDps = 30f + total * 0.4f;
-            return weapon.Pattern == WeaponPattern.Toxikus
-                ? $"toxic burst {perShot:0.0}x{shots} + poison {poisonDps:0.0}/s"
-                : $"burst {perShot:0.0}x{shots}={perShot * shots:0.0}";
+            var cooldown = weapon.Pattern == WeaponPattern.Toxikus ? 1f / 2.2f : 0.374f;
+            var poisonDps = weapon.Pattern == WeaponPattern.Toxikus ? 30f + player.GetWeaponDamage(weapon) * 0.4f : 0f;
+            var burstDps = perShot * shots / cooldown + poisonDps;
+            return (perShot, perShot - basePerShot, burstDps, $"x{shots}");
         }
 
         if (kind == WeaponClass.Melee)
         {
+            var baseHit = weapon.BaseDamage * 7f;
             var hitDamage = player.GetMeleeHitDamage(weapon);
-            return weapon.Pattern is WeaponPattern.EnergySpear or WeaponPattern.Lancelot
-                ? $"thrust {hitDamage:0.0}"
-                : $"slash {hitDamage:0.0}";
+            var cooldown = weapon.Pattern is WeaponPattern.EnergySpear or WeaponPattern.Lancelot
+                ? player.GetMeleeCooldown(0.70f)
+                : player.GetMeleeCooldown(0.64f);
+            return (hitDamage, hitDamage - baseHit, hitDamage / cooldown, weapon.Pattern is WeaponPattern.EnergySpear or WeaponPattern.Lancelot ? "thrust" : "slash");
         }
 
-        var bonus = player.GetWeaponModifierDamage(weapon);
-        return $"dmg {total:0.0}(+{bonus:0.0})";
+        var total = player.GetWeaponDamage(weapon);
+        var expectedShotsPerAttack = weapon.Rarity == ArmorRarity.Legendary ? 1.33f : 1f;
+        var dps = total * expectedShotsPerAttack / 0.22f;
+        return (total, total - weapon.BaseDamage, dps, "dmg");
     }
 
     private (List<LootZone> buildings, List<LootZone> outposts) GenerateZones(int buildingCount, int outpostCount)

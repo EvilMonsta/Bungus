@@ -44,6 +44,7 @@ public sealed class PersistentStateData
     public int ThemeIndex { get; set; }
     public DisplayMode DisplayMode { get; set; } = DisplayMode.Windowed;
     public string SelectedMapName { get; set; } = "Baselands";
+    public bool IsFunnyNextRun { get; set; }
     public Dictionary<string, int> PromoCodeUses { get; set; } = [];
     public MetaProfileSaveData Meta { get; set; } = new();
 }

@@ -30,6 +30,7 @@ public sealed partial class SciFiRogueGame
             _themeIndex = Math.Clamp(data.ThemeIndex, 0, Math.Max(0, _themes.Count - 1));
             _displayMode = Enum.IsDefined(data.DisplayMode) ? data.DisplayMode : DisplayMode.Windowed;
             _selectedMapName = string.IsNullOrWhiteSpace(data.SelectedMapName) ? "Baselands" : data.SelectedMapName;
+            _isFunnyNextRun = data.IsFunnyNextRun;
             _promoCodeUses.Clear();
             foreach (var pair in data.PromoCodeUses ?? [])
             {
@@ -45,6 +46,7 @@ public sealed partial class SciFiRogueGame
             _themeIndex = 0;
             _displayMode = DisplayMode.Windowed;
             _selectedMapName = "Baselands";
+            _isFunnyNextRun = false;
             _promoCodeUses.Clear();
             _sessionActiveCodes.Clear();
             ApplyMetaSaveData(null);
@@ -65,6 +67,7 @@ public sealed partial class SciFiRogueGame
                 ThemeIndex = _themeIndex,
                 DisplayMode = _displayMode,
                 SelectedMapName = _selectedMapName,
+                IsFunnyNextRun = _isFunnyNextRun,
                 PromoCodeUses = new Dictionary<string, int>(_promoCodeUses, StringComparer.OrdinalIgnoreCase),
                 Meta = BuildMetaSaveData()
             };

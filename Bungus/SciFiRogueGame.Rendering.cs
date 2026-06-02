@@ -199,9 +199,22 @@ public sealed partial class SciFiRogueGame
         foreach (var boss in _pitStationBosses) boss.Draw();
         foreach (var t in _turrets) t.DrawAimLine();
         DrawPlayerSniperAimLine();
+        foreach (var beam in _beamEffects) beam.Draw();
 
         foreach (var p in _projectiles)
         {
+            if (p.Kind == ProjectileKind.TraceBeam) continue;
+            if (p.Kind == ProjectileKind.LinearShot)
+            {
+                Raylib.DrawLineEx(p.SourcePosition, p.Position, 2f, WithAlpha(p.Color, 0.35f));
+            }
+
+            if (p.Kind is ProjectileKind.PulsarBolt or ProjectileKind.MicroCharge)
+            {
+                var pulse = 0.65f + MathF.Sin((float)Raylib.GetTime() * 18f) * 0.25f;
+                Raylib.DrawCircleV(p.Position, p.DrawRadius + 2f, WithAlpha(Palette.C(180, 245, 255), 0.25f + pulse * 0.25f));
+            }
+
             if (p.Highlighted) Raylib.DrawCircleV(p.Position, p.DrawRadius + 1f, Color.White);
             Raylib.DrawCircleV(p.Position, p.DrawRadius, p.Color);
         }
@@ -394,6 +407,11 @@ public sealed partial class SciFiRogueGame
             Raylib.DrawLineEx(new Vector2(mouse.X, mouse.Y - length), new Vector2(mouse.X, mouse.Y - gap), 2f, color);
             Raylib.DrawLineEx(new Vector2(mouse.X, mouse.Y + gap), new Vector2(mouse.X, mouse.Y + length), 2f, color);
             Raylib.DrawCircleLines((int)mouse.X, (int)mouse.Y, 3f, color);
+            if (_player.IsLinearRifleEquipped)
+            {
+                DrawCircularProgressFrame(mouse, 22f, _player.LinearRifleChargeProgress, Palette.C(130, 230, 255));
+            }
+
             return;
         }
 
@@ -717,6 +735,10 @@ public sealed partial class SciFiRogueGame
             if (item.WeaponKind == WeaponClass.Melee && item.Pattern is WeaponPattern.EnergySpear or WeaponPattern.Lancelot) DrawSpearIcon(rect);
             else if (item.WeaponKind == WeaponClass.Melee) DrawBladeIcon(rect);
             else if (item.Pattern == WeaponPattern.GrenadeLauncher) DrawGrenadeLauncherIcon(rect);
+            else if (item.Pattern == WeaponPattern.RocketLauncher) DrawRocketLauncherIcon(rect);
+            else if (item.Pattern == WeaponPattern.TraceRifle) DrawTraceRifleIcon(rect);
+            else if (item.Pattern == WeaponPattern.LinearRifle) DrawLinearRifleIcon(rect);
+            else if (item.Pattern == WeaponPattern.Pulsar) DrawPulsarIcon(rect);
             else if (item.Pattern == WeaponPattern.SniperRifle) DrawSniperIcon(rect);
             else if (item.Pattern is WeaponPattern.PulseRifle or WeaponPattern.Toxikus) DrawPulseRifleIcon(rect);
             else DrawPistolIcon(rect);
@@ -934,6 +956,40 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawRectangleRec(grip, Color.Black);
     }
 
+    private static void DrawTraceRifleIcon(Rectangle rect)
+    {
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.09f, rect.Y + rect.Height * 0.36f, rect.Width * 0.28f, rect.Height * 0.25f), Color.Black);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.35f, rect.Y + rect.Height * 0.39f, rect.Width * 0.33f, rect.Height * 0.19f), Color.Black);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.65f, rect.Y + rect.Height * 0.44f, rect.Width * 0.22f, rect.Height * 0.07f), Color.Black);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.72f, rect.Y + rect.Height * 0.50f, rect.Width * 0.07f, rect.Height * 0.16f), Color.Black);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.46f, rect.Y + rect.Height * 0.55f, rect.Width * 0.10f, rect.Height * 0.16f), Color.Black);
+    }
+
+    private static void DrawLinearRifleIcon(Rectangle rect)
+    {
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.12f, rect.Y + rect.Height * 0.42f, rect.Width * 0.64f, rect.Height * 0.17f), Color.Black);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.55f, rect.Y + rect.Height * 0.36f, rect.Width * 0.13f, rect.Height * 0.23f), Color.Black);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.75f, rect.Y + rect.Height * 0.41f, rect.Width * 0.18f, rect.Height * 0.19f), Color.Black);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.34f, rect.Y + rect.Height * 0.55f, rect.Width * 0.10f, rect.Height * 0.17f), Color.Black);
+    }
+
+    private static void DrawRocketLauncherIcon(Rectangle rect)
+    {
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.08f, rect.Y + rect.Height * 0.43f, rect.Width * 0.72f, rect.Height * 0.14f), Color.Black);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.12f, rect.Y + rect.Height * 0.39f, rect.Width * 0.24f, rect.Height * 0.22f), Color.Black);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.72f, rect.Y + rect.Height * 0.37f, rect.Width * 0.18f, rect.Height * 0.24f), Color.Black);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.34f, rect.Y + rect.Height * 0.55f, rect.Width * 0.10f, rect.Height * 0.16f), Color.Black);
+    }
+
+    private static void DrawPulsarIcon(Rectangle rect)
+    {
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.10f, rect.Y + rect.Height * 0.42f, rect.Width * 0.26f, rect.Height * 0.18f), Color.Black);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.32f, rect.Y + rect.Height * 0.38f, rect.Width * 0.34f, rect.Height * 0.24f), Color.Black);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.62f, rect.Y + rect.Height * 0.43f, rect.Width * 0.22f, rect.Height * 0.10f), Color.Black);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.84f, rect.Y + rect.Height * 0.39f, rect.Width * 0.05f, rect.Height * 0.18f), Color.Black);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.36f, rect.Y + rect.Height * 0.58f, rect.Width * 0.11f, rect.Height * 0.16f), Color.Black);
+    }
+
     private static void DrawArmorIcon(Rectangle rect)
     {
         var leftShoulder = new Rectangle(rect.X + rect.Width * 0.20f, rect.Y + rect.Height * 0.22f, rect.Width * 0.18f, rect.Height * 0.18f);
@@ -1099,6 +1155,10 @@ public sealed partial class SciFiRogueGame
         if (item.Type != ItemType.Weapon) return 0f;
 
         if (item.Pattern == WeaponPattern.GrenadeLauncher) return 1.35f * 60f;
+        if (item.Pattern == WeaponPattern.RocketLauncher) return 0.63f * 60f;
+        if (item.Pattern == WeaponPattern.TraceRifle) return 1000f;
+        if (item.Pattern == WeaponPattern.LinearRifle) return (1f / 1.5f) * 60f;
+        if (item.Pattern == WeaponPattern.Pulsar) return 3f * 60f;
         if (item.Pattern == WeaponPattern.PulseRifle)
         {
             var shots = item.Rarity == ArmorRarity.Legendary ? 4 : 3;
@@ -1119,6 +1179,10 @@ public sealed partial class SciFiRogueGame
 
         var damage = item.BaseDamage;
         if (item.Pattern == WeaponPattern.GrenadeLauncher) return (damage + 150f) / GetWeaponCooldown(item);
+        if (item.Pattern == WeaponPattern.RocketLauncher) return (damage + 215f) / GetWeaponCooldown(item);
+        if (item.Pattern == WeaponPattern.TraceRifle) return damage / GetWeaponCooldown(item);
+        if (item.Pattern == WeaponPattern.LinearRifle) return damage / GetWeaponCooldown(item);
+        if (item.Pattern == WeaponPattern.Pulsar) return (damage + 2.5f * 25f) / GetWeaponCooldown(item);
         if (item.Pattern == WeaponPattern.PulseRifle)
         {
             var shots = item.Rarity == ArmorRarity.Legendary ? 4 : 3;
@@ -1152,6 +1216,10 @@ public sealed partial class SciFiRogueGame
     private static float GetWeaponCooldown(ItemStack item)
     {
         if (item.Pattern == WeaponPattern.GrenadeLauncher) return 1f / 1.35f;
+        if (item.Pattern == WeaponPattern.RocketLauncher) return 1f / 0.63f;
+        if (item.Pattern == WeaponPattern.TraceRifle) return 60f / 1000f;
+        if (item.Pattern == WeaponPattern.LinearRifle) return 1.5f;
+        if (item.Pattern == WeaponPattern.Pulsar) return 1f / 3f;
         if (item.Pattern == WeaponPattern.Toxikus) return 1f / 2.2f;
         if (item.Pattern == WeaponPattern.PulseRifle) return 0.374f;
         if (item.Pattern == WeaponPattern.SniperRifle) return 1.75f;
@@ -1174,7 +1242,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMainMenu()
     {
-        Raylib.DrawText("a0.2.4", 86, 150, 24, Palette.C(150, 185, 220));
+        Raylib.DrawText("a0.2.5", 86, 150, 24, Palette.C(150, 185, 220));
         DrawMetaProgressHeader();
 
         DrawButton(MainMenuButtonRect(0), "Play");

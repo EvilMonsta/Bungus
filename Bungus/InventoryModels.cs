@@ -500,6 +500,30 @@ public sealed class ItemStack
             description = "Unique pulse rifle. Slower 2-round burst; bullets poison enemies.";
             baseDamage = 22.857143f + rng.NextSingle() * 3.809524f;
         }
+        else if (kind == WeaponClass.Ranged && pattern == WeaponPattern.TraceRifle)
+        {
+            name = "Trace Rifle";
+            description = "Unique beam rifle. Rapidly paints a limited-range energy stream toward the cursor.";
+            baseDamage = 11.5f;
+        }
+        else if (kind == WeaponClass.Ranged && pattern == WeaponPattern.LinearRifle)
+        {
+            name = "Linear Rifle";
+            description = "Unique charge rifle. Hold to charge, then release to fire a heavy linear shot.";
+            baseDamage = 350f;
+        }
+        else if (kind == WeaponClass.Ranged && pattern == WeaponPattern.RocketLauncher)
+        {
+            name = "Rocket Launcher";
+            description = "Unique launcher. Fast rocket deals heavy direct and blast damage.";
+            baseDamage = 235f;
+        }
+        else if (kind == WeaponClass.Ranged && pattern == WeaponPattern.Pulsar)
+        {
+            name = "Pulsar";
+            description = "Unique automatic rifle. Impacts scatter delayed micro-explosions.";
+            baseDamage = 35f;
+        }
         else if (kind == WeaponClass.Melee && pattern == WeaponPattern.Lancelot)
         {
             name = "Lancelot";
@@ -641,6 +665,18 @@ public sealed class ItemStack
 
     public static ItemStack Lancelot(Random rng)
         => CreatePatternWeapon(WeaponClass.Melee, WeaponPattern.Lancelot, ArmorRarity.Red, rng);
+
+    public static ItemStack TraceRifle(Random rng)
+        => CreatePatternWeapon(WeaponClass.Ranged, WeaponPattern.TraceRifle, ArmorRarity.Red, rng);
+
+    public static ItemStack LinearRifle(Random rng)
+        => CreatePatternWeapon(WeaponClass.Ranged, WeaponPattern.LinearRifle, ArmorRarity.Red, rng);
+
+    public static ItemStack RocketLauncher(Random rng)
+        => CreatePatternWeapon(WeaponClass.Ranged, WeaponPattern.RocketLauncher, ArmorRarity.Red, rng);
+
+    public static ItemStack Pulsar(Random rng)
+        => CreatePatternWeapon(WeaponClass.Ranged, WeaponPattern.Pulsar, ArmorRarity.Red, rng);
 
     public static ItemStack StationKey()
         => new(

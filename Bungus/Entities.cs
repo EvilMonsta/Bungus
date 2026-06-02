@@ -34,6 +34,19 @@ public sealed class Player
     private const float SniperProjectileSpeed = 2100f;
     private const float SniperProjectileLifetime = 2500f / SniperProjectileSpeed;
     private const float PulseProjectileLifetime = 660f / 560f;
+    private const float TraceRifleCooldown = 60f / 1000f;
+    private const float TraceRifleRange = 820f;
+    private const float LinearRifleChargeDuration = 1f;
+    private const float LinearRifleCooldown = 0.5f;
+    private const float LinearRifleChargeDecaySpeed = 3f;
+    private const float LinearRifleProjectileSpeed = 3800f;
+    private const float LinearRifleRange = 1000f;
+    private const float RocketLauncherFireRate = 0.63f;
+    private const float RocketProjectileSpeed = 340f * 1.6f;
+    private const float RocketProjectileLifetime = (340f * 0.72f * 1.3f * 1.4f * 1.1f) / RocketProjectileSpeed;
+    private const float PulsarCooldown = 1f / 3f;
+    private const float PulsarProjectileSpeed = 520f * 0.8f;
+    private const float PulsarProjectileLifetime = 600f / PulsarProjectileSpeed;
     private const float SniperIdleRequirement = 1f;
     private const float LegendarySniperChargeDuration = 2.5f;
 
@@ -57,6 +70,7 @@ public sealed class Player
     private float _sniperStillTimer;
     private float _legendarySniperChargeTimer;
     private bool _legendarySniperChargePrimed;
+    private float _linearRifleCharge;
     private float _timeSinceLastDamage = float.MaxValue;
     private float _regenTickTimer;
     private float _shield;
@@ -81,6 +95,8 @@ public sealed class Player
     public bool IsMoving { get; private set; }
     public bool IsSniperEquipped => ActiveWeaponClass == WeaponClass.Ranged && RangedWeapon?.Pattern == WeaponPattern.SniperRifle;
     public bool IsLegendarySniperEquipped => IsSniperEquipped && RangedWeapon?.Rarity == ArmorRarity.Legendary;
+    public bool IsLinearRifleEquipped => ActiveWeaponClass == WeaponClass.Ranged && RangedWeapon?.Pattern == WeaponPattern.LinearRifle;
+    public float LinearRifleChargeProgress => Math.Clamp(_linearRifleCharge / LinearRifleChargeDuration, 0f, 1f);
     public bool SniperChargeVisible => IsLegendarySniperEquipped && _legendarySniperChargePrimed;
     public float SniperChargeProgress => !SniperChargeVisible ? 0f : Math.Clamp(_legendarySniperChargeTimer / LegendarySniperChargeDuration, 0f, 1f);
     public bool SniperChargeReady => IsLegendarySniperEquipped && _legendarySniperChargePrimed && _legendarySniperChargeTimer >= LegendarySniperChargeDuration;
@@ -137,6 +153,7 @@ public sealed class Player
         _stim -= dt;
         _stickyBulletsTimer = MathF.Max(0f, _stickyBulletsTimer - dt);
         _timeSinceLastDamage += dt;
+        UpdateLinearRifleCharge(dt);
 
         if (_bleed > 0)
         {
@@ -178,6 +195,7 @@ public sealed class Player
         {
             var speed = BaseMoveSpeed * SpeedMultiplier;
             if (_stim > 0) speed *= 1.25f;
+            if (IsLinearRifleEquipped && Raylib.IsMouseButtonDown(MouseButton.Left) && _attackCd <= 0f && _linearRifleCharge > 0f) speed *= 0.6f;
             var delta = Vector2.Normalize(d) * speed * dt;
             Position = MovementUtils.MoveWithCollisions(Position, delta, 16f, obstacles, worldSize);
         }
@@ -186,6 +204,32 @@ public sealed class Player
         UpdateHealthRegen(dt);
         UpdateLegendarySniperCharge(dt);
         UpdateDashEcho(dt, afterImages);
+    }
+
+    private void UpdateLinearRifleCharge(float dt)
+    {
+        if (!IsLinearRifleEquipped || InventoryOpen)
+        {
+            _linearRifleCharge = 0f;
+            return;
+        }
+
+        if (_attackCd > 0f)
+        {
+            _linearRifleCharge = 0f;
+            return;
+        }
+
+        if (Raylib.IsMouseButtonDown(MouseButton.Left))
+        {
+            _linearRifleCharge = MathF.Min(LinearRifleChargeDuration, _linearRifleCharge + dt);
+            return;
+        }
+
+        if (_linearRifleCharge < LinearRifleChargeDuration)
+        {
+            _linearRifleCharge = MathF.Max(0f, _linearRifleCharge - dt * LinearRifleChargeDecaySpeed);
+        }
     }
 
     private void UpdateDashEcho(float dt, List<DashAfterImage> afterImages)
@@ -221,7 +265,76 @@ public sealed class Player
         if (ActiveWeaponClass == WeaponClass.Ranged)
         {
             var damage = GetWeaponDamage(weapon);
-            if (weapon.Pattern == WeaponPattern.GrenadeLauncher)
+            if (weapon.Pattern == WeaponPattern.TraceRifle)
+            {
+                dir = ApplyMovementSpread(dir, 0.7f);
+                var beamLength = MathF.Min(Vector2.Distance(target, Position), TraceRifleRange);
+                var end = ClipRayToObstacles(Position, dir, beamLength, obstacles, worldSize, 2f);
+                projectiles.Add(new Projectile(end, Vector2.Zero, 0f, 0.02f, weapon.Color, false, damage, ProjectileKind.TraceBeam, drawRadius: 5f, sourcePosition: Position));
+                _attackCd = TraceRifleCooldown;
+                return true;
+            }
+            else if (weapon.Pattern == WeaponPattern.LinearRifle)
+            {
+                if (!Raylib.IsMouseButtonReleased(MouseButton.Left) || _linearRifleCharge < LinearRifleChargeDuration) return false;
+
+                var end = ClipRayToObstacles(Position, dir, LinearRifleRange, obstacles, worldSize, 3f);
+                var distance = MathF.Max(1f, Vector2.Distance(Position, end));
+                projectiles.Add(new Projectile(
+                    Position + dir * 20f,
+                    dir,
+                    LinearRifleProjectileSpeed,
+                    distance / LinearRifleProjectileSpeed,
+                    weapon.Color,
+                    false,
+                    damage,
+                    ProjectileKind.LinearShot,
+                    drawRadius: 3.85f,
+                    highlighted: true,
+                    sourcePosition: Position));
+                _linearRifleCharge = 0f;
+                _attackCd = LinearRifleCooldown;
+                return true;
+            }
+            else if (weapon.Pattern == WeaponPattern.RocketLauncher)
+            {
+                dir = ApplyMovementSpread(dir);
+                projectiles.Add(new Projectile(
+                    Position + dir * 20f,
+                    dir,
+                    RocketProjectileSpeed,
+                    RocketProjectileLifetime,
+                    weapon.Color,
+                    false,
+                    damage + 215f,
+                    ProjectileKind.Grenade,
+                    156f,
+                    damage,
+                    8f,
+                    false,
+                    Position));
+                _attackCd = 1f / RocketLauncherFireRate;
+                return true;
+            }
+            else if (weapon.Pattern == WeaponPattern.Pulsar)
+            {
+                dir = ApplyMovementSpread(dir);
+                projectiles.Add(new Projectile(
+                    Position + dir * 18f,
+                    dir,
+                    PulsarProjectileSpeed,
+                    PulsarProjectileLifetime,
+                    weapon.Color,
+                    false,
+                    damage,
+                    ProjectileKind.PulsarBolt,
+                    drawRadius: 5f,
+                    highlighted: true,
+                    sourcePosition: Position));
+                _attackCd = PulsarCooldown;
+                return true;
+            }
+            else if (weapon.Pattern == WeaponPattern.GrenadeLauncher)
             {
                 dir = ApplyMovementSpread(dir);
                 projectiles.Add(new Projectile(
@@ -348,6 +461,27 @@ public sealed class Player
         projectiles.Add(new Projectile(Position + shotDir * 18f, shotDir, 520f, 600f / 520f, color, false, damage, sourcePosition: Position));
     }
 
+    private static Vector2 ClipRayToObstacles(Vector2 start, Vector2 dir, float distance, List<Obstacle> obstacles, int worldSize, float radius)
+    {
+        var safeDistance = MathF.Max(0f, distance);
+        var step = MathF.Max(6f, radius * 2f);
+        var previous = start;
+
+        for (var traveled = step; traveled <= safeDistance; traveled += step)
+        {
+            var point = start + dir * traveled;
+            if (point.X < 0 || point.Y < 0 || point.X > worldSize || point.Y > worldSize) return previous;
+            if (MovementUtils.CircleHitsObstacle(point, radius, obstacles)) return previous;
+            previous = point;
+        }
+
+        var end = start + dir * safeDistance;
+        end.X = Math.Clamp(end.X, 0f, worldSize);
+        end.Y = Math.Clamp(end.Y, 0f, worldSize);
+        if (MovementUtils.CircleHitsObstacle(end, radius, obstacles)) return previous;
+        return end;
+    }
+
     public float GetMeleeDamage()
     {
         return MeleeWeapon is null ? 0f : GetMeleeHitDamage(MeleeWeapon);
@@ -431,10 +565,10 @@ public sealed class Player
         return MathF.Max(0.1f, BaseDashCooldownDuration * (1f - recovery));
     }
 
-    private Vector2 ApplyMovementSpread(Vector2 dir)
+    private Vector2 ApplyMovementSpread(Vector2 dir, float multiplier = 1f)
     {
         if (!IsMoving) return dir;
-        var spread = (Random.Shared.NextSingle() * 2f - 1f) * MovingRangedSpreadAngle;
+        var spread = (Random.Shared.NextSingle() * 2f - 1f) * MovingRangedSpreadAngle * multiplier;
         return Vector2.Normalize(VisibilityUtils.Rotate(dir, spread));
     }
 

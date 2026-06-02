@@ -40,6 +40,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private readonly List<StationBossEnemy> _pitStationBosses = [];
     private List<Projectile> _projectiles = [];
     private List<Explosion> _explosions = [];
+    private List<BeamEffect> _beamEffects = [];
     private List<SwingArc> _swings = [];
     private List<DashAfterImage> _dashAfterImages = [];
     private List<MotionAfterImage> _motionAfterImages = [];
@@ -204,6 +205,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         ApplyIsFunnyNextRunBonus();
         _projectiles = [];
         _explosions = [];
+        _beamEffects = [];
         _swings = [];
         _enemies = GenerateEnemies();
         _hexEnemies = [];
@@ -276,6 +278,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         ApplyIsFunnyNextRunBonus();
         _projectiles = [];
         _explosions = [];
+        _beamEffects = [];
         _swings = [];
         _dashAfterImages = [];
         _motionAfterImages = [];
@@ -596,7 +599,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (Raylib.IsKeyPressed(KeyboardKey.E)) _player.SwitchActiveWeapon();
 
         var mouseWorld = Raylib.GetScreenToWorld2D(Raylib.GetMousePosition(), _camera);
-        if (Raylib.IsMouseButtonDown(MouseButton.Left) && !_player.InventoryOpen)
+        var linearRelease = _player.IsLinearRifleEquipped && Raylib.IsMouseButtonReleased(MouseButton.Left);
+        if ((Raylib.IsMouseButtonDown(MouseButton.Left) || linearRelease) && !_player.InventoryOpen)
         {
             _player.Attack(mouseWorld, _projectiles, _swings, _obstacles, _worldSize, _dashAfterImages);
         }
@@ -1472,6 +1476,18 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var p = _projectiles[i];
             p.Update(dt);
+
+            if (p.Kind == ProjectileKind.TraceBeam)
+            {
+                var beamEnd = TryGetNearestPlayerSegmentHitPoint(p.SourcePosition, p.Position, p.DrawRadius, out var hitPoint)
+                    ? hitPoint
+                    : p.Position;
+                _beamEffects.Add(new BeamEffect(p.SourcePosition, beamEnd, p.Color, 0.075f, 3.5f, true));
+                TryApplyPlayerSegmentDamage(p.SourcePosition, beamEnd, p.DrawRadius, p.Damage, p.SourcePosition, p.PoisonDamagePerSecond, p.PoisonDuration);
+                _projectiles.RemoveAt(i);
+                continue;
+            }
+
             AddMotionTrail(
                 p.PreviousPosition,
                 p.Position,
@@ -1483,6 +1499,17 @@ public sealed partial class SciFiRogueGame : IDisposable
             var hitWorldBounds = p.Position.X < 0 || p.Position.Y < 0 || p.Position.X > _worldSize || p.Position.Y > _worldSize;
             var hitObstacle = MovementUtils.CircleHitsObstacle(p.Position, p.DrawRadius, _obstacles);
             var domeHit = p.OwnerEnemy ? FindHitDome(p.Position, p.DrawRadius) : null;
+
+            if (p.Kind == ProjectileKind.MicroCharge)
+            {
+                if (hitWorldBounds || hitObstacle || !p.Alive)
+                {
+                    ExplodeProjectile(p);
+                    _projectiles.RemoveAt(i);
+                }
+
+                continue;
+            }
 
             if (p.Kind == ProjectileKind.Grenade)
             {
@@ -1520,12 +1547,15 @@ public sealed partial class SciFiRogueGame : IDisposable
             {
                 domeHit.Damage(p.Damage);
                 _explosions.Add(new Explosion(p.Position, 26f, p.Color));
+                AddLinearShotFadeTrail(p);
                 _projectiles.RemoveAt(i);
                 continue;
             }
 
             if (hitWorldBounds || hitObstacle)
             {
+                if (p.Kind == ProjectileKind.PulsarBolt) SpawnPulsarFragments(p.Position, p.Color, p.SourcePosition);
+                AddLinearShotFadeTrail(p);
                 _projectiles.RemoveAt(i);
                 continue;
             }
@@ -1537,21 +1567,117 @@ public sealed partial class SciFiRogueGame : IDisposable
                     _player.TakeDamage(p.Damage);
                     if (p.PlayerPoisonDuration > 0f) _player.ApplyPoison(p.PlayerPoisonDuration);
                     _explosions.Add(new Explosion(p.Position, 26f, p.Color));
+                    AddLinearShotFadeTrail(p);
                     _projectiles.RemoveAt(i);
                 }
-                else if (!p.Alive) _projectiles.RemoveAt(i);
+                else if (!p.Alive)
+                {
+                    AddLinearShotFadeTrail(p);
+                    _projectiles.RemoveAt(i);
+                }
                 continue;
             }
 
             if (TryApplyPlayerSegmentDamage(p.PreviousPosition, p.Position, p.DrawRadius, p.Damage, p.SourcePosition, p.PoisonDamagePerSecond, p.PoisonDuration))
             {
-                _explosions.Add(new Explosion(p.Position, 34f, p.Color));
+                if (p.Kind == ProjectileKind.PulsarBolt)
+                {
+                    SpawnPulsarFragments(p.Position, p.Color, p.SourcePosition);
+                }
+                else
+                {
+                    _explosions.Add(new Explosion(p.Position, 34f, p.Color));
+                }
+
+                AddLinearShotFadeTrail(p);
                 _projectiles.RemoveAt(i);
                 continue;
             }
 
-            if (!p.Alive) _projectiles.RemoveAt(i);
+            if (!p.Alive)
+            {
+                AddLinearShotFadeTrail(p);
+                _projectiles.RemoveAt(i);
+            }
         }
+    }
+
+    private void AddLinearShotFadeTrail(Projectile projectile)
+    {
+        if (projectile.Kind != ProjectileKind.LinearShot) return;
+        _beamEffects.Add(new BeamEffect(projectile.SourcePosition, projectile.Position, projectile.Color, 0.75f, 2f, false));
+    }
+
+    private void SpawnPulsarFragments(Vector2 position, Color color, Vector2 sourcePosition)
+    {
+        var count = _rng.Next(2, 4);
+        for (var i = 0; i < count; i++)
+        {
+            var angle = _rng.NextSingle() * MathF.PI * 2f;
+            var dir = new Vector2(MathF.Cos(angle), MathF.Sin(angle));
+            _projectiles.Add(new Projectile(
+                position + dir * 3f,
+                dir,
+                35f,
+                0.25f,
+                Palette.C(150, 235, 255),
+                false,
+                0f,
+                ProjectileKind.MicroCharge,
+                15.75f,
+                25f,
+                2.5f,
+                true,
+                sourcePosition));
+        }
+    }
+
+    private bool TryGetNearestPlayerSegmentHitPoint(Vector2 from, Vector2 to, float radius, out Vector2 hitPoint)
+    {
+        if ((to - from).LengthSquared() <= 0.001f)
+        {
+            hitPoint = to;
+            return false;
+        }
+
+        var bestDistance = float.MaxValue;
+        var bestPoint = to;
+
+        void Consider(Vector2 position, float hitRadius)
+        {
+            if (DistanceToSegment(position, from, to) > radius + hitRadius) return;
+
+            var along = ProjectDistanceAlongSegment(position, from, to);
+            if (along >= bestDistance) return;
+
+            bestDistance = along;
+            var dir = Vector2.Normalize(to - from);
+            bestPoint = from + dir * MathF.Max(0f, along - hitRadius * 0.35f);
+        }
+
+        foreach (var enemy in _enemies.Where(e => e.Alive)) Consider(enemy.Position, 11f);
+        foreach (var hex in _hexEnemies.Where(h => h.Alive)) Consider(hex.Position, 15f);
+        foreach (var turret in _turrets.Where(t => t.Alive)) Consider(turret.Position, 18f);
+        foreach (var miniBoss in _miniBosses.Where(b => b.Alive)) Consider(miniBoss.Position, 26f);
+        foreach (var guard in _generatorGuards.Where(g => g.Alive)) Consider(guard.Position, 18f);
+        foreach (var toxic in _toxicEnemies.Where(e => e.Alive)) Consider(toxic.Position, 16f);
+        foreach (var generator in _generators.Where(g => !g.Destroyed)) Consider(generator.Position, 28f);
+        if (_stationBoss is not null) Consider(_stationBoss.Position, 34f);
+        foreach (var boss in _pitStationBosses.Where(b => b.Alive)) Consider(boss.Position, 34f);
+        if (_destroyerBoss is not null && _destroyerBoss.Alive) Consider(_destroyerBoss.Position, 42f);
+
+        hitPoint = bestPoint;
+        return bestDistance < float.MaxValue;
+    }
+
+    private static float ProjectDistanceAlongSegment(Vector2 point, Vector2 from, Vector2 to)
+    {
+        var segment = to - from;
+        var lengthSquared = segment.LengthSquared();
+        if (lengthSquared <= 0.001f) return 0f;
+
+        var t = Math.Clamp(Vector2.Dot(point - from, segment) / lengthSquared, 0f, 1f);
+        return Vector2.Distance(from, from + segment * t);
     }
 
     private bool HasEnemyInRadius(Vector2 position, float radius)
@@ -2048,6 +2174,12 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             _explosions[i].Life -= dt;
             if (_explosions[i].Life <= 0) _explosions.RemoveAt(i);
+        }
+
+        for (var i = _beamEffects.Count - 1; i >= 0; i--)
+        {
+            _beamEffects[i].Life -= dt;
+            if (_beamEffects[i].Life <= 0) _beamEffects.RemoveAt(i);
         }
 
         for (var i = _dashAfterImages.Count - 1; i >= 0; i--)
@@ -3189,6 +3321,14 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
+        if (code == "TESTW")
+        {
+            var result = ApplyTestWeaponsCode();
+            SetCodeStatus(result.Success, result.Message);
+            if (result.Success) _codeInput = string.Empty;
+            return;
+        }
+
         SetCodeStatus(false, "No such code.");
     }
 
@@ -3350,6 +3490,39 @@ public sealed partial class SciFiRogueGame : IDisposable
         RegisterPromoCodeUse(code, false);
         SavePersistentState();
         return (true, "Success: next run starts with +250 levels.");
+    }
+
+    private (bool Success, string Message) ApplyTestWeaponsCode()
+    {
+        const string code = "TESTW";
+        if (!CanUsePromoCode(code, null, false, out var error))
+        {
+            return (false, error);
+        }
+
+        var rewards = new List<ItemStack>
+        {
+            ItemStack.TraceRifle(_rng),
+            ItemStack.LinearRifle(_rng),
+            ItemStack.RocketLauncher(_rng),
+            ItemStack.Pulsar(_rng)
+        };
+
+        var stored = 0;
+        foreach (var reward in rewards)
+        {
+            if (_meta.AddToStorage(reward)) stored++;
+        }
+
+        if (stored == 0)
+        {
+            return (false, "Storage is full.");
+        }
+
+        RegisterPromoCodeUse(code, false);
+        SavePersistentState();
+        var lost = rewards.Count - stored;
+        return (true, lost > 0 ? $"Success: {stored} test weapon(s) delivered, {lost} lost due to full storage." : "Success");
     }
 
     private bool CanUsePromoCode(string code, int? maxUses, bool sessionOnly, out string error)
@@ -3649,6 +3822,32 @@ public sealed partial class SciFiRogueGame : IDisposable
             var totalDirect = player.GetWeaponDamage(weapon) + 150f;
             var directDps = totalDirect * 1.35f;
             return (totalDirect, totalDirect - baseDirect, directDps, "direct");
+        }
+
+        if (weapon.Pattern == WeaponPattern.RocketLauncher)
+        {
+            var baseDirect = weapon.BaseDamage + 215f;
+            var totalDirect = player.GetWeaponDamage(weapon) + 215f;
+            var directDps = totalDirect * 0.63f;
+            return (totalDirect, totalDirect - baseDirect, directDps, "direct");
+        }
+
+        if (weapon.Pattern == WeaponPattern.TraceRifle)
+        {
+            var traceDamage = player.GetWeaponDamage(weapon);
+            return (traceDamage, traceDamage - weapon.BaseDamage, traceDamage / (60f / 1000f), "beam");
+        }
+
+        if (weapon.Pattern == WeaponPattern.LinearRifle)
+        {
+            var linearDamage = player.GetWeaponDamage(weapon);
+            return (linearDamage, linearDamage - weapon.BaseDamage, linearDamage / 1.5f, "shot");
+        }
+
+        if (weapon.Pattern == WeaponPattern.Pulsar)
+        {
+            var pulsarDamage = player.GetWeaponDamage(weapon);
+            return (pulsarDamage, pulsarDamage - weapon.BaseDamage, (pulsarDamage + 2.5f * 25f) * 3f, "bolt");
         }
 
         if (weapon.Pattern == WeaponPattern.SniperRifle)

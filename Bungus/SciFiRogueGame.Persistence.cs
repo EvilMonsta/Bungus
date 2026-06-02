@@ -243,6 +243,7 @@ public sealed partial class SciFiRogueGame
     public void Dispose()
     {
         SavePersistentState();
+        UnloadIconTextures();
         Raylib.ShowCursor();
         Raylib.CloseWindow();
     }

@@ -631,13 +631,13 @@ public sealed partial class SciFiRogueGame
         var slots = BuildSlots();
         if (_openedChestIndex is null)
         {
-            Raylib.DrawRectangle(32, 104, 1216, 460, Palette.C(6, 10, 20, 220));
-            Raylib.DrawRectangleLines(32, 104, 1216, 460, Color.SkyBlue);
-            Raylib.DrawText("Inventory", 42, 116, 24, Color.White);
+            Raylib.DrawRectangle(32, 92, 1216, 650, Palette.C(6, 10, 20, 220));
+            Raylib.DrawRectangleLines(32, 92, 1216, 650, Color.SkyBlue);
+            Raylib.DrawText("Inventory", 46, 116, 24, Color.White);
 
-            DrawBackpackGrid(new Vector2(700, 118), 6, 5);
-            Raylib.DrawText("Backpack", 700, 86, 20, Color.LightGray);
-            Raylib.DrawText("Equipment", 560, 86, 20, Color.LightGray);
+            DrawBackpackGrid(new Vector2(690, 118), 6, 5);
+            Raylib.DrawText("Backpack", 690, 98, 20, Color.LightGray);
+            Raylib.DrawText("Equipment", 570, 98, 20, Color.LightGray);
             Raylib.DrawText("Stats", 54, 146, 20, Color.LightGray);
 
             DrawInventoryStatRow("STR", _player.Str, _pendingStrengthPoints, 54, 176);
@@ -664,15 +664,15 @@ public sealed partial class SciFiRogueGame
         }
         else
         {
-            Raylib.DrawRectangle(40, 138, 430, 370, Palette.C(6, 10, 20, 220));
-            Raylib.DrawRectangleLines(40, 138, 430, 370, Color.SkyBlue);
-            Raylib.DrawText("Backpack", 50, 150, 24, Color.White);
-            DrawBackpackGrid(new Vector2(70, 190), 6, 5);
+            Raylib.DrawRectangle(40, 138, 610, 548, Palette.C(6, 10, 20, 220));
+            Raylib.DrawRectangleLines(40, 138, 610, 548, Color.SkyBlue);
+            Raylib.DrawText("Backpack", 56, 146, 20, Color.White);
+            DrawBackpackGrid(new Vector2(56, 170), 6, 5);
 
-            Raylib.DrawRectangle(730, 138, 350, 170, Palette.C(6, 10, 20, 220));
-            Raylib.DrawRectangleLines(730, 138, 350, 170, Color.SkyBlue);
+            Raylib.DrawRectangle(720, 138, 500, 230, Palette.C(6, 10, 20, 220));
+            Raylib.DrawRectangleLines(720, 138, 500, 230, Color.SkyBlue);
             Raylib.DrawText("Chest", 740, 150, 24, Color.White);
-            DrawBackpackGrid(new Vector2(760, 190), 5, 1);
+            DrawBackpackGrid(new Vector2(740, 190), 5, 1);
             DrawButton(TakeAllButtonRect, "Take all [X]");
         }
 
@@ -686,7 +686,7 @@ public sealed partial class SciFiRogueGame
             if (slot.Kind == SlotKind.QuickSlotR) Raylib.DrawText("R", (int)slot.Rect.X + 20, (int)slot.Rect.Y - 18, 16, Color.Yellow);
             if (slot.Item is not null)
             {
-                var iconRect = new Rectangle(slot.Rect.X + 8, slot.Rect.Y + 8, 42, 42);
+                var iconRect = new Rectangle(slot.Rect.X + UiIconPadding, slot.Rect.Y + UiIconPadding, slot.Rect.Width - UiIconPadding * 2f, slot.Rect.Height - UiIconPadding * 2f);
                 DrawItemIcon(slot.Item, iconRect, comparison, slot.Kind);
                 DrawInventoryUseHoldFrame(slot, iconRect);
             }
@@ -695,7 +695,7 @@ public sealed partial class SciFiRogueGame
         if (_drag is not null)
         {
             var m = Raylib.GetMousePosition();
-            DrawItemIcon(_drag.Item, new Rectangle(m.X + 8, m.Y + 8, 34, 34), comparison, _drag.Kind);
+            DrawItemIcon(_drag.Item, new Rectangle(m.X + 8, m.Y + 8, UiSlotSize, UiSlotSize), comparison, _drag.Kind);
         }
 
         if (_hovered is not null) DrawTooltip(_hovered, Raylib.GetMousePosition(), comparison);
@@ -707,7 +707,7 @@ public sealed partial class SciFiRogueGame
         {
             for (var c = 0; c < cols; c++)
             {
-                var rect = new Rectangle(origin.X + c * 62, origin.Y + r * 62, 58, 58);
+                var rect = new Rectangle(origin.X + c * UiSlotStep, origin.Y + r * UiSlotStep, UiSlotSize, UiSlotSize);
                 Raylib.DrawRectangleLinesEx(rect, 1f, Palette.C(70, 90, 130, 170));
             }
         }
@@ -724,37 +724,47 @@ public sealed partial class SciFiRogueGame
     {
         var background = item.Type == ItemType.Consumable ? Palette.C(130, 210, 120) : item.Color;
         Raylib.DrawRectangleRec(rect, background);
+        var textureDrawn = TryDrawItemTexture(item, rect);
 
         if (item.Type == ItemType.Armor)
         {
-            DrawArmorIcon(rect);
-            DrawItemTypeLabel(rect, "ar");
+            if (!textureDrawn)
+            {
+                DrawArmorIcon(rect);
+                DrawItemTypeLabel(rect, "ar");
+            }
         }
         else if (item.Type == ItemType.Weapon)
         {
-            if (item.WeaponKind == WeaponClass.Melee && item.Pattern is WeaponPattern.EnergySpear or WeaponPattern.Lancelot) DrawSpearIcon(rect);
-            else if (item.WeaponKind == WeaponClass.Melee) DrawBladeIcon(rect);
-            else if (item.Pattern == WeaponPattern.GrenadeLauncher) DrawGrenadeLauncherIcon(rect);
-            else if (item.Pattern == WeaponPattern.RocketLauncher) DrawRocketLauncherIcon(rect);
-            else if (item.Pattern == WeaponPattern.TraceRifle) DrawTraceRifleIcon(rect);
-            else if (item.Pattern == WeaponPattern.LinearRifle) DrawLinearRifleIcon(rect);
-            else if (item.Pattern == WeaponPattern.Pulsar) DrawPulsarIcon(rect);
-            else if (item.Pattern == WeaponPattern.SniperRifle) DrawSniperIcon(rect);
-            else if (item.Pattern is WeaponPattern.PulseRifle or WeaponPattern.Toxikus) DrawPulseRifleIcon(rect);
-            else DrawPistolIcon(rect);
+            if (!textureDrawn)
+            {
+                if (item.WeaponKind == WeaponClass.Melee && item.Pattern is WeaponPattern.EnergySpear or WeaponPattern.Lancelot) DrawSpearIcon(rect);
+                else if (item.WeaponKind == WeaponClass.Melee) DrawBladeIcon(rect);
+                else if (item.Pattern == WeaponPattern.GrenadeLauncher) DrawGrenadeLauncherIcon(rect);
+                else if (item.Pattern == WeaponPattern.RocketLauncher) DrawRocketLauncherIcon(rect);
+                else if (item.Pattern == WeaponPattern.TraceRifle) DrawTraceRifleIcon(rect);
+                else if (item.Pattern == WeaponPattern.LinearRifle) DrawLinearRifleIcon(rect);
+                else if (item.Pattern == WeaponPattern.Pulsar) DrawPulsarIcon(rect);
+                else if (item.Pattern == WeaponPattern.SniperRifle) DrawSniperIcon(rect);
+                else if (item.Pattern is WeaponPattern.PulseRifle or WeaponPattern.Toxikus) DrawPulseRifleIcon(rect);
+                else DrawPistolIcon(rect);
 
-            DrawItemTypeLabel(rect, item.WeaponKind == WeaponClass.Ranged ? "rw" : "mw");
+                DrawItemTypeLabel(rect, item.WeaponKind == WeaponClass.Ranged ? "rw" : "mw");
+            }
         }
         else if (item.IsStationKey)
         {
-            DrawStationKeyIcon(rect);
+            if (!textureDrawn) DrawStationKeyIcon(rect);
         }
         else
         {
-            if (item.ConsumableKind == ConsumableType.Medkit) DrawMedKitIcon(rect);
-            else if (item.ConsumableKind == ConsumableType.Stim) DrawStimIcon(rect);
-            else if (item.ConsumableKind == ConsumableType.ProtectiveDome) DrawProtectiveDomeIcon(rect);
-            else DrawStickyBulletsIcon(rect);
+            if (!textureDrawn)
+            {
+                if (item.ConsumableKind == ConsumableType.Medkit) DrawMedKitIcon(rect);
+                else if (item.ConsumableKind == ConsumableType.Stim) DrawStimIcon(rect);
+                else if (item.ConsumableKind == ConsumableType.ProtectiveDome) DrawProtectiveDomeIcon(rect);
+                else DrawStickyBulletsIcon(rect);
+            }
         }
 
         if (item.Rarity == ArmorRarity.Damaged)
@@ -800,6 +810,119 @@ public sealed partial class SciFiRogueGame
     private static void DrawItemTypeLabel(Rectangle rect, string label)
     {
         Raylib.DrawText(label, (int)(rect.X + 4), (int)(rect.Y + 3), 10, Color.Black);
+    }
+
+    private bool TryDrawItemTexture(ItemStack item, Rectangle rect)
+    {
+        var relativePath = GetItemIconPath(item);
+        if (relativePath is null) return false;
+        if (!TryGetIconTexture(relativePath, out var texture)) return false;
+
+        var padding = MathF.Max(2f, rect.Width * 0.05f);
+        var availableWidth = MathF.Max(1f, rect.Width - padding * 2f);
+        var availableHeight = MathF.Max(1f, rect.Height - padding * 2f);
+        var scale = MathF.Min(availableWidth / texture.Width, availableHeight / texture.Height);
+        var width = texture.Width * scale;
+        var height = texture.Height * scale;
+        var dest = new Rectangle(rect.X + (rect.Width - width) * 0.5f, rect.Y + (rect.Height - height) * 0.5f, width, height);
+        var source = new Rectangle(0f, 0f, texture.Width, texture.Height);
+        Raylib.DrawTexturePro(texture, source, dest, Vector2.Zero, 0f, Color.White);
+        return true;
+    }
+
+    private bool TryGetIconTexture(string relativePath, out Texture2D texture)
+    {
+        if (_iconTextures.TryGetValue(relativePath, out texture)) return true;
+        if (_missingIconTextures.Contains(relativePath)) return false;
+
+        var fullPath = ResolveIconPath(relativePath);
+        if (fullPath is null)
+        {
+            _missingIconTextures.Add(relativePath);
+            return false;
+        }
+
+        var image = Raylib.LoadImage(fullPath);
+        if (image.Width <= 0 || image.Height <= 0)
+        {
+            Raylib.UnloadImage(image);
+            _missingIconTextures.Add(relativePath);
+            return false;
+        }
+
+        texture = Raylib.LoadTextureFromImage(image);
+        Raylib.UnloadImage(image);
+
+        if (texture.Id == 0)
+        {
+            _missingIconTextures.Add(relativePath);
+            return false;
+        }
+
+        _iconTextures[relativePath] = texture;
+        return true;
+    }
+
+    private static string? ResolveIconPath(string relativePath)
+    {
+        var fullPath = Path.Combine(AppContext.BaseDirectory, relativePath);
+        if (File.Exists(fullPath)) return fullPath;
+
+        var directory = Path.GetDirectoryName(fullPath);
+        var fileName = Path.GetFileName(fullPath);
+        if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory)) return null;
+
+        return Directory.EnumerateFiles(directory)
+            .FirstOrDefault(path => Path.GetFileName(path).Equals(fileName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string? GetItemIconPath(ItemStack item)
+    {
+        if (item.Type == ItemType.Armor) return Path.Combine("Assets", "Icons", "Armor", "armor.png");
+        if (item.IsStationKey) return Path.Combine("Assets", "Icons", "KeyItems", "station_key.png");
+
+        if (item.Type == ItemType.Consumable)
+        {
+            var name = item.ConsumableKind switch
+            {
+                ConsumableType.Medkit => "medkit.png",
+                ConsumableType.Stim => "stim.png",
+                ConsumableType.ProtectiveDome => "protective_dome.png",
+                ConsumableType.StickyBullets => "sticky_bullets.png",
+                _ => null
+            };
+            return name is null ? null : Path.Combine("Assets", "Icons", "Consumables", name);
+        }
+
+        if (item.Type != ItemType.Weapon) return null;
+
+        var weaponIcon = item.Pattern switch
+        {
+            WeaponPattern.Lancelot => "lancelot.png",
+            WeaponPattern.EnergySpear => "spear.png",
+            WeaponPattern.GrenadeLauncher => "grenade_launcher.png",
+            WeaponPattern.RocketLauncher => "rocket_launcher.png",
+            WeaponPattern.TraceRifle => "trace_rifle.png",
+            WeaponPattern.LinearRifle => "linear_rifle.png",
+            WeaponPattern.Pulsar => "pulsar.png",
+            WeaponPattern.SniperRifle => "sniper_rifle.png",
+            WeaponPattern.Toxikus => "toxikus.png",
+            WeaponPattern.PulseRifle => "pulse_rifle.png",
+            _ => item.WeaponKind == WeaponClass.Melee ? "blade.png" : "pistol.png"
+        };
+
+        return Path.Combine("Assets", "Icons", "Weapons", weaponIcon);
+    }
+
+    private void UnloadIconTextures()
+    {
+        foreach (var texture in _iconTextures.Values)
+        {
+            Raylib.UnloadTexture(texture);
+        }
+
+        _iconTextures.Clear();
+        _missingIconTextures.Clear();
     }
 
     private void DrawComparisonMarker(ItemStack item, Rectangle rect, ComparisonContext? comparison, SlotKind? sourceKind)
@@ -1242,7 +1365,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMainMenu()
     {
-        Raylib.DrawText("a0.2.5", 86, 150, 24, Palette.C(150, 185, 220));
+        Raylib.DrawText("a0.3", 86, 150, 24, Palette.C(150, 185, 220));
         DrawMetaProgressHeader();
 
         DrawButton(MainMenuButtonRect(0), "Play");
@@ -1366,28 +1489,33 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText("Equip items here before deployment. Extracted loot returns to this stash.", 70, 106, 24, Color.LightGray);
         Raylib.DrawText($"Capacity {GetStoredItemCount()}/{MetaProfile.StorageCapacity}", 70, 138, 22, Color.White);
         DrawSynthCoinsCounter(24, 138, 22);
-        Raylib.DrawText("Hold X over an item to sell it.", 742, 668, 20, Color.LightGray);
+        Raylib.DrawText("Hold X over an item to sell it. Mouse wheel scrolls stash.", 1000, 800, 20, Color.LightGray);
 
-        Raylib.DrawRectangle(52, 170, 300, 380, Palette.C(10, 18, 30, 220));
-        Raylib.DrawRectangleLinesEx(new Rectangle(52, 170, 300, 380), 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText("Loadout", 72, 184, 24, Color.White);
-        Raylib.DrawText("Armor", 72, 236, 18, Color.LightGray);
-        Raylib.DrawText("Ranged", 72, 304, 18, Color.LightGray);
-        Raylib.DrawText("Melee", 72, 372, 18, Color.LightGray);
-        Raylib.DrawText("Consumables", 72, 440, 18, Color.LightGray);
+        Raylib.DrawRectangle(40, 190, 300, 600, Palette.C(10, 18, 30, 220));
+        Raylib.DrawRectangleLinesEx(new Rectangle(40, 190, 300, 600), 2f, Palette.C(108, 170, 228));
+        Raylib.DrawText("Loadout", 72, 164, 24, Color.White);
+        Raylib.DrawText("Armor", 72, 240, 18, Color.LightGray);
+        Raylib.DrawText("Ranged", 72, 340, 18, Color.LightGray);
+        Raylib.DrawText("Melee", 72, 440, 18, Color.LightGray);
+        Raylib.DrawText("Consumables", 72, 540, 18, Color.LightGray);
 
-        var runBackpackPanel = new Rectangle(392, 154, 318, 304);
+        var runBackpackPanel = new Rectangle(400, 190, 460, 550);
         Raylib.DrawRectangleRec(runBackpackPanel, Palette.C(10, 18, 30, 220));
         Raylib.DrawRectangleLinesEx(runBackpackPanel, 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText("Run Backpack", 416, 170, 24, Color.White);
-        DrawStorageGrid(new Vector2(418, 228), 6, 5);
+        Raylib.DrawText("Run Backpack", 410, 164, 24, Color.White);
+        DrawStorageGrid(new Vector2(410, 200), 5, 6);
 
-        Raylib.DrawRectangle(720, 154, 510, 496, Palette.C(10, 18, 30, 220));
-        Raylib.DrawRectangleLinesEx(new Rectangle(720, 154, 510, 496), 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText("Stash", 742, 170, 24, Color.White);
-        DrawStorageGrid(new Vector2(742, 206), 10, 10);
+        var stashPanel = StashPanelRect();
+        Raylib.DrawRectangleRec(stashPanel, Palette.C(10, 18, 30, 220));
+        Raylib.DrawRectangleLinesEx(stashPanel, 2f, Palette.C(108, 170, 228));
+        Raylib.DrawText("Stash", 900, 164, 24, Color.White);
+        var firstVisible = _storageScrollRow * StashGridColumns + 1;
+        var lastVisible = Math.Min(_meta.StorageSlots.Count, (_storageScrollRow + StashVisibleRows) * StashGridColumns);
+        Raylib.DrawText($"{firstVisible}-{lastVisible}", (int)stashPanel.X + 178, 112, 18, Color.LightGray);
+        DrawStorageGrid(new Vector2(900, 180), StashGridColumns, StashVisibleRows);
+        DrawStashScrollBar(stashPanel);
 
-        DrawButton(new Rectangle(70, 620, 220, 52), "Back");
+        DrawButton(new Rectangle(70, 900, 220, 52), "Back");
 
         var slots = BuildStorageSlots();
         var comparison = new ComparisonContext(previewPlayer, _meta.Armor, _meta.RangedWeapon, _meta.MeleeWeapon);
@@ -1399,7 +1527,7 @@ public sealed partial class SciFiRogueGame
             if (slot.Kind == SlotKind.QuickSlotR) Raylib.DrawText("R", (int)slot.Rect.X + 15, (int)slot.Rect.Y - 18, 16, Color.Yellow);
             if (slot.Item is not null)
             {
-                var iconRect = new Rectangle(slot.Rect.X + 6, slot.Rect.Y + 6, slot.Rect.Width - 12, slot.Rect.Height - 12);
+                var iconRect = new Rectangle(slot.Rect.X + UiIconPadding, slot.Rect.Y + UiIconPadding, slot.Rect.Width - UiIconPadding * 2f, slot.Rect.Height - UiIconPadding * 2f);
                 DrawItemIcon(slot.Item, iconRect, comparison, slot.Kind);
                 DrawInventoryUseHoldFrame(slot, iconRect);
             }
@@ -1408,7 +1536,7 @@ public sealed partial class SciFiRogueGame
         if (_drag is not null)
         {
             var m = Raylib.GetMousePosition();
-            DrawItemIcon(_drag.Item, new Rectangle(m.X + 8, m.Y + 8, 32, 32), comparison, _drag.Kind);
+            DrawItemIcon(_drag.Item, new Rectangle(m.X + 8, m.Y + 8, UiSlotSize, UiSlotSize), comparison, _drag.Kind);
         }
 
         if (_hovered is not null) DrawTooltip(_hovered, Raylib.GetMousePosition(), comparison);
@@ -1678,10 +1806,24 @@ public sealed partial class SciFiRogueGame
         {
             for (var c = 0; c < cols; c++)
             {
-                var rect = new Rectangle(origin.X + c * 48, origin.Y + r * 44, 42, 42);
+                var rect = new Rectangle(origin.X + c * UiSlotStep, origin.Y + r * UiSlotStep, UiSlotSize, UiSlotSize);
                 Raylib.DrawRectangleLinesEx(rect, 1f, Palette.C(70, 90, 130, 170));
             }
         }
+    }
+
+    private void DrawStashScrollBar(Rectangle panel)
+    {
+        var maxRow = GetMaxStashScrollRow();
+        if (maxRow <= 0) return;
+
+        var track = new Rectangle(panel.X + panel.Width - 12f, panel.Y + 52f, 6f, panel.Height - 70f);
+        Raylib.DrawRectangleRec(track, Palette.C(35, 48, 68, 220));
+
+        var thumbHeight = MathF.Max(42f, track.Height * StashVisibleRows / (StashVisibleRows + maxRow));
+        var travel = track.Height - thumbHeight;
+        var thumbY = track.Y + travel * (_storageScrollRow / (float)maxRow);
+        Raylib.DrawRectangleRec(new Rectangle(track.X - 1f, thumbY, track.Width + 2f, thumbHeight), Palette.C(120, 190, 255));
     }
 
     private void DrawExtractionHud()

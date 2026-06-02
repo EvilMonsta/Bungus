@@ -20,6 +20,11 @@ public sealed partial class SciFiRogueGame : IDisposable
     private const float MinZoneGap = 300f;
     private const float CenterNoZoneRadius = 850f;
     private const int ProtectedSaveVersion = 2;
+    private const float UiSlotSize = 87f;
+    private const float UiSlotStep = 88f;
+    private const float UiIconPadding = 9f;
+    private const int StashGridColumns = 5;
+    private const int StashVisibleRows = 5;
     private static readonly string SaveFilePath = Path.Combine(AppContext.BaseDirectory, "save", "profile.json");
     private static readonly JsonSerializerOptions SaveJsonOptions = new() { WriteIndented = true };
 
@@ -44,6 +49,8 @@ public sealed partial class SciFiRogueGame : IDisposable
     private List<SwingArc> _swings = [];
     private List<DashAfterImage> _dashAfterImages = [];
     private List<MotionAfterImage> _motionAfterImages = [];
+    private readonly Dictionary<string, Texture2D> _iconTextures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _missingIconTextures = new(StringComparer.OrdinalIgnoreCase);
 
     private List<LootZone> _buildings = [];
     private List<LootZone> _outposts = [];
@@ -72,6 +79,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private int? _openedChestIndex;
     private bool _mapOpen;
     private Vector2? _mapMarker;
+    private int _storageScrollRow;
     private bool _requestExit;
     private readonly List<VisualTheme> _themes;
     private int _themeIndex;
@@ -123,7 +131,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private string _codeStatusText = string.Empty;
     private bool _codeStatusSuccess;
 
-    private static readonly Rectangle TakeAllButtonRect = new(740, 266, 220, 34);
+    private static readonly Rectangle TakeAllButtonRect = new(740, 318, 220, 34);
     private static readonly float[] PitRewardSpinDurations = [3f, 4f, 5f];
     private const float InventoryConsumableUseHoldDuration = 1f;
     private sealed record MapDefinition(
@@ -427,7 +435,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateStorage()
     {
-        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(new Rectangle(70, 620, 220, 52)))
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(new Rectangle(70, 900, 220, 52)))
         {
             ClearUiInteraction();
             _state = GameState.MainMenu;
@@ -2427,6 +2435,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private void UpdateStorageUi()
     {
         _hovered = null;
+        UpdateStorageScroll();
         var slots = BuildStorageSlots();
         var mouse = Raylib.GetMousePosition();
 
@@ -2469,6 +2478,18 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (to is not null) ApplyStorageDrop(_drag, to);
             _drag = null;
         }
+    }
+
+    private void UpdateStorageScroll()
+    {
+        var mouse = Raylib.GetMousePosition();
+        if (!Raylib.CheckCollisionPointRec(mouse, StashPanelRect())) return;
+
+        var wheel = Raylib.GetMouseWheelMove();
+        if (MathF.Abs(wheel) <= 0.01f) return;
+
+        var maxRow = GetMaxStashScrollRow();
+        _storageScrollRow = Math.Clamp(_storageScrollRow - Math.Sign(wheel), 0, maxRow);
     }
 
     private bool TryMoveStorageSlotToTrash(UiSlot slot)
@@ -2551,27 +2572,32 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         var list = new List<UiSlot>();
 
-        for (var i = 0; i < _meta.StorageSlots.Count; i++)
+        var firstStashIndex = _storageScrollRow * StashGridColumns;
+        var visibleStashSlots = StashGridColumns * StashVisibleRows;
+        for (var visible = 0; visible < visibleStashSlots; visible++)
         {
-            var c = i % 10;
-            var r = i / 10;
-            list.Add(new UiSlot(new Rectangle(742 + c * 48, 206 + r * 44, 42, 42), SlotKind.Storage, i, _meta.StorageSlots[i], i));
+            var i = firstStashIndex + visible;
+            if (i >= _meta.StorageSlots.Count) break;
+
+            var c = visible % StashGridColumns;
+            var r = visible / StashGridColumns;
+            list.Add(new UiSlot(new Rectangle(910 + c * UiSlotStep, 200 + r * UiSlotStep, UiSlotSize, UiSlotSize), SlotKind.Storage, i, _meta.StorageSlots[i], i));
         }
 
         for (var i = 0; i < _meta.RunBackpackSlots.Count; i++)
         {
-            var c = i % 6;
-            var r = i / 6;
-            list.Add(new UiSlot(new Rectangle(418 + c * 48, 228 + r * 44, 42, 42), SlotKind.RunBackpack, i, _meta.RunBackpackSlots[i], i));
+            var c = i % 5;
+            var r = i / 5;
+            list.Add(new UiSlot(new Rectangle(410 + c * UiSlotStep, 200 + r * UiSlotStep, UiSlotSize, UiSlotSize), SlotKind.RunBackpack, i, _meta.RunBackpackSlots[i], i));
         }
 
         list.AddRange(
         [
-            new UiSlot(new Rectangle(238, 226, 58, 58), SlotKind.Armor, -1, _meta.Armor, -1),
-            new UiSlot(new Rectangle(238, 294, 58, 58), SlotKind.RangedWeapon, -1, _meta.RangedWeapon, -1),
-            new UiSlot(new Rectangle(238, 362, 58, 58), SlotKind.MeleeWeapon, -1, _meta.MeleeWeapon, -1),
-            new UiSlot(new Rectangle(206, 454, 58, 58), SlotKind.QuickSlotQ, -1, _meta.QuickSlotQ, -1),
-            new UiSlot(new Rectangle(272, 454, 58, 58), SlotKind.QuickSlotR, -1, _meta.QuickSlotR, -1)
+            new UiSlot(new Rectangle(230, 206, UiSlotSize, UiSlotSize), SlotKind.Armor, -1, _meta.Armor, -1),
+            new UiSlot(new Rectangle(230, 306, UiSlotSize, UiSlotSize), SlotKind.RangedWeapon, -1, _meta.RangedWeapon, -1),
+            new UiSlot(new Rectangle(230, 406, UiSlotSize, UiSlotSize), SlotKind.MeleeWeapon, -1, _meta.MeleeWeapon, -1),
+            new UiSlot(new Rectangle(80, 588, UiSlotSize, UiSlotSize), SlotKind.QuickSlotQ, -1, _meta.QuickSlotQ, -1),
+            new UiSlot(new Rectangle(180, 588, UiSlotSize, UiSlotSize), SlotKind.QuickSlotR, -1, _meta.QuickSlotR, -1)
         ]);
 
         return list;
@@ -2772,24 +2798,24 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         var list = new List<UiSlot>();
 
-        var backpackOrigin = _openedChestIndex is null ? new Vector2(700, 118) : new Vector2(70, 190);
+        var backpackOrigin = _openedChestIndex is null ? new Vector2(690, 118) : new Vector2(56, 166);
         for (var i = 0; i < _player.Inventory.BackpackSlots.Count; i++)
         {
             var c = i % 6;
             var r = i / 6;
-            list.Add(new UiSlot(new Rectangle(backpackOrigin.X + c * 62, backpackOrigin.Y + r * 62, 58, 58), SlotKind.Backpack, i, _player.Inventory.BackpackSlots[i], i));
+            list.Add(new UiSlot(new Rectangle(backpackOrigin.X + c * UiSlotStep, backpackOrigin.Y + r * UiSlotStep, UiSlotSize, UiSlotSize), SlotKind.Backpack, i, _player.Inventory.BackpackSlots[i], i));
         }
 
         if (_openedChestIndex is null)
         {
             list.AddRange(
             [
-                new UiSlot(new Rectangle(560, 118, 58, 58), SlotKind.Armor, null, _player.Armor, -1),
-                new UiSlot(new Rectangle(560, 186, 58, 58), SlotKind.RangedWeapon, null, _player.RangedWeapon, -1),
-                new UiSlot(new Rectangle(560, 250, 58, 58), SlotKind.MeleeWeapon, null, _player.MeleeWeapon, -1),
-                new UiSlot(new Rectangle(560, 348, 58, 58), SlotKind.QuickSlotQ, null, _player.Inventory.QuickSlotQ, -1),
-                new UiSlot(new Rectangle(624, 348, 58, 58), SlotKind.QuickSlotR, null, _player.Inventory.QuickSlotR, -1),
-                new UiSlot(new Rectangle(1160, 470, 58, 58), SlotKind.Trash, null, _player.Inventory.Trash, -1)
+                new UiSlot(new Rectangle(570, 118, UiSlotSize, UiSlotSize), SlotKind.Armor, null, _player.Armor, -1),
+                new UiSlot(new Rectangle(570, 216, UiSlotSize, UiSlotSize), SlotKind.RangedWeapon, null, _player.RangedWeapon, -1),
+                new UiSlot(new Rectangle(570, 314, UiSlotSize, UiSlotSize), SlotKind.MeleeWeapon, null, _player.MeleeWeapon, -1),
+                new UiSlot(new Rectangle(470, 430, UiSlotSize, UiSlotSize), SlotKind.QuickSlotQ, null, _player.Inventory.QuickSlotQ, -1),
+                new UiSlot(new Rectangle(568, 430, UiSlotSize, UiSlotSize), SlotKind.QuickSlotR, null, _player.Inventory.QuickSlotR, -1),
+                new UiSlot(new Rectangle(1138, 594, UiSlotSize, UiSlotSize), SlotKind.Trash, null, _player.Inventory.Trash, -1)
             ]);
         }
 
@@ -2799,7 +2825,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             for (var i = 0; i < 5; i++)
             {
                 var item = i < chest.Items.Count ? chest.Items[i] : null;
-                list.Add(new UiSlot(new Rectangle(760 + i * 62, 190, 58, 58), SlotKind.Chest, i, item, i));
+                list.Add(new UiSlot(new Rectangle(740 + i * UiSlotStep, 190, UiSlotSize, UiSlotSize), SlotKind.Chest, i, item, i));
             }
         }
 
@@ -3661,6 +3687,14 @@ public sealed partial class SciFiRogueGame : IDisposable
     }
 
     private int GetStoredItemCount() => _meta.StorageSlots.Count(item => item is not null);
+
+    private static Rectangle StashPanelRect() => new(900, 190, 466, 478);
+
+    private int GetMaxStashScrollRow()
+    {
+        var totalRows = (int)MathF.Ceiling(_meta.StorageSlots.Count / (float)StashGridColumns);
+        return Math.Max(0, totalRows - StashVisibleRows);
+    }
 
     private static int GetSellValue(ItemStack item)
     {

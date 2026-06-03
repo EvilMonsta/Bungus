@@ -98,7 +98,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private readonly HashSet<int> _pitCompletedWaves = [];
     private readonly List<ItemStack> _pitRewardOffers = [];
     private readonly List<List<ItemStack>> _pitRouletteItems = [];
-    private readonly bool[] _pitRewardClaimed = [false, false, false];
+    private readonly bool[] _pitRewardClaimed = [false, false, false, false];
     private bool _pitRewardOpen;
     private float _pitRewardSpinElapsed;
     private readonly float[] _pitConsumableSpawnTimers = [0f, 0f];
@@ -132,7 +132,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private bool _codeStatusSuccess;
 
     private static readonly Rectangle TakeAllButtonRect = new(740, 318, 220, 34);
-    private static readonly float[] PitRewardSpinDurations = [3f, 4f, 5f];
+    private static readonly float[] PitRewardSpinDurations = [3f, 4f, 5f, 6f];
     private const float InventoryConsumableUseHoldDuration = 1f;
     private sealed record MapDefinition(
         string Name,
@@ -461,6 +461,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateArmoryUi()
     {
+        EnsureArmoryHeavyAmmoOffer();
         _hovered = null;
         var mouse = Raylib.GetMousePosition();
 
@@ -481,7 +482,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (index < 0 || index >= _meta.ArmoryOffers.Count) return;
 
         var offer = _meta.ArmoryOffers[index];
-        if (offer.Purchased)
+        if (offer.Purchased && !offer.Item.IsHeavyAmmo)
         {
             ShowNotice("This armory item is already sold.");
             return;
@@ -494,15 +495,28 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
-        if (!_meta.HasFreeStorageSlot())
+        if (offer.Item.IsHeavyAmmo && !_meta.CanStoreHeavyAmmo(offer.Item.AmmoPercent))
+        {
+            ShowNotice("Not enough storage space for Heavy Ammo.");
+            return;
+        }
+
+        if (!offer.Item.IsHeavyAmmo && !_meta.HasFreeStorageSlot())
         {
             ShowNotice("Storage is full.");
             return;
         }
 
         _meta.SynthCoins -= price;
-        offer.Purchased = true;
-        _meta.AddToStorage(offer.Item);
+        if (!offer.Item.IsHeavyAmmo) offer.Purchased = true;
+        if (!_meta.AddToStorage(offer.Item))
+        {
+            _meta.SynthCoins += price;
+            if (!offer.Item.IsHeavyAmmo) offer.Purchased = false;
+            ShowNotice("Storage is full.");
+            return;
+        }
+
         SavePersistentState();
         ShowNotice($"Bought {offer.Item.Name} for {price} SynthCoins.");
     }
@@ -1148,6 +1162,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _runScore += rewardXp;
         _pitRunXpEarned += rewardXp;
         _pitRunCoinsEarned += rewardCoins;
+        _player.Inventory.TryAddHeavyAmmo(20f, out _);
         if (!HasAnyPitEnemyAlive() && _pitWaveTimer > 3f) _pitWaveTimer = 3f;
         if (wave % 3 == 0) OpenPitRewardSelection(wave);
         SavePersistentState();
@@ -1167,13 +1182,15 @@ public sealed partial class SciFiRogueGame : IDisposable
     private void OpenPitRewardSelection(int wave)
     {
         _pitRewardOffers.Clear();
-        _pitRewardOffers.Add(RollPitReward(WeaponClass.Melee, wave));
-        _pitRewardOffers.Add(RollPitReward(WeaponClass.Ranged, wave));
+        _pitRewardOffers.Add(RollPitReward(WeaponSlot.Melee, wave));
+        _pitRewardOffers.Add(RollPitReward(WeaponSlot.PrimaryRanged, wave));
+        _pitRewardOffers.Add(RollPitReward(WeaponSlot.HeavyRanged, wave));
         _pitRewardOffers.Add(RollPitReward(null, wave));
         _pitRouletteItems.Clear();
-        _pitRouletteItems.Add(BuildPitRouletteItems(WeaponClass.Melee, wave, _pitRewardOffers[0]));
-        _pitRouletteItems.Add(BuildPitRouletteItems(WeaponClass.Ranged, wave, _pitRewardOffers[1]));
-        _pitRouletteItems.Add(BuildPitRouletteItems(null, wave, _pitRewardOffers[2]));
+        _pitRouletteItems.Add(BuildPitRouletteItems(WeaponSlot.Melee, wave, _pitRewardOffers[0]));
+        _pitRouletteItems.Add(BuildPitRouletteItems(WeaponSlot.PrimaryRanged, wave, _pitRewardOffers[1]));
+        _pitRouletteItems.Add(BuildPitRouletteItems(WeaponSlot.HeavyRanged, wave, _pitRewardOffers[2]));
+        _pitRouletteItems.Add(BuildPitRouletteItems(null, wave, _pitRewardOffers[3]));
         Array.Fill(_pitRewardClaimed, false);
         _pitRewardSpinElapsed = 0f;
         _pitRewardOpen = true;
@@ -1230,19 +1247,31 @@ public sealed partial class SciFiRogueGame : IDisposable
         ShowNotice($"Equipped {item.Name}.");
     }
 
-    private ItemStack RollPitReward(WeaponClass? weaponClass, int wave)
+    private ItemStack RollPitReward(WeaponSlot? weaponSlot, int wave)
     {
         var rarity = RollPitRewardRarity(Math.Max(1, wave / 3));
-        if (weaponClass is null && rarity == ArmorRarity.Red) rarity = ArmorRarity.Legendary;
-        return weaponClass is null
-            ? ItemStack.Armor(rarity, _rng)
-            : ItemStack.Weapon(weaponClass.Value, rarity, _rng);
+        if (weaponSlot is null && rarity == ArmorRarity.Red) rarity = ArmorRarity.Legendary;
+        return weaponSlot switch
+        {
+            null => ItemStack.Armor(rarity, _rng),
+            WeaponSlot.Melee => ItemStack.Weapon(WeaponClass.Melee, rarity, _rng),
+            WeaponSlot.PrimaryRanged => RollPitPrimaryWeapon(rarity),
+            WeaponSlot.HeavyRanged => ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.SniperRifle, rarity, _rng),
+            _ => ItemStack.Weapon(WeaponClass.Melee, rarity, _rng)
+        };
     }
 
-    private List<ItemStack> BuildPitRouletteItems(WeaponClass? weaponClass, int wave, ItemStack finalItem)
+    private ItemStack RollPitPrimaryWeapon(ArmorRarity rarity)
+        => ItemStack.PatternWeapon(
+            WeaponClass.Ranged,
+            _rng.NextSingle() < 0.5625f ? WeaponPattern.Standard : WeaponPattern.PulseRifle,
+            rarity,
+            _rng);
+
+    private List<ItemStack> BuildPitRouletteItems(WeaponSlot? weaponSlot, int wave, ItemStack finalItem)
     {
         var result = new List<ItemStack>();
-        for (var i = 0; i < 18; i++) result.Add(RollPitReward(weaponClass, wave));
+        for (var i = 0; i < 18; i++) result.Add(RollPitReward(weaponSlot, wave));
         result.Add(finalItem);
         return result;
     }
@@ -2701,6 +2730,15 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (chestIndex >= chest.Items.Count) return false;
 
         var item = chest.Items[chestIndex];
+        if (item.IsHeavyAmmo)
+        {
+            if (!_player.Inventory.TryAddHeavyAmmo(item.AmmoPercent, out var remainingPercent) && remainingPercent >= item.AmmoPercent - 0.001f) return false;
+
+            if (remainingPercent > 0f) chest.Items[chestIndex] = ItemStack.HeavyAmmo(remainingPercent);
+            else chest.Items.RemoveAt(chestIndex);
+            return true;
+        }
+
         if (!_player.Inventory.AddToBackpack(item)) return false;
 
         chest.Items.RemoveAt(chestIndex);
@@ -2715,6 +2753,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         for (var i = chest.Items.Count - 1; i >= 0; i--)
         {
             var item = chest.Items[i];
+            if (item.IsHeavyAmmo)
+            {
+                _player.Inventory.TryAddHeavyAmmo(item.AmmoPercent, out var remainingPercent);
+                if (remainingPercent <= 0f) chest.Items.RemoveAt(i);
+                else if (remainingPercent < item.AmmoPercent - 0.001f) chest.Items[i] = ItemStack.HeavyAmmo(remainingPercent);
+                continue;
+            }
+
             if (_player.Inventory.AddToBackpack(item)) chest.Items.RemoveAt(i);
         }
     }
@@ -3752,6 +3798,8 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private static int GetArmoryPrice(ItemStack item)
     {
+        if (item.IsHeavyAmmo) return 300;
+
         var price = item.Rarity == ArmorRarity.Epic ? 2500 : 500;
         if (item.Type == ItemType.Armor)
         {
@@ -3780,6 +3828,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         _meta.ArmoryOffers.Clear();
         for (var i = 0; i < 7; i++) _meta.ArmoryOffers.Add(new ArmoryOffer { Item = RollArmoryEquipment(ArmorRarity.Rare) });
         for (var i = 0; i < 3; i++) _meta.ArmoryOffers.Add(new ArmoryOffer { Item = RollArmoryEquipment(ArmorRarity.Epic) });
+        _meta.ArmoryOffers.Add(new ArmoryOffer { Item = ItemStack.HeavyAmmo(25f) });
+    }
+
+    private bool EnsureArmoryHeavyAmmoOffer()
+    {
+        if (_meta.ArmoryOffers.Any(offer => offer.Item.IsHeavyAmmo)) return false;
+        _meta.ArmoryOffers.Add(new ArmoryOffer { Item = ItemStack.HeavyAmmo(25f) });
+        return true;
     }
 
     private ItemStack RollArmoryEquipment(ArmorRarity rarity)
@@ -4154,13 +4210,15 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (isOutpost)
             {
                 if (r < 0.20f) return ItemStack.Consumable(RollConsumableType());
-                if (r < 0.60f) return RollEquipmentOfRarity(ArmorRarity.Common);
-                if (r < 0.98f) return RollEquipmentOfRarity(ArmorRarity.Rare);
+                if (r < 0.50f) return RollEquipmentOfRarity(ArmorRarity.Common);
+                if (r < 0.83f) return RollEquipmentOfRarity(ArmorRarity.Rare);
+                if (r < 0.98f) return RollHeavyAmmo(20, 30);
                 return RollEquipmentOfRarity(ArmorRarity.Epic);
             }
 
-            if (r < 0.40f) return ItemStack.Consumable(RollConsumableType());
-            if (r < 0.90f) return RollEquipmentOfRarity(ArmorRarity.Common);
+            if (r < 0.30f) return ItemStack.Consumable(RollConsumableType());
+            if (r < 0.70f) return RollEquipmentOfRarity(ArmorRarity.Common);
+            if (r < 0.90f) return RollHeavyAmmo(10, 20);
             return RollEquipmentOfRarity(ArmorRarity.Rare);
         }
 
@@ -4169,13 +4227,15 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (isOutpost)
             {
                 if (r < 0.25f) return ItemStack.Consumable(RollConsumableType());
-                if (r < 0.75f) return RollEquipmentOfRarity(ArmorRarity.Common);
+                if (r < 0.55f) return RollEquipmentOfRarity(ArmorRarity.Common);
+                if (r < 0.75f) return RollHeavyAmmo(15, 25);
                 if (r < 0.995f) return RollEquipmentOfRarity(ArmorRarity.Rare);
                 return RollEquipmentOfRarity(ArmorRarity.Epic);
             }
 
             if (r < 0.395f) return ItemStack.Consumable(RollConsumableType());
-            if (r < 0.97f) return RollEquipmentOfRarity(ArmorRarity.Common);
+            if (r < 0.795f) return RollEquipmentOfRarity(ArmorRarity.Common);
+            if (r < 0.97f) return RollHeavyAmmo(5, 15);
             return RollEquipmentOfRarity(ArmorRarity.Rare);
         }
 
@@ -4236,6 +4296,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         return ConsumableType.StickyBullets;
     }
 
+    private ItemStack RollHeavyAmmo(int minPercent, int maxPercent)
+        => ItemStack.HeavyAmmo(_rng.Next(minPercent, maxPercent + 1));
+
     private List<ItemStack> RollBossLoot()
     {
         var loot = new List<ItemStack> { RollEquipmentOfRarity(ArmorRarity.Epic) };
@@ -4267,21 +4330,38 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         var loot = new List<ItemStack>();
 
+        if (_currentMap.IsDeadZone)
+        {
+            loot.Add(RollDeadZoneCityCrateLoot());
+            return loot;
+        }
+
         if (isOutpost)
         {
             var r = _rng.NextSingle();
             if (r < 0.01f) loot.Add(RollEquipmentOfRarity(ArmorRarity.Rare));
-            else if (r < 0.76f) loot.Add(RollEquipmentOfRarity(ArmorRarity.Common));
+            else if (r < 0.51f) loot.Add(RollEquipmentOfRarity(ArmorRarity.Common));
+            if (_rng.NextSingle() < 0.25f) loot.Add(RollHeavyAmmo(10, 25));
 
             loot.Add(ItemStack.Consumable(RollConsumableType()));
             loot.Add(ItemStack.Consumable(RollConsumableType()));
             return loot;
         }
 
-        if (_rng.NextSingle() < 0.20f) loot.Add(RollEquipmentOfRarity(ArmorRarity.Common));
+        if (_rng.NextSingle() < 0.10f) loot.Add(RollEquipmentOfRarity(ArmorRarity.Common));
+        if (_rng.NextSingle() < 0.10f) loot.Add(RollHeavyAmmo(5, 15));
         loot.Add(ItemStack.Consumable(RollConsumableType()));
         if (_rng.NextSingle() < 0.20f) loot.Add(ItemStack.Consumable(RollConsumableType()));
         return loot;
+    }
+
+    private ItemStack RollDeadZoneCityCrateLoot()
+    {
+        var r = _rng.NextSingle();
+        if (r < 0.30f) return ItemStack.Consumable(RollConsumableType());
+        if (r < 0.70f) return RollEquipmentOfRarity(ArmorRarity.Common);
+        if (r < 0.90f) return RollHeavyAmmo(10, 20);
+        return RollEquipmentOfRarity(ArmorRarity.Rare);
     }
 
     private bool IsZoneCleared(int zoneId)
@@ -4308,6 +4388,8 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private bool TryPickGroundItem(ItemStack item)
     {
+        if (item.IsHeavyAmmo) return _player.Inventory.CanStoreHeavyAmmo(item.AmmoPercent) && _player.Inventory.TryAddHeavyAmmo(item.AmmoPercent, out _);
+
         if (_player.Inventory.HasFreeBackpackSlot()) return _player.Inventory.AddToBackpack(item);
 
         if (item.Type == ItemType.Consumable && _player.Inventory.TryReceiveGroundConsumableWhenBackpackFull(item))

@@ -39,7 +39,7 @@ public sealed partial class SciFiRogueGame
             _sessionActiveCodes.Clear();
             ApplyMetaSaveData(data.Meta);
             ApplyDisplayMode();
-            if (migratedLegacySave) SavePersistentState();
+            if (migratedLegacySave || EnsureArmoryHeavyAmmoOffer()) SavePersistentState();
         }
         catch
         {

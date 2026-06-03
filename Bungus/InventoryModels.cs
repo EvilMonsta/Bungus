@@ -27,6 +27,8 @@ public sealed class MetaProfile
 
     public bool AddToStorage(ItemStack item)
     {
+        if (item.IsHeavyAmmo) return TryAddHeavyAmmo(item.AmmoPercent, out _);
+
         for (var i = 0; i < StorageSlots.Count; i++)
         {
             if (StorageSlots[i] is not null) continue;
@@ -38,6 +40,12 @@ public sealed class MetaProfile
     }
 
     public bool HasFreeStorageSlot() => StorageSlots.Any(item => item is null);
+
+    public bool TryAddHeavyAmmo(float percent, out float remainingPercent)
+        => ItemStack.TryAddHeavyAmmoToSlots(StorageSlots, percent, out remainingPercent);
+
+    public bool CanStoreHeavyAmmo(float percent)
+        => ItemStack.GetHeavyAmmoFreeCapacity(StorageSlots) + 0.0001f >= percent;
 }
 
 public sealed class PersistentStateData
@@ -103,6 +111,7 @@ public sealed class ItemStackSaveData
     public float RegenPercentPerSecond { get; set; }
     public float WeaponDamage { get; set; }
     public float PowerBonus { get; set; }
+    public float AmmoPercent { get; set; }
 }
 
 public sealed class ArmoryOffer
@@ -129,6 +138,7 @@ public sealed class Inventory
 
     public bool AddToBackpack(ItemStack item)
     {
+        if (item.IsHeavyAmmo) return TryAddHeavyAmmo(item.AmmoPercent, out _);
         if (TryPlaceIntoConsumableSlot(item)) return true;
 
         for (var i = 0; i < BackpackSlots.Count; i++)
@@ -142,6 +152,42 @@ public sealed class Inventory
     }
 
     public bool HasFreeBackpackSlot() => BackpackSlots.Any(item => item is null);
+
+    public bool TryAddHeavyAmmo(float percent, out float remainingPercent)
+        => ItemStack.TryAddHeavyAmmoToSlots(BackpackSlots, percent, out remainingPercent);
+
+    public bool CanStoreHeavyAmmo(float percent)
+        => ItemStack.GetHeavyAmmoFreeCapacity(BackpackSlots) + 0.0001f >= percent;
+
+    public float HeavyAmmoPercent => BackpackSlots.Where(item => item?.IsHeavyAmmo == true).Sum(item => item!.AmmoPercent);
+
+    public int GetHeavyAmmoShotCount(ItemStack? weapon)
+    {
+        var cost = ItemStack.GetHeavyAmmoCostPercent(weapon);
+        if (cost <= 0f) return 0;
+        return (int)MathF.Floor(HeavyAmmoPercent / cost);
+    }
+
+    public bool TryConsumeHeavyAmmo(ItemStack? weapon)
+    {
+        var cost = ItemStack.GetHeavyAmmoCostPercent(weapon);
+        if (cost <= 0f) return true;
+        if (HeavyAmmoPercent + 0.0001f < cost) return false;
+
+        var remaining = cost;
+        for (var i = 0; i < BackpackSlots.Count && remaining > 0f; i++)
+        {
+            var item = BackpackSlots[i];
+            if (item?.IsHeavyAmmo != true) continue;
+
+            var consumed = MathF.Min(item.AmmoPercent, remaining);
+            var left = MathF.Round(item.AmmoPercent - consumed, 1);
+            remaining = MathF.Round(remaining - consumed, 1);
+            BackpackSlots[i] = left > 0f ? ItemStack.HeavyAmmo(left) : null;
+        }
+
+        return true;
+    }
 
     public void AutoFillConsumableSlots()
     {
@@ -213,6 +259,7 @@ public sealed class ItemStack
            || Type == ItemType.Consumable && ConsumableKind == ConsumableType.StationKey;
     public bool IsPrimaryWeapon => Type == ItemType.Weapon && WeaponKind == WeaponClass.Ranged && Pattern is WeaponPattern.Standard or WeaponPattern.PulseRifle or WeaponPattern.Pulsar or WeaponPattern.Toxikus;
     public bool IsHeavyWeapon => Type == ItemType.Weapon && WeaponKind == WeaponClass.Ranged && Pattern is WeaponPattern.GrenadeLauncher or WeaponPattern.LinearRifle or WeaponPattern.RocketLauncher or WeaponPattern.SniperRifle or WeaponPattern.TraceRifle;
+    public bool IsHeavyAmmo => Type == ItemType.Ammo;
 
     public float Defense { get; }
     public float ResiliencePercent { get; }
@@ -223,6 +270,7 @@ public sealed class ItemStack
     public float ShieldMax { get; }
     public float RegenPercentPerSecond { get; }
     public float BaseDamage { get; }
+    public float AmmoPercent { get; }
 
     private ItemStack(
         ItemType type,
@@ -242,7 +290,8 @@ public sealed class ItemStack
         float shieldMax,
         float regenPercentPerSecond,
         float baseDamage,
-        bool isStarter)
+        bool isStarter,
+        float ammoPercent = 0f)
     {
         Type = type;
         Name = name;
@@ -262,6 +311,7 @@ public sealed class ItemStack
         ShieldMax = shieldMax;
         RegenPercentPerSecond = regenPercentPerSecond;
         BaseDamage = baseDamage;
+        AmmoPercent = MathF.Round(Math.Clamp(ammoPercent, 0f, 100f), 1);
     }
 
     public static ItemStackSaveData? ToSaveData(ItemStack? item)
@@ -291,7 +341,8 @@ public sealed class ItemStack
             ShieldMax = item.ShieldMax,
             RegenPercentPerSecond = item.RegenPercentPerSecond,
             WeaponDamage = item.BaseDamage,
-            PowerBonus = item.BaseDamage
+            PowerBonus = item.BaseDamage,
+            AmmoPercent = item.AmmoPercent
         };
     }
 
@@ -318,7 +369,65 @@ public sealed class ItemStack
             data.ShieldMax,
             data.RegenPercentPerSecond,
             NormalizeSavedWeaponDamage(data),
-            data.IsStarter);
+            data.IsStarter,
+            data.AmmoPercent);
+    }
+
+    public static bool TryAddHeavyAmmoToSlots(List<ItemStack?> slots, float percent, out float remainingPercent)
+    {
+        remainingPercent = MathF.Round(MathF.Max(0f, percent), 1);
+        if (remainingPercent <= 0f) return true;
+
+        for (var i = 0; i < slots.Count && remainingPercent > 0f; i++)
+        {
+            var item = slots[i];
+            if (item?.IsHeavyAmmo != true || item.AmmoPercent >= 100f) continue;
+
+            var add = MathF.Min(100f - item.AmmoPercent, remainingPercent);
+            slots[i] = HeavyAmmo(item.AmmoPercent + add);
+            remainingPercent = MathF.Round(remainingPercent - add, 1);
+        }
+
+        for (var i = 0; i < slots.Count && remainingPercent > 0f; i++)
+        {
+            if (slots[i] is not null) continue;
+
+            var add = MathF.Min(100f, remainingPercent);
+            slots[i] = HeavyAmmo(add);
+            remainingPercent = MathF.Round(remainingPercent - add, 1);
+        }
+
+        return remainingPercent <= 0f;
+    }
+
+    public static float GetHeavyAmmoFreeCapacity(List<ItemStack?> slots)
+    {
+        var capacity = 0f;
+        foreach (var item in slots)
+        {
+            if (item is null) capacity += 100f;
+            else if (item.IsHeavyAmmo) capacity += 100f - item.AmmoPercent;
+        }
+
+        return capacity;
+    }
+
+    public static int GetHeavyAmmoRoundsPerFullStack(ItemStack? weapon)
+        => weapon?.Pattern switch
+        {
+            WeaponPattern.TraceRifle => 500,
+            WeaponPattern.GrenadeLauncher => 30,
+            WeaponPattern.RocketLauncher => 12,
+            WeaponPattern.SniperRifle => 33,
+            WeaponPattern.LinearRifle => 25,
+            _ => 0
+        };
+
+    public static float GetHeavyAmmoCostPercent(ItemStack? weapon)
+    {
+        var rounds = GetHeavyAmmoRoundsPerFullStack(weapon);
+        if (rounds <= 0) return 0f;
+        return MathF.Max(0.1f, MathF.Floor(1000f / rounds) / 10f);
     }
 
     private static float NormalizeSavedWeaponDamage(ItemStackSaveData data)
@@ -729,6 +838,28 @@ public sealed class ItemStack
             _ => new ItemStack(ItemType.Consumable, "Sticky Bullets", "For 15 seconds your damage slows enemies by 30% for 1 second. Hotkey Q/R.", ArmorRarity.Common, Palette.C(235, 235, 235), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false)
         };
     }
+
+    public static ItemStack HeavyAmmo(float percent)
+        => new(
+            ItemType.Ammo,
+            "Heavy Ammo",
+            "Ammo for heavy weapons. Stacks up to 100% per inventory cell.",
+            ArmorRarity.Rare,
+            Palette.C(90, 170, 255),
+            null,
+            WeaponPattern.Standard,
+            null,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            false,
+            percent);
 
     private static float RollPercentRange(Random rng, int minPercent, int maxPercent)
         => rng.Next(minPercent, maxPercent + 1) / 100f;

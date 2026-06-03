@@ -604,6 +604,11 @@ public sealed partial class SciFiRogueGame
 
         DrawStatusBar(hpRect, Math.Clamp(_player.Health / MathF.Max(_player.MaxHealth, 0.001f), 0f, 1f), Palette.C(196, 48, 48), Color.Black, $"HP {_player.Health:0}/{_player.MaxHealth:0}", 18);
         DrawStatusBar(dashRect, _player.DashCooldownProgress, Palette.C(72, 210, 96), Color.Black, string.Empty, 14);
+
+        var heavyWeapon = _player.ActiveWeapon?.IsHeavyWeapon == true ? _player.ActiveWeapon : _player.HeavyWeapon;
+        var ammoText = $"Heavy Ammo: {_player.Inventory.GetHeavyAmmoShotCount(heavyWeapon)}";
+        var ammoFont = 20;
+        Raylib.DrawText(ammoText, (int)(hpRect.X + hpRect.Width - Raylib.MeasureText(ammoText, ammoFont)), (int)hpRect.Y - 78, ammoFont, Palette.C(120, 210, 255));
     }
 
     private static void DrawStatusBar(Rectangle rect, float ratio, Color fillColor, Color lineColor, string label, int fontSize)
@@ -756,6 +761,11 @@ public sealed partial class SciFiRogueGame
         {
             if (!textureDrawn) DrawStationKeyIcon(rect);
         }
+        else if (item.IsHeavyAmmo)
+        {
+            if (!textureDrawn) DrawHeavyAmmoIcon(rect);
+            DrawAmmoPercentStrip(item, rect);
+        }
         else
         {
             if (!textureDrawn)
@@ -787,6 +797,18 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawRectangleLinesEx(rect, 4f, blue);
         Raylib.DrawRectangle((int)rect.X + 3, (int)rect.Y + 3, 18, 18, Palette.C(6, 12, 24, 210));
         Raylib.DrawText("H", (int)rect.X + 7, (int)rect.Y + 3, 18, blue);
+    }
+
+    private static void DrawAmmoPercentStrip(ItemStack item, Rectangle rect)
+    {
+        var stripHeight = MathF.Max(14f, rect.Height * 0.2f);
+        var strip = new Rectangle(rect.X, rect.Y + rect.Height - stripHeight, rect.Width, stripHeight);
+        Raylib.DrawRectangleRec(strip, Palette.C(0, 0, 0, 220));
+
+        var text = $"{item.AmmoPercent:0.0}%";
+        var fontSize = Math.Max(10, (int)(stripHeight - 3f));
+        var textWidth = Raylib.MeasureText(text, fontSize);
+        Raylib.DrawText(text, (int)(strip.X + strip.Width * 0.5f - textWidth * 0.5f), (int)(strip.Y + strip.Height * 0.5f - fontSize * 0.5f), fontSize, Color.White);
     }
 
     private void DrawInventoryUseHoldFrame(UiSlot slot, Rectangle rect)
@@ -893,6 +915,7 @@ public sealed partial class SciFiRogueGame
     {
         if (item.Type == ItemType.Armor) return Path.Combine("Assets", "Icons", "Armor", "armor.png");
         if (item.IsStationKey) return Path.Combine("Assets", "Icons", "KeyItems", "station_key.png");
+        if (item.IsHeavyAmmo) return Path.Combine("Assets", "Icons", "Consumables", "heavy_ammo.png");
 
         if (item.Type == ItemType.Consumable)
         {
@@ -966,7 +989,7 @@ public sealed partial class SciFiRogueGame
 
     private ComparisonMarker GetComparisonMarker(ItemStack item, ComparisonContext? comparison, SlotKind? sourceKind)
     {
-        if (item.Type is ItemType.Consumable or ItemType.KeyItem) return ComparisonMarker.None;
+        if (item.Type is ItemType.Consumable or ItemType.KeyItem or ItemType.Ammo) return ComparisonMarker.None;
         if (comparison is null) return ComparisonMarker.None;
         if (sourceKind is SlotKind.Armor or SlotKind.RangedWeapon or SlotKind.HeavyWeapon or SlotKind.MeleeWeapon) return ComparisonMarker.None;
 
@@ -1168,6 +1191,14 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawTriangle(tip, left, right, Color.White);
     }
 
+    private static void DrawHeavyAmmoIcon(Rectangle rect)
+    {
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.22f, rect.Y + rect.Height * 0.30f, rect.Width * 0.56f, rect.Height * 0.40f), Color.Black);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.34f, rect.Y + rect.Height * 0.20f, rect.Width * 0.32f, rect.Height * 0.14f), Color.Black);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.43f, rect.Y + rect.Height * 0.42f, rect.Width * 0.08f, rect.Height * 0.16f), Color.White);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width * 0.56f, rect.Y + rect.Height * 0.42f, rect.Width * 0.08f, rect.Height * 0.16f), Color.White);
+    }
+
     private static void DrawStationKeyIcon(Rectangle rect)
     {
         Raylib.DrawRectangleLinesEx(rect, MathF.Max(2f, rect.Width * 0.04f), Color.Black);
@@ -1265,6 +1296,13 @@ public sealed partial class SciFiRogueGame
             lines.Add(($"Fire rate: {GetWeaponFireRatePerMinute(item):0}/min", Palette.C(170, 220, 255)));
             var dps = GetWeaponDps(item);
             lines.Add(($"DPS: {dps:0.0}", GetWeaponDpsColor(item, dps, comparison)));
+            return lines;
+        }
+
+        if (item.IsHeavyAmmo)
+        {
+            lines.Add(($"Heavy ammo: {item.AmmoPercent:0.0}%", Palette.C(120, 210, 255)));
+            lines.Add(("Used by heavy weapons.", Color.LightGray));
             return lines;
         }
 
@@ -1385,7 +1423,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMainMenu()
     {
-        Raylib.DrawText("a0.3", 86, 150, 24, Palette.C(150, 185, 220));
+        Raylib.DrawText("a0.3.1", 86, 150, 24, Palette.C(150, 185, 220));
         DrawMetaProgressHeader();
 
         DrawButton(MainMenuButtonRect(0), "Play");
@@ -1576,8 +1614,8 @@ public sealed partial class SciFiRogueGame
         {
             var offer = _meta.ArmoryOffers[i];
             var rect = ArmoryOfferRect(i);
-            var disabled = offer.Purchased;
-            var border = offer.Item.Rarity == ArmorRarity.Epic ? Palette.C(191, 120, 255) : Color.SkyBlue;
+            var disabled = offer.Purchased && !offer.Item.IsHeavyAmmo;
+            var border = offer.Item.IsHeavyAmmo ? Palette.C(120, 210, 255) : offer.Item.Rarity == ArmorRarity.Epic ? Palette.C(191, 120, 255) : Color.SkyBlue;
 
             Raylib.DrawRectangleRec(rect, disabled ? Palette.C(18, 20, 26, 190) : Palette.C(10, 18, 30, 230));
             Raylib.DrawRectangleLinesEx(rect, 2f, disabled ? Color.DarkGray : border);
@@ -1586,10 +1624,15 @@ public sealed partial class SciFiRogueGame
             DrawItemIcon(offer.Item, iconRect, comparison);
 
             Raylib.DrawText(offer.Item.Name, (int)rect.X + 84, (int)rect.Y + 20, 18, disabled ? Color.Gray : Color.White);
-            Raylib.DrawText(offer.Item.Type == ItemType.Armor ? "Armor" : offer.Item.WeaponKind == WeaponClass.Ranged ? "Ranged" : "Melee", (int)rect.X + 84, (int)rect.Y + 46, 16, Color.LightGray);
+            var typeText = offer.Item.IsHeavyAmmo ? "Ammo" : offer.Item.Type == ItemType.Armor ? "Armor" : offer.Item.WeaponKind == WeaponClass.Ranged ? "Ranged" : "Melee";
+            Raylib.DrawText(typeText, (int)rect.X + 84, (int)rect.Y + 46, 16, Color.LightGray);
             Raylib.DrawText($"{GetArmoryPrice(offer.Item)} SC", (int)rect.X + 84, (int)rect.Y + 70, 18, Palette.C(120, 230, 255));
 
-            if (offer.Item.Type == ItemType.Armor && GetArmorModifierCount(offer.Item) > 0)
+            if (offer.Item.IsHeavyAmmo)
+            {
+                Raylib.DrawText($"{offer.Item.AmmoPercent:0.0}% pack", (int)rect.X + 14, (int)rect.Y + 92, 16, Color.Gold);
+            }
+            else if (offer.Item.Type == ItemType.Armor && GetArmorModifierCount(offer.Item) > 0)
             {
                 Raylib.DrawText($"+{GetArmorModifierCount(offer.Item) * 20}% mods", (int)rect.X + 14, (int)rect.Y + 92, 16, Color.Gold);
             }
@@ -1617,9 +1660,9 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawRectangleRec(panel, Palette.C(10, 16, 28, 245));
         Raylib.DrawRectangleLinesEx(panel, 2f, Palette.C(191, 120, 255));
         Raylib.DrawText("Wave reward", (int)panel.X + 32, (int)panel.Y + 28, 34, Color.White);
-        if (ready) Raylib.DrawText("Choose up to three items, or skip the offer.", (int)panel.X + 32, (int)panel.Y + 72, 22, Color.LightGray);
+        if (ready) Raylib.DrawText("Choose up to four items, or skip the offer.", (int)panel.X + 32, (int)panel.Y + 72, 22, Color.LightGray);
 
-        var labels = new[] { "Melee", "Ranged", "Armor" };
+        var labels = new[] { "Melee", "Primary", "Heavy", "Armor" };
         for (var i = 0; i < _pitRewardOffers.Count; i++)
         {
             var rect = PitRewardCardRect(i);
@@ -1912,12 +1955,12 @@ public sealed partial class SciFiRogueGame
         => new(Raylib.GetScreenWidth() - 292, 74, 220, 46);
 
     private static Rectangle PitRewardPanelRect()
-        => new((Raylib.GetScreenWidth() - 1140f) / 2f, (Raylib.GetScreenHeight() - 560f) / 2f, 1140, 560);
+        => new((Raylib.GetScreenWidth() - 1140f) / 2f, (Raylib.GetScreenHeight() - 680f) / 2f, 1140, 680);
 
     private static Rectangle PitRewardCardRect(int index)
     {
         var panel = PitRewardPanelRect();
-        return new Rectangle(panel.X + 40, panel.Y + 90 + index * 120, 880, 104);
+        return new Rectangle(panel.X + 40, panel.Y + 88 + index * 112, 880, 96);
     }
 
     private static Rectangle PitRewardWinningIconRect(int index)
@@ -1935,7 +1978,7 @@ public sealed partial class SciFiRogueGame
     private static Rectangle PitRewardTakeButtonRect(int index)
     {
         var card = PitRewardCardRect(index);
-        return new Rectangle(card.X + card.Width + 26, card.Y + 33, 132, 38);
+        return new Rectangle(card.X + card.Width + 26, card.Y + 29, 132, 38);
     }
 
     private static Rectangle PitRewardSkipButtonRect()
@@ -1946,9 +1989,9 @@ public sealed partial class SciFiRogueGame
 
     private static Rectangle ArmoryOfferRect(int index)
     {
-        var col = index % 5;
-        var row = index / 5;
-        return new Rectangle(70 + col * 236, 178 + row * 210, 214, 180);
+        var col = index % 6;
+        var row = index / 6;
+        return new Rectangle(70 + col * 198, 178 + row * 210, 184, 180);
     }
 
     private static Rectangle MainMenuCodesButtonRect()

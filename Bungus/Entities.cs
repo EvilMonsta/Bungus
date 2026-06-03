@@ -281,6 +281,7 @@ public sealed class Player
             var damage = GetWeaponDamage(weapon);
             if (weapon.Pattern == WeaponPattern.TraceRifle)
             {
+                if (!TryConsumeHeavyAmmo(weapon)) return false;
                 dir = ApplyMovementSpread(dir, 0.7f);
                 var beamLength = MathF.Min(Vector2.Distance(target, Position), TraceRifleRange);
                 var end = ClipRayToObstacles(Position, dir, beamLength, obstacles, worldSize, 2f);
@@ -291,6 +292,7 @@ public sealed class Player
             else if (weapon.Pattern == WeaponPattern.LinearRifle)
             {
                 if (!Raylib.IsMouseButtonReleased(MouseButton.Left) || _linearRifleCharge < LinearRifleChargeDuration) return false;
+                if (!TryConsumeHeavyAmmo(weapon)) return false;
 
                 var end = ClipRayToObstacles(Position, dir, LinearRifleRange, obstacles, worldSize, 3f);
                 var distance = MathF.Max(1f, Vector2.Distance(Position, end));
@@ -312,6 +314,7 @@ public sealed class Player
             }
             else if (weapon.Pattern == WeaponPattern.RocketLauncher)
             {
+                if (!TryConsumeHeavyAmmo(weapon)) return false;
                 dir = ApplyMovementSpread(dir);
                 projectiles.Add(new Projectile(
                     Position + dir * 20f,
@@ -350,6 +353,7 @@ public sealed class Player
             }
             else if (weapon.Pattern == WeaponPattern.GrenadeLauncher)
             {
+                if (!TryConsumeHeavyAmmo(weapon)) return false;
                 dir = ApplyMovementSpread(dir);
                 projectiles.Add(new Projectile(
                     Position + dir * 20f,
@@ -390,6 +394,7 @@ public sealed class Player
             }
             else if (weapon.Pattern == WeaponPattern.SniperRifle)
             {
+                if (!TryConsumeHeavyAmmo(weapon)) return false;
                 var empowered = SniperChargeReady;
                 var sniperDamage = GetSniperShotDamage(weapon, empowered);
                 dir = ApplyMovementSpread(dir);
@@ -478,6 +483,9 @@ public sealed class Player
         shotDir = ApplyMovementSpread(shotDir);
         projectiles.Add(new Projectile(Position + shotDir * 18f, shotDir, 520f, 550f / 520f, color, false, damage, sourcePosition: Position));
     }
+
+    private bool TryConsumeHeavyAmmo(ItemStack weapon)
+        => !weapon.IsHeavyWeapon || Inventory.TryConsumeHeavyAmmo(weapon);
 
     private static Vector2 ClipRayToObstacles(Vector2 start, Vector2 dir, float distance, List<Obstacle> obstacles, int worldSize, float radius)
     {

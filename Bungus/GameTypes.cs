@@ -7,7 +7,7 @@ public enum DeploymentListMode { Expeditions, Challenges }
 public enum WeaponClass { Melee, Ranged }
 
 public enum WeaponSlot { Melee, PrimaryRanged, HeavyRanged }
-public enum ItemType { Weapon, Armor, Consumable, KeyItem }
+public enum ItemType { Weapon, Armor, Consumable, KeyItem, Ammo }
 public enum ConsumableType { Medkit, Stim, ProtectiveDome, StickyBullets, StationKey }
 public enum ArmorRarity { Common = 0, Rare = 1, Epic = 2, Legendary = 3, Red = 4, Damaged = 5 }
 public enum StatType { Strength, Dexterity, Speed, Gunsmith }

@@ -25,6 +25,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private const float UiIconPadding = 9f;
     private const int StashGridColumns = 5;
     private const int StashVisibleRows = 5;
+    private const int StorageSortButtonCount = 7;
     private static readonly string SaveFilePath = Path.Combine(AppContext.BaseDirectory, "save", "profile.json");
     private static readonly JsonSerializerOptions SaveJsonOptions = new() { WriteIndented = true };
 
@@ -80,6 +81,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private bool _mapOpen;
     private Vector2? _mapMarker;
     private int _storageScrollRow;
+    private int _storageSortMode = -1;
     private bool _requestExit;
     private readonly List<VisualTheme> _themes;
     private int _themeIndex;
@@ -2528,8 +2530,19 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         _hovered = null;
         UpdateStorageScroll();
-        var slots = BuildStorageSlots();
         var mouse = Raylib.GetMousePosition();
+
+        if (_drag is null && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            for (var i = 0; i < StorageSortButtonCount; i++)
+            {
+                if (!Raylib.CheckCollisionPointRec(mouse, StorageSortButtonRect(i))) continue;
+                SortStorage(i);
+                return;
+            }
+        }
+
+        var slots = BuildStorageSlots();
 
         foreach (var slot in slots)
         {
@@ -2571,6 +2584,79 @@ public sealed partial class SciFiRogueGame : IDisposable
             _drag = null;
         }
     }
+
+    private void SortStorage(int mode)
+    {
+        _storageSortMode = mode;
+        var items = _meta.StorageSlots.Where(item => item is not null).Select(item => item!).ToList();
+        var sorted = mode switch
+        {
+            0 => items.OrderBy(GetStorageGeneralGroup).ThenBy(GetStorageRarityRank).ThenBy(GetStorageEquipmentRank).ThenBy(item => item.Name).ToList(),
+            1 or 2 or 3 or 4 or 5 or 6 => SortStorageCategoryFirst(items, item => IsStorageSortModeMatch(item, mode)),
+            _ => items
+        };
+
+        for (var i = 0; i < _meta.StorageSlots.Count; i++)
+        {
+            _meta.StorageSlots[i] = i < sorted.Count ? sorted[i] : null;
+        }
+
+        _storageScrollRow = 0;
+        SavePersistentState();
+    }
+
+    private static List<ItemStack> SortStorageCategoryFirst(List<ItemStack> items, Func<ItemStack, bool> predicate)
+        => items
+            .Where(predicate)
+            .OrderBy(GetStorageRarityRank)
+            .ThenBy(GetStorageEquipmentRank)
+            .ThenByDescending(item => item.AmmoPercent)
+            .ThenBy(item => item.Name)
+            .Concat(items.Where(item => !predicate(item)))
+            .ToList();
+
+    private static int GetStorageGeneralGroup(ItemStack item)
+        => item.Type switch
+        {
+            ItemType.Weapon or ItemType.Armor => 0,
+            ItemType.Consumable => 1,
+            ItemType.Ammo => 2,
+            ItemType.KeyItem => 3,
+            _ => 4
+        };
+
+    private static int GetStorageEquipmentRank(ItemStack item)
+    {
+        if (item.IsPrimaryWeapon) return 0;
+        if (item.IsHeavyWeapon) return 1;
+        if (item.Type == ItemType.Weapon && item.WeaponKind == WeaponClass.Melee) return 2;
+        if (item.Type == ItemType.Armor) return 3;
+        return 4;
+    }
+
+    private static bool IsStorageSortModeMatch(ItemStack item, int mode)
+        => mode switch
+        {
+            1 => item.IsPrimaryWeapon,
+            2 => item.IsHeavyWeapon,
+            3 => item.Type == ItemType.Weapon && item.WeaponKind == WeaponClass.Melee,
+            4 => item.Type == ItemType.Consumable && !item.IsStationKey,
+            5 => item.Type == ItemType.KeyItem || item.IsStationKey,
+            6 => item.IsHeavyAmmo,
+            _ => true
+        };
+
+    private static int GetStorageRarityRank(ItemStack item)
+        => item.Rarity switch
+        {
+            ArmorRarity.Red => 0,
+            ArmorRarity.Legendary => 1,
+            ArmorRarity.Epic => 2,
+            ArmorRarity.Rare => 3,
+            ArmorRarity.Common => 4,
+            ArmorRarity.Damaged => 5,
+            _ => 6
+        };
 
     private void UpdateStorageScroll()
     {

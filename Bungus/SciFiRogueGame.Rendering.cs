@@ -694,6 +694,10 @@ public sealed partial class SciFiRogueGame
                 var iconRect = new Rectangle(slot.Rect.X + UiIconPadding, slot.Rect.Y + UiIconPadding, slot.Rect.Width - UiIconPadding * 2f, slot.Rect.Height - UiIconPadding * 2f);
                 DrawItemIcon(slot.Item, iconRect, comparison, slot.Kind);
                 DrawInventoryUseHoldFrame(slot, iconRect);
+                if (slot.Kind == SlotKind.Storage && _storageSortMode > 0 && !IsStorageSortModeMatch(slot.Item, _storageSortMode))
+                {
+                    Raylib.DrawRectangleRec(slot.Rect, Palette.C(0, 0, 0, 165));
+                }
             }
         }
 
@@ -1580,6 +1584,7 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText($"{firstVisible}-{lastVisible}", (int)stashPanel.X + 178, 112, 18, Color.LightGray);
         DrawStorageGrid(new Vector2(910, 200), StashGridColumns, StashVisibleRows);
         DrawStashScrollBar(stashPanel);
+        DrawStorageSortButtons();
 
         DrawButton(StorageBackButtonRect(), "Back");
 
@@ -1596,6 +1601,10 @@ public sealed partial class SciFiRogueGame
                 var iconRect = new Rectangle(slot.Rect.X + UiIconPadding, slot.Rect.Y + UiIconPadding, slot.Rect.Width - UiIconPadding * 2f, slot.Rect.Height - UiIconPadding * 2f);
                 DrawItemIcon(slot.Item, iconRect, comparison, slot.Kind);
                 DrawInventoryUseHoldFrame(slot, iconRect);
+                if (slot.Kind == SlotKind.Storage && _storageSortMode > 0 && !IsStorageSortModeMatch(slot.Item, _storageSortMode))
+                {
+                    Raylib.DrawRectangleRec(slot.Rect, Palette.C(0, 0, 0, 165));
+                }
             }
         }
 
@@ -1911,6 +1920,50 @@ public sealed partial class SciFiRogueGame
         }
     }
 
+    private void DrawStorageSortButtons()
+    {
+        for (var i = 0; i < StorageSortButtonCount; i++)
+        {
+            DrawStorageSortButton(i);
+        }
+    }
+
+    private void DrawStorageSortButton(int index)
+    {
+        var rect = StorageSortButtonRect(index);
+        var active = _storageSortMode == index;
+        var hover = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), rect);
+        var fill = active
+            ? Palette.C(92, 150, 235)
+            : hover ? Palette.C(68, 112, 186) : Palette.C(36, 56, 90);
+        var border = active ? Palette.C(180, 230, 255) : Color.White;
+
+        Raylib.DrawRectangleRec(rect, fill);
+        Raylib.DrawRectangleLinesEx(rect, active ? 3f : 2f, border);
+
+        const int fontSize = 20;
+        var text = StorageSortButtonLabel(index);
+        Raylib.DrawText(
+            text,
+            (int)(rect.X + rect.Width / 2f - Raylib.MeasureText(text, fontSize) / 2f),
+            (int)(rect.Y + rect.Height / 2f - fontSize / 2f),
+            fontSize,
+            Color.White);
+    }
+
+    private static string StorageSortButtonLabel(int index)
+        => index switch
+        {
+            0 => "-",
+            1 => "P",
+            2 => "H",
+            3 => "M",
+            4 => "C",
+            5 => "K",
+            6 => "A",
+            _ => "?"
+        };
+
     private void DrawStashScrollBar(Rectangle panel)
     {
         var maxRow = GetMaxStashScrollRow();
@@ -2035,6 +2088,13 @@ public sealed partial class SciFiRogueGame
 
     private static Rectangle StorageBackButtonRect()
         => new(70, 900, 220, 52);
+
+    private static Rectangle StorageSortButtonRect(int index)
+    {
+        var size = UiSlotSize * 0.5f;
+        var panel = StashPanelRect();
+        return new Rectangle(panel.X + panel.Width, panel.Y + index * size, size, size);
+    }
 
     private static Rectangle ArmoryBackButtonRect()
         => new(70, 900, 220, 52);

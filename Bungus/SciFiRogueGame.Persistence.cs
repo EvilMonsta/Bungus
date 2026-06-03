@@ -192,6 +192,7 @@ public sealed partial class SciFiRogueGame
                 .ToList(),
             Armor = ItemStack.ToSaveData(_meta.Armor),
             RangedWeapon = ItemStack.ToSaveData(_meta.RangedWeapon),
+            HeavyWeapon = ItemStack.ToSaveData(_meta.HeavyWeapon),
             MeleeWeapon = ItemStack.ToSaveData(_meta.MeleeWeapon),
             QuickSlotQ = ItemStack.ToSaveData(_meta.QuickSlotQ),
             QuickSlotR = ItemStack.ToSaveData(_meta.QuickSlotR),
@@ -226,10 +227,12 @@ public sealed partial class SciFiRogueGame
 
         _meta.Armor = ItemStack.FromSaveData(data?.Armor);
         _meta.RangedWeapon = ItemStack.FromSaveData(data?.RangedWeapon);
+        _meta.HeavyWeapon = ItemStack.FromSaveData(data?.HeavyWeapon);
         _meta.MeleeWeapon = ItemStack.FromSaveData(data?.MeleeWeapon);
         _meta.QuickSlotQ = ItemStack.FromSaveData(data?.QuickSlotQ);
         _meta.QuickSlotR = ItemStack.FromSaveData(data?.QuickSlotR);
         _meta.Trash = ItemStack.FromSaveData(data?.Trash);
+        NormalizeMetaWeaponLoadoutSlots();
 
         foreach (var savedOffer in data?.ArmoryOffers ?? [])
         {
@@ -238,6 +241,40 @@ public sealed partial class SciFiRogueGame
         }
 
         if (_meta.ArmoryOffers.Count == 0) RefreshArmoryOffers();
+    }
+
+    private void NormalizeMetaWeaponLoadoutSlots()
+    {
+        if (_meta.RangedWeapon?.IsHeavyWeapon == true && _meta.HeavyWeapon?.IsPrimaryWeapon == true)
+        {
+            (_meta.RangedWeapon, _meta.HeavyWeapon) = (_meta.HeavyWeapon, _meta.RangedWeapon);
+        }
+
+        if (_meta.RangedWeapon is not null && !_meta.RangedWeapon.IsPrimaryWeapon)
+        {
+            if (_meta.RangedWeapon.IsHeavyWeapon && _meta.HeavyWeapon is null)
+            {
+                _meta.HeavyWeapon = _meta.RangedWeapon;
+                _meta.RangedWeapon = null;
+            }
+            else if (_meta.AddToStorage(_meta.RangedWeapon))
+            {
+                _meta.RangedWeapon = null;
+            }
+        }
+
+        if (_meta.HeavyWeapon is not null && !_meta.HeavyWeapon.IsHeavyWeapon)
+        {
+            if (_meta.HeavyWeapon.IsPrimaryWeapon && _meta.RangedWeapon is null)
+            {
+                _meta.RangedWeapon = _meta.HeavyWeapon;
+                _meta.HeavyWeapon = null;
+            }
+            else if (_meta.AddToStorage(_meta.HeavyWeapon))
+            {
+                _meta.HeavyWeapon = null;
+            }
+        }
     }
 
     public void Dispose()

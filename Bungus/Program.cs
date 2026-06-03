@@ -206,6 +206,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             _meta.BaseSpeed,
             _meta.BaseGuns,
             TakeMetaLoadoutItem(SlotKind.RangedWeapon),
+            TakeMetaLoadoutItem(SlotKind.HeavyWeapon),
             TakeMetaLoadoutItem(SlotKind.MeleeWeapon),
             TakeMetaLoadoutItem(SlotKind.Armor),
             TakeMetaLoadoutItem(SlotKind.QuickSlotQ),
@@ -279,6 +280,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             _meta.BaseSpeed,
             _meta.BaseGuns,
             ItemStack.StartingPistol(),
+            null,
             ItemStack.StartingMelee(),
             ItemStack.StartingArmor(),
             null,
@@ -604,7 +606,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         _player.UpdateCombat(dt, _projectiles);
         if (Raylib.IsKeyPressed(KeyboardKey.Q)) HandleConsumedQuickSlot(_player.UseQuickSlotQ());
         if (Raylib.IsKeyPressed(KeyboardKey.R)) HandleConsumedQuickSlot(_player.UseQuickSlotR());
-        if (Raylib.IsKeyPressed(KeyboardKey.E)) _player.SwitchActiveWeapon();
+        if (Raylib.IsKeyPressed((KeyboardKey)49)) _player.SelectWeaponSlot(WeaponSlot.Melee);
+        if (Raylib.IsKeyPressed((KeyboardKey)50)) _player.SelectWeaponSlot(WeaponSlot.PrimaryRanged);
+        if (Raylib.IsKeyPressed((KeyboardKey)51)) _player.SelectWeaponSlot(WeaponSlot.HeavyRanged);
 
         var mouseWorld = Raylib.GetScreenToWorld2D(Raylib.GetMousePosition(), _camera);
         var linearRelease = _player.IsLinearRifleEquipped && Raylib.IsMouseButtonReleased(MouseButton.Left);
@@ -1220,7 +1224,8 @@ public sealed partial class SciFiRogueGame : IDisposable
     private void EquipPitReward(ItemStack item)
     {
         if (item.Type == ItemType.Armor) _player.Armor = item;
-        else if (item.WeaponKind == WeaponClass.Ranged) _player.RangedWeapon = item;
+        else if (item.IsPrimaryWeapon) _player.RangedWeapon = item;
+        else if (item.IsHeavyWeapon) _player.HeavyWeapon = item;
         else if (item.WeaponKind == WeaponClass.Melee) _player.MeleeWeapon = item;
         ShowNotice($"Equipped {item.Name}.");
     }
@@ -1632,8 +1637,8 @@ public sealed partial class SciFiRogueGame : IDisposable
                 false,
                 0f,
                 ProjectileKind.MicroCharge,
-                15.75f,
-                25f,
+                14.9625f,
+                15f,
                 2.5f,
                 true,
                 sourcePosition));
@@ -2595,9 +2600,10 @@ public sealed partial class SciFiRogueGame : IDisposable
         [
             new UiSlot(new Rectangle(230, 206, UiSlotSize, UiSlotSize), SlotKind.Armor, -1, _meta.Armor, -1),
             new UiSlot(new Rectangle(230, 306, UiSlotSize, UiSlotSize), SlotKind.RangedWeapon, -1, _meta.RangedWeapon, -1),
-            new UiSlot(new Rectangle(230, 406, UiSlotSize, UiSlotSize), SlotKind.MeleeWeapon, -1, _meta.MeleeWeapon, -1),
-            new UiSlot(new Rectangle(80, 588, UiSlotSize, UiSlotSize), SlotKind.QuickSlotQ, -1, _meta.QuickSlotQ, -1),
-            new UiSlot(new Rectangle(180, 588, UiSlotSize, UiSlotSize), SlotKind.QuickSlotR, -1, _meta.QuickSlotR, -1)
+            new UiSlot(new Rectangle(230, 406, UiSlotSize, UiSlotSize), SlotKind.HeavyWeapon, -1, _meta.HeavyWeapon, -1),
+            new UiSlot(new Rectangle(230, 506, UiSlotSize, UiSlotSize), SlotKind.MeleeWeapon, -1, _meta.MeleeWeapon, -1),
+            new UiSlot(new Rectangle(80, 688, UiSlotSize, UiSlotSize), SlotKind.QuickSlotQ, -1, _meta.QuickSlotQ, -1),
+            new UiSlot(new Rectangle(180, 688, UiSlotSize, UiSlotSize), SlotKind.QuickSlotR, -1, _meta.QuickSlotR, -1)
         ]);
 
         return list;
@@ -2731,6 +2737,13 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (item.WeaponKind == WeaponClass.Ranged)
         {
+            if (item.IsHeavyWeapon)
+            {
+                (_player.HeavyWeapon, _player.Inventory.BackpackSlots[backpackIndex]) = (item, _player.HeavyWeapon);
+                return true;
+            }
+
+            if (!item.IsPrimaryWeapon) return false;
             (_player.RangedWeapon, _player.Inventory.BackpackSlots[backpackIndex]) = (item, _player.RangedWeapon);
             return true;
         }
@@ -2812,9 +2825,10 @@ public sealed partial class SciFiRogueGame : IDisposable
             [
                 new UiSlot(new Rectangle(570, 118, UiSlotSize, UiSlotSize), SlotKind.Armor, null, _player.Armor, -1),
                 new UiSlot(new Rectangle(570, 216, UiSlotSize, UiSlotSize), SlotKind.RangedWeapon, null, _player.RangedWeapon, -1),
-                new UiSlot(new Rectangle(570, 314, UiSlotSize, UiSlotSize), SlotKind.MeleeWeapon, null, _player.MeleeWeapon, -1),
-                new UiSlot(new Rectangle(470, 430, UiSlotSize, UiSlotSize), SlotKind.QuickSlotQ, null, _player.Inventory.QuickSlotQ, -1),
-                new UiSlot(new Rectangle(568, 430, UiSlotSize, UiSlotSize), SlotKind.QuickSlotR, null, _player.Inventory.QuickSlotR, -1),
+                new UiSlot(new Rectangle(570, 314, UiSlotSize, UiSlotSize), SlotKind.HeavyWeapon, null, _player.HeavyWeapon, -1),
+                new UiSlot(new Rectangle(570, 412, UiSlotSize, UiSlotSize), SlotKind.MeleeWeapon, null, _player.MeleeWeapon, -1),
+                new UiSlot(new Rectangle(470, 520, UiSlotSize, UiSlotSize), SlotKind.QuickSlotQ, null, _player.Inventory.QuickSlotQ, -1),
+                new UiSlot(new Rectangle(568, 520, UiSlotSize, UiSlotSize), SlotKind.QuickSlotR, null, _player.Inventory.QuickSlotR, -1),
                 new UiSlot(new Rectangle(1138, 594, UiSlotSize, UiSlotSize), SlotKind.Trash, null, _player.Inventory.Trash, -1)
             ]);
         }
@@ -2851,10 +2865,19 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
-        if (target.Kind == SlotKind.RangedWeapon && drag.Item.Type == ItemType.Weapon && drag.Item.WeaponKind == WeaponClass.Ranged)
+        if (target.Kind == SlotKind.RangedWeapon && drag.Item.IsPrimaryWeapon)
         {
             var old = _player.RangedWeapon;
             _player.RangedWeapon = drag.Item;
+            RemoveFromSource(drag);
+            if (old is not null) _player.Inventory.AddToBackpack(old);
+            return;
+        }
+
+        if (target.Kind == SlotKind.HeavyWeapon && drag.Item.IsHeavyWeapon)
+        {
+            var old = _player.HeavyWeapon;
+            _player.HeavyWeapon = drag.Item;
             RemoveFromSource(drag);
             if (old is not null) _player.Inventory.AddToBackpack(old);
             return;
@@ -2935,6 +2958,10 @@ public sealed partial class SciFiRogueGame : IDisposable
         else if (drag.Kind == SlotKind.RangedWeapon)
         {
             _player.RangedWeapon = null;
+        }
+        else if (drag.Kind == SlotKind.HeavyWeapon)
+        {
+            _player.HeavyWeapon = null;
         }
         else if (drag.Kind == SlotKind.MeleeWeapon)
         {
@@ -3198,6 +3225,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         if (_player.Armor is not null) yield return _player.Armor;
         if (_player.RangedWeapon is not null) yield return _player.RangedWeapon;
+        if (_player.HeavyWeapon is not null) yield return _player.HeavyWeapon;
         if (_player.MeleeWeapon is not null) yield return _player.MeleeWeapon;
         if (_player.Inventory.QuickSlotQ is not null) yield return _player.Inventory.QuickSlotQ;
         if (_player.Inventory.QuickSlotR is not null) yield return _player.Inventory.QuickSlotR;
@@ -3768,13 +3796,14 @@ public sealed partial class SciFiRogueGame : IDisposable
     }
 
     private static bool IsMetaLoadoutSlot(SlotKind kind)
-        => kind is SlotKind.Armor or SlotKind.RangedWeapon or SlotKind.MeleeWeapon or SlotKind.QuickSlotQ or SlotKind.QuickSlotR;
+        => kind is SlotKind.Armor or SlotKind.RangedWeapon or SlotKind.HeavyWeapon or SlotKind.MeleeWeapon or SlotKind.QuickSlotQ or SlotKind.QuickSlotR;
 
     private static bool CanPlaceIntoSlot(SlotKind kind, ItemStack item)
         => kind switch
         {
             SlotKind.Armor => item.Type == ItemType.Armor,
-            SlotKind.RangedWeapon => item.Type == ItemType.Weapon && item.WeaponKind == WeaponClass.Ranged,
+            SlotKind.RangedWeapon => item.IsPrimaryWeapon,
+            SlotKind.HeavyWeapon => item.IsHeavyWeapon,
             SlotKind.MeleeWeapon => item.Type == ItemType.Weapon && item.WeaponKind == WeaponClass.Melee,
             SlotKind.QuickSlotQ => item.Type == ItemType.Consumable && !item.IsStationKey,
             SlotKind.QuickSlotR => item.Type == ItemType.Consumable && !item.IsStationKey,
@@ -3785,6 +3814,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         SlotKind.Armor => _meta.Armor,
         SlotKind.RangedWeapon => _meta.RangedWeapon,
+        SlotKind.HeavyWeapon => _meta.HeavyWeapon,
         SlotKind.MeleeWeapon => _meta.MeleeWeapon,
         SlotKind.QuickSlotQ => _meta.QuickSlotQ,
         SlotKind.QuickSlotR => _meta.QuickSlotR,
@@ -3795,6 +3825,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         if (kind == SlotKind.Armor) _meta.Armor = item;
         if (kind == SlotKind.RangedWeapon) _meta.RangedWeapon = item;
+        if (kind == SlotKind.HeavyWeapon) _meta.HeavyWeapon = item;
         if (kind == SlotKind.MeleeWeapon) _meta.MeleeWeapon = item;
         if (kind == SlotKind.QuickSlotQ) _meta.QuickSlotQ = item;
         if (kind == SlotKind.QuickSlotR) _meta.QuickSlotR = item;
@@ -3812,7 +3843,8 @@ public sealed partial class SciFiRogueGame : IDisposable
     private SlotKind? GetPreferredLoadoutSlot(ItemStack item)
     {
         if (item.Type == ItemType.Armor) return SlotKind.Armor;
-        if (item.Type == ItemType.Weapon && item.WeaponKind == WeaponClass.Ranged) return SlotKind.RangedWeapon;
+        if (item.IsPrimaryWeapon) return SlotKind.RangedWeapon;
+        if (item.IsHeavyWeapon) return SlotKind.HeavyWeapon;
         if (item.Type == ItemType.Weapon && item.WeaponKind == WeaponClass.Melee) return SlotKind.MeleeWeapon;
         if (item.Type == ItemType.Consumable && !item.IsStationKey) return _meta.QuickSlotQ is null ? SlotKind.QuickSlotQ : SlotKind.QuickSlotR;
         return null;
@@ -3828,6 +3860,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             _meta.BaseSpeed,
             _meta.BaseGuns,
             _meta.RangedWeapon,
+            _meta.HeavyWeapon,
             _meta.MeleeWeapon,
             _meta.Armor,
             _meta.QuickSlotQ,
@@ -3852,17 +3885,17 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         if (weapon.Pattern == WeaponPattern.GrenadeLauncher)
         {
-            var baseDirect = weapon.BaseDamage + 150f;
-            var totalDirect = player.GetWeaponDamage(weapon) + 150f;
-            var directDps = totalDirect * 1.35f;
+            var baseDirect = weapon.BaseDamage + 135f;
+            var totalDirect = player.GetWeaponDamage(weapon) + 135f;
+            var directDps = totalDirect * 1.5f;
             return (totalDirect, totalDirect - baseDirect, directDps, "direct");
         }
 
         if (weapon.Pattern == WeaponPattern.RocketLauncher)
         {
-            var baseDirect = weapon.BaseDamage + 215f;
-            var totalDirect = player.GetWeaponDamage(weapon) + 215f;
-            var directDps = totalDirect * 0.63f;
+            var baseDirect = weapon.BaseDamage + 200f;
+            var totalDirect = player.GetWeaponDamage(weapon) + 200f;
+            var directDps = totalDirect * (40f / 60f);
             return (totalDirect, totalDirect - baseDirect, directDps, "direct");
         }
 
@@ -3875,18 +3908,18 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (weapon.Pattern == WeaponPattern.LinearRifle)
         {
             var linearDamage = player.GetWeaponDamage(weapon);
-            return (linearDamage, linearDamage - weapon.BaseDamage, linearDamage / 1.5f, "shot");
+            return (linearDamage, linearDamage - weapon.BaseDamage, linearDamage / 1.25f, "shot");
         }
 
         if (weapon.Pattern == WeaponPattern.Pulsar)
         {
             var pulsarDamage = player.GetWeaponDamage(weapon);
-            return (pulsarDamage, pulsarDamage - weapon.BaseDamage, (pulsarDamage + 2.5f * 25f) * 3f, "bolt");
+            return (pulsarDamage, pulsarDamage - weapon.BaseDamage, (pulsarDamage + 2.5f * 15f) * 3f, "bolt");
         }
 
         if (weapon.Pattern == WeaponPattern.SniperRifle)
         {
-            var baseShot = weapon.BaseDamage * 5.55f;
+            var baseShot = weapon.BaseDamage * 8.325f;
             var shotDamage = player.GetSniperShotDamage(weapon);
             var sniperDps = shotDamage / 1.75f;
             return (shotDamage, shotDamage - baseShot, sniperDps, "shot");
@@ -3905,7 +3938,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (kind == WeaponClass.Melee)
         {
-            var baseHit = weapon.BaseDamage * 7f;
+            var baseHit = weapon.BaseDamage * 6.3f;
             var hitDamage = player.GetMeleeHitDamage(weapon);
             var cooldown = weapon.Pattern is WeaponPattern.EnergySpear or WeaponPattern.Lancelot
                 ? player.GetMeleeCooldown(0.70f)

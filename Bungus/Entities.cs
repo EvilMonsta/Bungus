@@ -10,14 +10,14 @@ public sealed class Player
     private const float BaseDashDistance = 150f;
     private const float DashEchoDuration = 0.25f;
     private const float DashEchoSpawnInterval = 0.05f;
-    private const float MeleeDamageMultiplier = 7f;
+    private const float MeleeDamageMultiplier = 6.3f;
     private const float MeleeSwingLife = 0.18f;
-    private const float BladeRadius = 72f;
+    private const float BladeRadius = 75f;
     private const float BladeHalfAngle = 0.6225f;
     private const float LegendaryBladeHalfAngleBonus = MathF.PI / 72f;
     private const float SpearStartDistance = 24f;
     private const float SpearEndDistance = 125f;
-    private const float LegendarySpearLengthMultiplier = 1.2f;
+    private const float LegendarySpearLengthMultiplier = 1.2475f;
     private const float TwinShotChance = 0.33f;
     private const float TwinShotSpread = 0.06f;
     private const float BaseDashCooldownDuration = 1.1f;
@@ -28,24 +28,27 @@ public sealed class Player
     private const float RegenTickInterval = 1f;
     private const float StickyBulletsDuration = 15f;
     private const float MovingRangedSpreadAngle = MathF.PI / 90f;
-    private const float SniperDamageMultiplier = 5.55f;
-    private const float EmpoweredSniperDamageMultiplier = 13.875f;
+    private const float SniperDamageMultiplier = 8.325f;
+    private const float EmpoweredSniperDamageMultiplier = 20.8125f;
     private const float SniperCooldown = 1.75f;
     private const float SniperProjectileSpeed = 2100f;
-    private const float SniperProjectileLifetime = 2500f / SniperProjectileSpeed;
-    private const float PulseProjectileLifetime = 660f / 560f;
+    private const float SniperProjectileLifetime = 2000f / SniperProjectileSpeed;
+    private const float PulseProjectileSpeed = 600f;
+    private const float PulseProjectileLifetime = 650f / PulseProjectileSpeed;
+    private const float ToxikusProjectileSpeed = 550f;
+    private const float ToxikusProjectileLifetime = 625f / ToxikusProjectileSpeed;
     private const float TraceRifleCooldown = 60f / 1000f;
     private const float TraceRifleRange = 820f;
-    private const float LinearRifleChargeDuration = 1f;
-    private const float LinearRifleCooldown = 0.5f;
+    private const float LinearRifleChargeDuration = 0.8f;
+    private const float LinearRifleCooldown = 0.45f;
     private const float LinearRifleChargeDecaySpeed = 3f;
     private const float LinearRifleProjectileSpeed = 3800f;
     private const float LinearRifleRange = 1000f;
-    private const float RocketLauncherFireRate = 0.63f;
-    private const float RocketProjectileSpeed = 340f * 1.6f;
-    private const float RocketProjectileLifetime = (340f * 0.72f * 1.3f * 1.4f * 1.1f) / RocketProjectileSpeed;
+    private const float RocketLauncherFireRate = 40f / 60f;
+    private const float RocketProjectileSpeed = 475f;
+    private const float RocketProjectileLifetime = 510f / RocketProjectileSpeed;
     private const float PulsarCooldown = 1f / 3f;
-    private const float PulsarProjectileSpeed = 520f * 0.8f;
+    private const float PulsarProjectileSpeed = 400f;
     private const float PulsarProjectileLifetime = 600f / PulsarProjectileSpeed;
     private const float SniperIdleRequirement = 1f;
     private const float LegendarySniperChargeDuration = 2.5f;
@@ -67,6 +70,8 @@ public sealed class Player
     private float _pulseDamage;
     private float _pulsePoisonDamagePerSecond;
     private float _pulsePoisonDuration;
+    private float _pulseProjectileSpeed;
+    private float _pulseProjectileLifetime;
     private float _sniperStillTimer;
     private float _legendarySniperChargeTimer;
     private bool _legendarySniperChargePrimed;
@@ -93,9 +98,9 @@ public sealed class Player
     public float StickyBulletsEffectProgress => Math.Clamp(_stickyBulletsTimer / StickyBulletsDuration, 0f, 1f);
     public float PoisonEffectProgress => Math.Clamp(_poison / MathF.Max(_poisonDurationMax, 0.001f), 0f, 1f);
     public bool IsMoving { get; private set; }
-    public bool IsSniperEquipped => ActiveWeaponClass == WeaponClass.Ranged && RangedWeapon?.Pattern == WeaponPattern.SniperRifle;
-    public bool IsLegendarySniperEquipped => IsSniperEquipped && RangedWeapon?.Rarity == ArmorRarity.Legendary;
-    public bool IsLinearRifleEquipped => ActiveWeaponClass == WeaponClass.Ranged && RangedWeapon?.Pattern == WeaponPattern.LinearRifle;
+    public bool IsSniperEquipped => ActiveWeaponClass == WeaponClass.Ranged && ActiveWeapon?.Pattern == WeaponPattern.SniperRifle;
+    public bool IsLegendarySniperEquipped => IsSniperEquipped && ActiveWeapon?.Rarity == ArmorRarity.Legendary;
+    public bool IsLinearRifleEquipped => ActiveWeaponClass == WeaponClass.Ranged && ActiveWeapon?.Pattern == WeaponPattern.LinearRifle;
     public float LinearRifleChargeProgress => Math.Clamp(_linearRifleCharge / LinearRifleChargeDuration, 0f, 1f);
     public bool SniperChargeVisible => IsLegendarySniperEquipped && _legendarySniperChargePrimed;
     public float SniperChargeProgress => !SniperChargeVisible ? 0f : Math.Clamp(_legendarySniperChargeTimer / LegendarySniperChargeDuration, 0f, 1f);
@@ -116,12 +121,20 @@ public sealed class Player
     public Inventory Inventory { get; } = new();
 
     public ItemStack? RangedWeapon { get; set; }
+    public ItemStack? HeavyWeapon { get; set; }
     public ItemStack? MeleeWeapon { get; set; }
     public ItemStack? Armor { get; set; }
 
-    public WeaponClass ActiveWeaponClass { get; private set; } = WeaponClass.Ranged;
+    public WeaponSlot ActiveWeaponSlot { get; private set; } = WeaponSlot.PrimaryRanged;
+    public WeaponClass ActiveWeaponClass => ActiveWeaponSlot == WeaponSlot.Melee ? WeaponClass.Melee : WeaponClass.Ranged;
+    public ItemStack? ActiveWeapon => ActiveWeaponSlot switch
+    {
+        WeaponSlot.Melee => MeleeWeapon,
+        WeaponSlot.HeavyRanged => HeavyWeapon,
+        _ => RangedWeapon
+    };
 
-    private Player(Vector2 p, float globalMaxHealthBonus, float globalDamageBonus, int baseStrength, int baseDexterity, int baseSpeed, int baseGuns, ItemStack? rangedWeapon, ItemStack? meleeWeapon, ItemStack? armor, ItemStack? quickSlotQ, ItemStack? quickSlotR)
+    private Player(Vector2 p, float globalMaxHealthBonus, float globalDamageBonus, int baseStrength, int baseDexterity, int baseSpeed, int baseGuns, ItemStack? rangedWeapon, ItemStack? heavyWeapon, ItemStack? meleeWeapon, ItemStack? armor, ItemStack? quickSlotQ, ItemStack? quickSlotR)
     {
         Position = p;
         _globalMaxHealthBonus = globalMaxHealthBonus;
@@ -132,6 +145,7 @@ public sealed class Player
         Guns = Math.Max(0, baseGuns);
 
         RangedWeapon = rangedWeapon ?? ItemStack.StartingPistol();
+        HeavyWeapon = heavyWeapon;
         MeleeWeapon = meleeWeapon ?? ItemStack.StartingMelee();
         Armor = armor ?? ItemStack.StartingArmor();
         Inventory.QuickSlotQ = quickSlotQ;
@@ -140,8 +154,8 @@ public sealed class Player
         SyncArmorState();
     }
 
-    public static Player Create(Vector2 p, float globalMaxHealthBonus, float globalDamageBonus, int baseStrength, int baseDexterity, int baseSpeed, int baseGuns, ItemStack? rangedWeapon, ItemStack? meleeWeapon, ItemStack? armor, ItemStack? quickSlotQ, ItemStack? quickSlotR)
-        => new(p, globalMaxHealthBonus, globalDamageBonus, baseStrength, baseDexterity, baseSpeed, baseGuns, rangedWeapon, meleeWeapon, armor, quickSlotQ, quickSlotR);
+    public static Player Create(Vector2 p, float globalMaxHealthBonus, float globalDamageBonus, int baseStrength, int baseDexterity, int baseSpeed, int baseGuns, ItemStack? rangedWeapon, ItemStack? heavyWeapon, ItemStack? meleeWeapon, ItemStack? armor, ItemStack? quickSlotQ, ItemStack? quickSlotR)
+        => new(p, globalMaxHealthBonus, globalDamageBonus, baseStrength, baseDexterity, baseSpeed, baseGuns, rangedWeapon, heavyWeapon, meleeWeapon, armor, quickSlotQ, quickSlotR);
 
     public void PlaceAt(Vector2 position) => Position = position;
 
@@ -255,7 +269,7 @@ public sealed class Player
     {
         if (_attackCd > 0f) return false;
 
-        var weapon = ActiveWeaponClass == WeaponClass.Ranged ? RangedWeapon : MeleeWeapon;
+        var weapon = ActiveWeapon;
         if (weapon is null) return false;
 
         var dir = target - Position;
@@ -306,9 +320,9 @@ public sealed class Player
                     RocketProjectileLifetime,
                     weapon.Color,
                     false,
-                    damage + 215f,
+                    damage + 200f,
                     ProjectileKind.Grenade,
-                    156f,
+                    117f,
                     damage,
                     8f,
                     false,
@@ -340,18 +354,18 @@ public sealed class Player
                 projectiles.Add(new Projectile(
                     Position + dir * 20f,
                     dir,
-                    340f,
-                    0.72f,
+                    375f,
+                    350f / 375f,
                     weapon.Color,
                     false,
-                    damage + 150f,
+                    damage + 135f,
                     ProjectileKind.Grenade,
-                    120f,
+                    90f,
                     damage,
                     7f,
                     false,
                     Position));
-                _attackCd = 1f / 1.35f;
+                _attackCd = 1f / 1.5f;
                 return true;
             }
             else if (weapon.Pattern is WeaponPattern.PulseRifle or WeaponPattern.Toxikus)
@@ -359,7 +373,9 @@ public sealed class Player
                 var pulseShotDamage = GetPulseShotDamage(weapon);
                 var poisonDps = weapon.Pattern == WeaponPattern.Toxikus ? 30f + damage * 0.4f : 0f;
                 var poisonDuration = weapon.Pattern == WeaponPattern.Toxikus ? 3f : 0f;
-                FirePulseShot(projectiles, dir, weapon.Color, pulseShotDamage, poisonDps, poisonDuration);
+                var projectileSpeed = weapon.Pattern == WeaponPattern.Toxikus ? ToxikusProjectileSpeed : PulseProjectileSpeed;
+                var projectileLifetime = weapon.Pattern == WeaponPattern.Toxikus ? ToxikusProjectileLifetime : PulseProjectileLifetime;
+                FirePulseShot(projectiles, dir, weapon.Color, pulseShotDamage, projectileSpeed, projectileLifetime, poisonDps, poisonDuration);
                 _pulseQueuedShots = GetPulseBurstShotCount(weapon) - 1;
                 _pulseShotCd = weapon.Pattern == WeaponPattern.Toxikus ? 0.0664f : 0.064f;
                 _pulseDir = dir;
@@ -367,6 +383,8 @@ public sealed class Player
                 _pulseDamage = pulseShotDamage;
                 _pulsePoisonDamagePerSecond = poisonDps;
                 _pulsePoisonDuration = poisonDuration;
+                _pulseProjectileSpeed = projectileSpeed;
+                _pulseProjectileLifetime = projectileLifetime;
                 _attackCd = weapon.Pattern == WeaponPattern.Toxikus ? 1f / 2.2f : 0.374f;
                 return true;
             }
@@ -442,23 +460,23 @@ public sealed class Player
         _pulseShotCd -= dt;
         while (_pulseQueuedShots > 0 && _pulseShotCd <= 0f)
         {
-            FirePulseShot(projectiles, _pulseDir, _pulseColor, _pulseDamage, _pulsePoisonDamagePerSecond, _pulsePoisonDuration);
+            FirePulseShot(projectiles, _pulseDir, _pulseColor, _pulseDamage, _pulseProjectileSpeed, _pulseProjectileLifetime, _pulsePoisonDamagePerSecond, _pulsePoisonDuration);
             _pulseQueuedShots--;
             _pulseShotCd += 0.064f;
         }
     }
 
-    private void FirePulseShot(List<Projectile> projectiles, Vector2 dir, Color color, float damage, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
+    private void FirePulseShot(List<Projectile> projectiles, Vector2 dir, Color color, float damage, float speed, float lifetime, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
     {
         dir = ApplyMovementSpread(dir);
-        projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, PulseProjectileLifetime, color, false, damage, sourcePosition: Position, poisonDamagePerSecond: poisonDamagePerSecond, poisonDuration: poisonDuration));
+        projectiles.Add(new Projectile(Position + dir * 18f, dir, speed, lifetime, color, false, damage, sourcePosition: Position, poisonDamagePerSecond: poisonDamagePerSecond, poisonDuration: poisonDuration));
     }
 
     private void FireStandardShot(List<Projectile> projectiles, Vector2 dir, Color color, float damage, float angleOffset = 0f)
     {
         var shotDir = angleOffset == 0f ? dir : VisibilityUtils.Rotate(dir, angleOffset);
         shotDir = ApplyMovementSpread(shotDir);
-        projectiles.Add(new Projectile(Position + shotDir * 18f, shotDir, 520f, 600f / 520f, color, false, damage, sourcePosition: Position));
+        projectiles.Add(new Projectile(Position + shotDir * 18f, shotDir, 520f, 550f / 520f, color, false, damage, sourcePosition: Position));
     }
 
     private static Vector2 ClipRayToObstacles(Vector2 start, Vector2 dir, float distance, List<Obstacle> obstacles, int worldSize, float radius)
@@ -619,7 +637,7 @@ public sealed class Player
         _sniperStillTimer = SniperIdleRequirement;
     }
 
-    public void SwitchActiveWeapon() => ActiveWeaponClass = ActiveWeaponClass == WeaponClass.Ranged ? WeaponClass.Melee : WeaponClass.Ranged;
+    public void SelectWeaponSlot(WeaponSlot slot) => ActiveWeaponSlot = slot;
 
     public ConsumableType? UseQuickSlotQ()
     {

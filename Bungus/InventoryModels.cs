@@ -19,6 +19,7 @@ public sealed class MetaProfile
     public List<ArmoryOffer> ArmoryOffers { get; } = [];
     public ItemStack? Armor { get; set; }
     public ItemStack? RangedWeapon { get; set; }
+    public ItemStack? HeavyWeapon { get; set; }
     public ItemStack? MeleeWeapon { get; set; }
     public ItemStack? QuickSlotQ { get; set; }
     public ItemStack? QuickSlotR { get; set; }
@@ -71,6 +72,7 @@ public sealed class MetaProfileSaveData
     public List<ArmoryOfferSaveData> ArmoryOffers { get; set; } = [];
     public ItemStackSaveData? Armor { get; set; }
     public ItemStackSaveData? RangedWeapon { get; set; }
+    public ItemStackSaveData? HeavyWeapon { get; set; }
     public ItemStackSaveData? MeleeWeapon { get; set; }
     public ItemStackSaveData? QuickSlotQ { get; set; }
     public ItemStackSaveData? QuickSlotR { get; set; }
@@ -209,6 +211,8 @@ public sealed class ItemStack
     public bool IsStationKey
         => Type == ItemType.KeyItem && Name.Equals("S.T.A.T.I.O.N", StringComparison.OrdinalIgnoreCase)
            || Type == ItemType.Consumable && ConsumableKind == ConsumableType.StationKey;
+    public bool IsPrimaryWeapon => Type == ItemType.Weapon && WeaponKind == WeaponClass.Ranged && Pattern is WeaponPattern.Standard or WeaponPattern.PulseRifle or WeaponPattern.Pulsar or WeaponPattern.Toxikus;
+    public bool IsHeavyWeapon => Type == ItemType.Weapon && WeaponKind == WeaponClass.Ranged && Pattern is WeaponPattern.GrenadeLauncher or WeaponPattern.LinearRifle or WeaponPattern.RocketLauncher or WeaponPattern.SniperRifle or WeaponPattern.TraceRifle;
 
     public float Defense { get; }
     public float ResiliencePercent { get; }
@@ -313,8 +317,23 @@ public sealed class ItemStack
             data.DashRecoveryPercent,
             data.ShieldMax,
             data.RegenPercentPerSecond,
-            data.WeaponDamage > 0f ? data.WeaponDamage : data.PowerBonus,
+            NormalizeSavedWeaponDamage(data),
             data.IsStarter);
+    }
+
+    private static float NormalizeSavedWeaponDamage(ItemStackSaveData data)
+    {
+        if (data.Type != ItemType.Weapon) return data.WeaponDamage > 0f ? data.WeaponDamage : data.PowerBonus;
+
+        return data.Pattern switch
+        {
+            WeaponPattern.TraceRifle => 13f,
+            WeaponPattern.LinearRifle => 325f,
+            WeaponPattern.RocketLauncher => 225f,
+            WeaponPattern.Pulsar => 30f,
+            WeaponPattern.GrenadeLauncher => 90f,
+            _ => data.WeaponDamage > 0f ? data.WeaponDamage : data.PowerBonus
+        };
     }
 
     public static ItemStack Armor(ArmorRarity rarity, Random rng)
@@ -504,25 +523,25 @@ public sealed class ItemStack
         {
             name = "Trace Rifle";
             description = "Unique beam rifle. Rapidly paints a limited-range energy stream toward the cursor.";
-            baseDamage = 11.5f;
+            baseDamage = 13f;
         }
         else if (kind == WeaponClass.Ranged && pattern == WeaponPattern.LinearRifle)
         {
             name = "Linear Rifle";
             description = "Unique charge rifle. Hold to charge, then release to fire a heavy linear shot.";
-            baseDamage = 350f;
+            baseDamage = 325f;
         }
         else if (kind == WeaponClass.Ranged && pattern == WeaponPattern.RocketLauncher)
         {
             name = "Rocket Launcher";
             description = "Unique launcher. Fast rocket deals heavy direct and blast damage.";
-            baseDamage = 235f;
+            baseDamage = 225f;
         }
         else if (kind == WeaponClass.Ranged && pattern == WeaponPattern.Pulsar)
         {
             name = "Pulsar";
             description = "Unique automatic rifle. Impacts scatter delayed micro-explosions.";
-            baseDamage = 35f;
+            baseDamage = 30f;
         }
         else if (kind == WeaponClass.Melee && pattern == WeaponPattern.Lancelot)
         {
@@ -642,7 +661,7 @@ public sealed class ItemStack
         return new ItemStack(
             ItemType.Weapon,
             "Destroyer Grenade Launcher",
-            "Boss weapon. Explosive shell deals 100 blast damage and 250 on direct hit.",
+            "Boss weapon. Explosive shell deals 90 blast damage and 225 on direct hit.",
             ArmorRarity.Red,
             Palette.Rarity(ArmorRarity.Red),
             WeaponClass.Ranged,
@@ -656,7 +675,7 @@ public sealed class ItemStack
             0f,
             0f,
             0f,
-            100f,
+            90f,
             false);
     }
 
@@ -721,6 +740,7 @@ public sealed class ItemStack
 public enum SlotKind
 {
     RangedWeapon,
+    HeavyWeapon,
     MeleeWeapon,
     Armor,
     Trash,

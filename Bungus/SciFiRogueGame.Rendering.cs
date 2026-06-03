@@ -378,7 +378,7 @@ public sealed partial class SciFiRogueGame
             Raylib.DrawText(waveText, Raylib.GetScreenWidth() / 2 - Raylib.MeasureText(waveText, 22) / 2, 72, 22, Color.White);
         }
 
-        var activeWeapon = _player.ActiveWeaponClass == WeaponClass.Ranged ? _player.RangedWeapon : _player.MeleeWeapon;
+        var activeWeapon = _player.ActiveWeapon;
         Raylib.DrawText($"Current: {activeWeapon?.Name ?? "None"} {BuildWeaponDamageText(_player, activeWeapon, _player.ActiveWeaponClass)}", 20, 48, 22, activeWeapon?.Color ?? Color.LightGray);
         Raylib.DrawText($"Consumables: Q [{(_player.Inventory.QuickSlotQ?.Name ?? "-")}]  R [{(_player.Inventory.QuickSlotR?.Name ?? "-")}]", 20, 78, 20, Color.White);
         if (!_challengeMode) Raylib.DrawText($"Run score {_runScore}", 20, 108, 20, Color.Gold);
@@ -387,7 +387,7 @@ public sealed partial class SciFiRogueGame
         DrawLevelUpIndicator();
         DrawStatusEffects();
         if (_pitRewardOpen) DrawPitRewardSelection();
-        Raylib.DrawText("WASD move | LMB attack | E switch active weapon | TAB inventory | ESC menu", 20, Raylib.GetScreenHeight() - 28, 18, Color.Gray);
+        Raylib.DrawText("WASD move | LMB attack | 1 melee | 2 primary | 3 heavy | TAB inventory | ESC menu", 20, Raylib.GetScreenHeight() - 28, 18, Color.Gray);
         DrawZoneArrows();
     }
 
@@ -676,7 +676,7 @@ public sealed partial class SciFiRogueGame
             DrawButton(TakeAllButtonRect, "Take all [X]");
         }
 
-        var comparison = new ComparisonContext(_player, _player.Armor, _player.RangedWeapon, _player.MeleeWeapon);
+        var comparison = new ComparisonContext(_player, _player.Armor, _player.RangedWeapon, _player.HeavyWeapon, _player.MeleeWeapon);
         foreach (var slot in slots)
         {
             Raylib.DrawRectangleRec(slot.Rect, Palette.C(22, 28, 42, 255));
@@ -773,7 +773,20 @@ public sealed partial class SciFiRogueGame
             Raylib.DrawLineEx(new Vector2(rect.X + rect.Width - 4, rect.Y + 4), new Vector2(rect.X + 4, rect.Y + rect.Height - 4), 2.2f, Color.Red);
         }
 
+        if (item.IsHeavyWeapon)
+        {
+            DrawHeavyWeaponMarker(rect);
+        }
+
         DrawComparisonMarker(item, rect, comparison, sourceKind);
+    }
+
+    private static void DrawHeavyWeaponMarker(Rectangle rect)
+    {
+        var blue = Palette.C(70, 170, 255);
+        Raylib.DrawRectangleLinesEx(rect, 4f, blue);
+        Raylib.DrawRectangle((int)rect.X + 3, (int)rect.Y + 3, 18, 18, Palette.C(6, 12, 24, 210));
+        Raylib.DrawText("H", (int)rect.X + 7, (int)rect.Y + 3, 18, blue);
     }
 
     private void DrawInventoryUseHoldFrame(UiSlot slot, Rectangle rect)
@@ -955,12 +968,12 @@ public sealed partial class SciFiRogueGame
     {
         if (item.Type is ItemType.Consumable or ItemType.KeyItem) return ComparisonMarker.None;
         if (comparison is null) return ComparisonMarker.None;
-        if (sourceKind is SlotKind.Armor or SlotKind.RangedWeapon or SlotKind.MeleeWeapon) return ComparisonMarker.None;
+        if (sourceKind is SlotKind.Armor or SlotKind.RangedWeapon or SlotKind.HeavyWeapon or SlotKind.MeleeWeapon) return ComparisonMarker.None;
 
         if (item.Type == ItemType.Weapon)
         {
             if (item.WeaponKind is null) return ComparisonMarker.None;
-            var equipped = item.WeaponKind == WeaponClass.Ranged ? comparison.RangedWeapon : comparison.MeleeWeapon;
+            var equipped = GetComparedWeapon(item, comparison);
             if (equipped is null || equipped.Type != ItemType.Weapon || equipped.WeaponKind != item.WeaponKind) return ComparisonMarker.Better;
 
             var candidateDamage = item.BaseDamage;
@@ -1010,7 +1023,7 @@ public sealed partial class SciFiRogueGame
         Neutral
     }
 
-    private sealed record ComparisonContext(Player StatsPlayer, ItemStack? Armor, ItemStack? RangedWeapon, ItemStack? MeleeWeapon);
+    private sealed record ComparisonContext(Player StatsPlayer, ItemStack? Armor, ItemStack? RangedWeapon, ItemStack? HeavyWeapon, ItemStack? MeleeWeapon);
 
     private static void DrawBladeIcon(Rectangle rect)
     {
@@ -1263,7 +1276,7 @@ public sealed partial class SciFiRogueGame
     private static Color GetWeaponDpsColor(ItemStack item, float dps, ComparisonContext? comparison)
     {
         if (comparison is null || item.WeaponKind is null) return Color.LightGray;
-        var equipped = item.WeaponKind == WeaponClass.Ranged ? comparison.RangedWeapon : comparison.MeleeWeapon;
+        var equipped = GetComparedWeapon(item, comparison);
         if (equipped is null || equipped.Type != ItemType.Weapon || equipped.WeaponKind != item.WeaponKind) return Palette.C(80, 230, 110);
 
         var equippedDps = GetWeaponDps(equipped);
@@ -1273,14 +1286,21 @@ public sealed partial class SciFiRogueGame
         return Palette.C(255, 220, 90);
     }
 
+    private static ItemStack? GetComparedWeapon(ItemStack item, ComparisonContext comparison)
+    {
+        if (item.WeaponKind == WeaponClass.Melee) return comparison.MeleeWeapon;
+        if (item.IsHeavyWeapon) return comparison.HeavyWeapon;
+        return comparison.RangedWeapon;
+    }
+
     private static float GetWeaponFireRatePerMinute(ItemStack item)
     {
         if (item.Type != ItemType.Weapon) return 0f;
 
-        if (item.Pattern == WeaponPattern.GrenadeLauncher) return 1.35f * 60f;
-        if (item.Pattern == WeaponPattern.RocketLauncher) return 0.63f * 60f;
+        if (item.Pattern == WeaponPattern.GrenadeLauncher) return 90f;
+        if (item.Pattern == WeaponPattern.RocketLauncher) return 40f;
         if (item.Pattern == WeaponPattern.TraceRifle) return 1000f;
-        if (item.Pattern == WeaponPattern.LinearRifle) return (1f / 1.5f) * 60f;
+        if (item.Pattern == WeaponPattern.LinearRifle) return (1f / 1.25f) * 60f;
         if (item.Pattern == WeaponPattern.Pulsar) return 3f * 60f;
         if (item.Pattern == WeaponPattern.PulseRifle)
         {
@@ -1301,11 +1321,11 @@ public sealed partial class SciFiRogueGame
         if (item.Type != ItemType.Weapon) return 0f;
 
         var damage = item.BaseDamage;
-        if (item.Pattern == WeaponPattern.GrenadeLauncher) return (damage + 150f) / GetWeaponCooldown(item);
-        if (item.Pattern == WeaponPattern.RocketLauncher) return (damage + 215f) / GetWeaponCooldown(item);
+        if (item.Pattern == WeaponPattern.GrenadeLauncher) return (damage + 135f) / GetWeaponCooldown(item);
+        if (item.Pattern == WeaponPattern.RocketLauncher) return (damage + 200f) / GetWeaponCooldown(item);
         if (item.Pattern == WeaponPattern.TraceRifle) return damage / GetWeaponCooldown(item);
         if (item.Pattern == WeaponPattern.LinearRifle) return damage / GetWeaponCooldown(item);
-        if (item.Pattern == WeaponPattern.Pulsar) return (damage + 2.5f * 25f) / GetWeaponCooldown(item);
+        if (item.Pattern == WeaponPattern.Pulsar) return (damage + 2.5f * 15f) / GetWeaponCooldown(item);
         if (item.Pattern == WeaponPattern.PulseRifle)
         {
             var shots = item.Rarity == ArmorRarity.Legendary ? 4 : 3;
@@ -1322,13 +1342,13 @@ public sealed partial class SciFiRogueGame
 
         if (item.Pattern == WeaponPattern.SniperRifle)
         {
-            var shotDamage = damage * 5.55f;
+            var shotDamage = damage * 8.325f;
             return shotDamage / GetWeaponCooldown(item);
         }
 
         if (item.WeaponKind == WeaponClass.Melee)
         {
-            var hitDamage = damage * 7f;
+            var hitDamage = damage * 6.3f;
             return hitDamage / GetWeaponCooldown(item);
         }
 
@@ -1338,10 +1358,10 @@ public sealed partial class SciFiRogueGame
 
     private static float GetWeaponCooldown(ItemStack item)
     {
-        if (item.Pattern == WeaponPattern.GrenadeLauncher) return 1f / 1.35f;
-        if (item.Pattern == WeaponPattern.RocketLauncher) return 1f / 0.63f;
+        if (item.Pattern == WeaponPattern.GrenadeLauncher) return 1f / 1.5f;
+        if (item.Pattern == WeaponPattern.RocketLauncher) return 1.5f;
         if (item.Pattern == WeaponPattern.TraceRifle) return 60f / 1000f;
-        if (item.Pattern == WeaponPattern.LinearRifle) return 1.5f;
+        if (item.Pattern == WeaponPattern.LinearRifle) return 1.25f;
         if (item.Pattern == WeaponPattern.Pulsar) return 1f / 3f;
         if (item.Pattern == WeaponPattern.Toxikus) return 1f / 2.2f;
         if (item.Pattern == WeaponPattern.PulseRifle) return 0.374f;
@@ -1495,9 +1515,10 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawRectangleLinesEx(new Rectangle(40, 190, 300, 600), 2f, Palette.C(108, 170, 228));
         Raylib.DrawText("Loadout", 72, 164, 24, Color.White);
         Raylib.DrawText("Armor", 72, 240, 18, Color.LightGray);
-        Raylib.DrawText("Ranged", 72, 340, 18, Color.LightGray);
-        Raylib.DrawText("Melee", 72, 440, 18, Color.LightGray);
-        Raylib.DrawText("Consumables", 72, 540, 18, Color.LightGray);
+        Raylib.DrawText("Primary", 72, 340, 18, Color.LightGray);
+        Raylib.DrawText("Heavy", 72, 440, 18, Color.LightGray);
+        Raylib.DrawText("Melee", 72, 540, 18, Color.LightGray);
+        Raylib.DrawText("Consumables", 72, 640, 18, Color.LightGray);
 
         var runBackpackPanel = new Rectangle(400, 190, 460, 550);
         Raylib.DrawRectangleRec(runBackpackPanel, Palette.C(10, 18, 30, 220));
@@ -1512,13 +1533,13 @@ public sealed partial class SciFiRogueGame
         var firstVisible = _storageScrollRow * StashGridColumns + 1;
         var lastVisible = Math.Min(_meta.StorageSlots.Count, (_storageScrollRow + StashVisibleRows) * StashGridColumns);
         Raylib.DrawText($"{firstVisible}-{lastVisible}", (int)stashPanel.X + 178, 112, 18, Color.LightGray);
-        DrawStorageGrid(new Vector2(900, 180), StashGridColumns, StashVisibleRows);
+        DrawStorageGrid(new Vector2(910, 200), StashGridColumns, StashVisibleRows);
         DrawStashScrollBar(stashPanel);
 
         DrawButton(new Rectangle(70, 900, 220, 52), "Back");
 
         var slots = BuildStorageSlots();
-        var comparison = new ComparisonContext(previewPlayer, _meta.Armor, _meta.RangedWeapon, _meta.MeleeWeapon);
+        var comparison = new ComparisonContext(previewPlayer, _meta.Armor, _meta.RangedWeapon, _meta.HeavyWeapon, _meta.MeleeWeapon);
         foreach (var slot in slots)
         {
             Raylib.DrawRectangleRec(slot.Rect, Palette.C(22, 28, 42, 255));
@@ -1545,7 +1566,7 @@ public sealed partial class SciFiRogueGame
     private void DrawArmory()
     {
         var previewPlayer = CreateLandingPreviewPlayer();
-        var comparison = new ComparisonContext(previewPlayer, _meta.Armor, _meta.RangedWeapon, _meta.MeleeWeapon);
+        var comparison = new ComparisonContext(previewPlayer, _meta.Armor, _meta.RangedWeapon, _meta.HeavyWeapon, _meta.MeleeWeapon);
         Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(8, 12, 20));
         DrawTitle("Armory", 48, 56);
         Raylib.DrawText("Buy equipment for SynthCoins. Stock refreshes after each run.", 70, 106, 24, Color.LightGray);
@@ -1590,7 +1611,7 @@ public sealed partial class SciFiRogueGame
         var ready = PitRewardReady;
         var mouse = Raylib.GetMousePosition();
         ItemStack? hoveredReward = null;
-        var comparison = new ComparisonContext(_player, _player.Armor, _player.RangedWeapon, _player.MeleeWeapon);
+        var comparison = new ComparisonContext(_player, _player.Armor, _player.RangedWeapon, _player.HeavyWeapon, _player.MeleeWeapon);
         Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(0, 0, 0, 170));
         var panel = PitRewardPanelRect();
         Raylib.DrawRectangleRec(panel, Palette.C(10, 16, 28, 245));
@@ -1671,6 +1692,7 @@ public sealed partial class SciFiRogueGame
     {
         var previewPlayer = CreateLandingPreviewPlayer();
         var rangedDamage = BuildWeaponDamageText(previewPlayer, previewPlayer.RangedWeapon, WeaponClass.Ranged);
+        var heavyDamage = BuildWeaponDamageText(previewPlayer, previewPlayer.HeavyWeapon, WeaponClass.Ranged);
         var meleeDamage = BuildWeaponDamageText(previewPlayer, previewPlayer.MeleeWeapon, WeaponClass.Melee);
 
         DrawTitle("Character", 56, 60);
@@ -1684,8 +1706,9 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText($"Character stats: STR {_meta.BaseStrength} | DEX {_meta.BaseDexterity} | SPD {_meta.BaseSpeed} | GUN {_meta.BaseGuns}", 96, 292, 24, Color.White);
         Raylib.DrawText($"Landing HP: {previewPlayer.MaxHealth:0}", 96, 334, 24, Palette.C(140, 220, 160));
         Raylib.DrawText($"Move speed: x{previewPlayer.SpeedMultiplier:0.00}", 96, 368, 24, Palette.C(170, 220, 255));
-        Raylib.DrawText($"Ranged damage: {rangedDamage}", 96, 402, 24, Palette.C(255, 210, 120));
-        Raylib.DrawText($"Melee damage: {meleeDamage}", 96, 436, 24, Palette.C(255, 180, 120));
+        Raylib.DrawText($"Primary damage: {rangedDamage}", 96, 402, 24, Palette.C(255, 210, 120));
+        Raylib.DrawText($"Heavy damage: {heavyDamage}", 96, 436, 24, Palette.C(255, 210, 120));
+        Raylib.DrawText($"Melee damage: {meleeDamage}", 96, 470, 24, Palette.C(255, 180, 120));
 
         DrawButton(new Rectangle(70, 620, 220, 52), "Back");
     }

@@ -405,7 +405,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
-        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(new Rectangle(70, 620, 220, 52)))
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(MapSelectBackButtonRect()))
         {
             ClearUiInteraction();
             _state = GameState.MainMenu;
@@ -437,7 +437,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateStorage()
     {
-        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(new Rectangle(70, 900, 220, 52)))
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(StorageBackButtonRect()))
         {
             ClearUiInteraction();
             _state = GameState.MainMenu;
@@ -449,7 +449,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateArmory()
     {
-        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(new Rectangle(70, 620, 220, 52)))
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(ArmoryBackButtonRect()))
         {
             ClearUiInteraction();
             _state = GameState.MainMenu;
@@ -473,6 +473,17 @@ public sealed partial class SciFiRogueGame : IDisposable
 
             _hovered = offer.Item;
             if (Raylib.IsMouseButtonPressed(MouseButton.Left)) TryBuyArmoryOffer(i);
+            return;
+        }
+
+        for (var i = 0; i < _meta.TokenStoreOffers.Count; i++)
+        {
+            var offer = _meta.TokenStoreOffers[i];
+            var rect = TokenStoreOfferRect(i);
+            if (!Raylib.CheckCollisionPointRec(mouse, rect)) continue;
+
+            _hovered = offer.Item;
+            if (Raylib.IsMouseButtonPressed(MouseButton.Left)) TryBuyTokenStoreOffer(i);
             return;
         }
     }
@@ -519,6 +530,44 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         SavePersistentState();
         ShowNotice($"Bought {offer.Item.Name} for {price} SynthCoins.");
+    }
+
+    private void TryBuyTokenStoreOffer(int index)
+    {
+        if (index < 0 || index >= _meta.TokenStoreOffers.Count) return;
+
+        var offer = _meta.TokenStoreOffers[index];
+        if (offer.Purchased)
+        {
+            ShowNotice("This token item is already sold.");
+            return;
+        }
+
+        var price = GetTokenStorePrice(offer);
+        if (_meta.CryptoTokens < price)
+        {
+            ShowNotice("Not enough CryptoTokens.");
+            return;
+        }
+
+        if (!_meta.HasFreeStorageSlot())
+        {
+            ShowNotice("Storage is full.");
+            return;
+        }
+
+        _meta.CryptoTokens -= price;
+        offer.Purchased = true;
+        if (!_meta.AddToStorage(offer.Item))
+        {
+            _meta.CryptoTokens += price;
+            offer.Purchased = false;
+            ShowNotice("Storage is full.");
+            return;
+        }
+
+        SavePersistentState();
+        ShowNotice($"Bought {offer.Item.Name} for {price} CryptoTokens.");
     }
 
     private void UpdateCharacter()
@@ -1572,7 +1621,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 }
                 else
                 {
-                    directHit = TryApplyPlayerSegmentDamage(p.PreviousPosition, p.Position, p.DrawRadius, p.Damage, p.SourcePosition, p.PoisonDamagePerSecond, p.PoisonDuration);
+                    directHit = TryApplyExplosiveDirectDamage(p.PreviousPosition, p.Position, p.Damage, p.SourcePosition, p.PoisonDamagePerSecond, p.PoisonDuration);
                     hitTarget = directHit || HasEnemyInRadius(p.Position, 22f);
                 }
 
@@ -1712,6 +1761,16 @@ public sealed partial class SciFiRogueGame : IDisposable
         return bestDistance < float.MaxValue;
     }
 
+    private bool TryApplyExplosiveDirectDamage(Vector2 from, Vector2 to, float damage, Vector2 shotSource, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
+    {
+        const float directHitRadius = 22f;
+        if (TryApplyPlayerSegmentDamage(from, to, directHitRadius, damage, shotSource, poisonDamagePerSecond, poisonDuration)) return true;
+
+        var endpoint = to + new Vector2(0.01f, 0f);
+        return HasEnemyInRadius(to, directHitRadius)
+            && TryApplyPlayerSegmentDamage(to, endpoint, directHitRadius, damage, shotSource, poisonDamagePerSecond, poisonDuration);
+    }
+
     private static float ProjectDistanceAlongSegment(Vector2 point, Vector2 from, Vector2 to)
     {
         var segment = to - from;
@@ -1845,8 +1904,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (_destroyerBoss is not null && _destroyerBoss.Alive && _destroyerBoss.TryApplySegmentDamage(from, to, radius, damage))
         {
             ApplyPlayerHitEffects(_destroyerBoss, poisonDamagePerSecond, poisonDuration);
-            _destroyerBoss.ForceAggro(_player.Position);
-            AggroWitnesses(_destroyerBoss.Position, true);
+            var targetAggroed = _destroyerBoss.ReactToShot(shotSource, _obstacles);
+            AggroWitnesses(_destroyerBoss.Position, targetAggroed);
             return true;
         }
 
@@ -1942,8 +2001,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (_destroyerBoss.IntersectsAnyHitZone(projectile.Position, projectile.ExplosionRadius))
             {
                 ApplyPlayerHitEffects(_destroyerBoss);
-                _destroyerBoss.ForceAggro(_player.Position);
-                aggroWitnesses = true;
+                aggroWitnesses |= _destroyerBoss.ReactToShot(projectile.SourcePosition, _obstacles);
             }
         }
 
@@ -3256,6 +3314,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         AddMetaScore(_runScore);
         RefreshArmoryOffers();
+        RefreshTokenStoreOffers();
         SavePersistentState();
         ClearUiInteraction();
         _extractPortals.Clear();
@@ -3293,6 +3352,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _pitRewardSpinElapsed = 0f;
         ClearUiInteraction();
         RefreshArmoryOffers();
+        RefreshTokenStoreOffers();
         SavePersistentState();
         _deathHeader = header;
         _deathBody = _challengeMode
@@ -3424,6 +3484,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (code == "TESTW")
         {
             var result = ApplyTestWeaponsCode();
+            SetCodeStatus(result.Success, result.Message);
+            if (result.Success) _codeInput = string.Empty;
+            return;
+        }
+
+        if (code == "GREEDRAM")
+        {
+            var result = ApplyGreedRamCode();
             SetCodeStatus(result.Success, result.Message);
             if (result.Success) _codeInput = string.Empty;
             return;
@@ -3625,6 +3693,20 @@ public sealed partial class SciFiRogueGame : IDisposable
         return (true, lost > 0 ? $"Success: {stored} test weapon(s) delivered, {lost} lost due to full storage." : "Success");
     }
 
+    private (bool Success, string Message) ApplyGreedRamCode()
+    {
+        const string code = "GREEDRAM";
+        if (!CanUsePromoCode(code, null, false, out var error))
+        {
+            return (false, error);
+        }
+
+        _meta.CryptoTokens += 100;
+        RegisterPromoCodeUse(code, false);
+        SavePersistentState();
+        return (true, "Success: +100 CryptoTokens.");
+    }
+
     private bool CanUsePromoCode(string code, int? maxUses, bool sessionOnly, out string error)
     {
         error = string.Empty;
@@ -3799,6 +3881,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private static int GetArmoryPrice(ItemStack item)
     {
         if (item.IsHeavyAmmo) return 300;
+        if (item.Type == ItemType.Consumable) return 200;
 
         var price = item.Rarity == ArmorRarity.Epic ? 2500 : 500;
         if (item.Type == ItemType.Armor)
@@ -3829,13 +3912,85 @@ public sealed partial class SciFiRogueGame : IDisposable
         for (var i = 0; i < 7; i++) _meta.ArmoryOffers.Add(new ArmoryOffer { Item = RollArmoryEquipment(ArmorRarity.Rare) });
         for (var i = 0; i < 3; i++) _meta.ArmoryOffers.Add(new ArmoryOffer { Item = RollArmoryEquipment(ArmorRarity.Epic) });
         _meta.ArmoryOffers.Add(new ArmoryOffer { Item = ItemStack.HeavyAmmo(25f) });
+        _meta.ArmoryOffers.Add(new ArmoryOffer { Item = ItemStack.Consumable(RollConsumableType()) });
     }
 
     private bool EnsureArmoryHeavyAmmoOffer()
     {
-        if (_meta.ArmoryOffers.Any(offer => offer.Item.IsHeavyAmmo)) return false;
-        _meta.ArmoryOffers.Add(new ArmoryOffer { Item = ItemStack.HeavyAmmo(25f) });
+        var changed = false;
+        if (!_meta.ArmoryOffers.Any(offer => offer.Item.IsHeavyAmmo))
+        {
+            _meta.ArmoryOffers.Add(new ArmoryOffer { Item = ItemStack.HeavyAmmo(25f) });
+            changed = true;
+        }
+
+        if (!_meta.ArmoryOffers.Any(offer => offer.Item.Type == ItemType.Consumable))
+        {
+            _meta.ArmoryOffers.Add(new ArmoryOffer { Item = ItemStack.Consumable(RollConsumableType()) });
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private bool EnsureTokenStoreOffers()
+    {
+        if (_meta.TokenStoreOffers.Count >= 3) return false;
+        RefreshTokenStoreOffers();
         return true;
+    }
+
+    private void RefreshTokenStoreOffers()
+    {
+        _meta.TokenStoreOffers.Clear();
+        var patterns = new List<WeaponPattern>
+        {
+            WeaponPattern.Pulsar,
+            WeaponPattern.Toxikus,
+            WeaponPattern.LinearRifle,
+            WeaponPattern.TraceRifle,
+            WeaponPattern.RocketLauncher
+        };
+
+        for (var i = 0; i < 3 && patterns.Count > 0; i++)
+        {
+            var patternIndex = _rng.Next(patterns.Count);
+            var pattern = patterns[patternIndex];
+            patterns.RemoveAt(patternIndex);
+            _meta.TokenStoreOffers.Add(new TokenStoreOffer
+            {
+                Item = CreateTokenStoreWeapon(pattern),
+                DiscountPercent = _rng.NextSingle() < 0.5f ? _rng.Next(2, 9) * 5 : 0
+            });
+        }
+    }
+
+    private ItemStack CreateTokenStoreWeapon(WeaponPattern pattern)
+        => pattern switch
+        {
+            WeaponPattern.Pulsar => ItemStack.Pulsar(_rng),
+            WeaponPattern.Toxikus => ItemStack.Toxikus(_rng),
+            WeaponPattern.LinearRifle => ItemStack.LinearRifle(_rng),
+            WeaponPattern.TraceRifle => ItemStack.TraceRifle(_rng),
+            WeaponPattern.RocketLauncher => ItemStack.RocketLauncher(_rng),
+            _ => ItemStack.Pulsar(_rng)
+        };
+
+    private static int GetTokenStoreBasePrice(ItemStack item)
+        => item.Pattern switch
+        {
+            WeaponPattern.Pulsar => 100,
+            WeaponPattern.Toxikus => 80,
+            WeaponPattern.LinearRifle => 150,
+            WeaponPattern.TraceRifle => 125,
+            WeaponPattern.RocketLauncher => 175,
+            _ => 100
+        };
+
+    private static int GetTokenStorePrice(TokenStoreOffer offer)
+    {
+        var price = GetTokenStoreBasePrice(offer.Item);
+        return Math.Max(1, (int)MathF.Ceiling(price * (100 - offer.DiscountPercent) / 100f));
     }
 
     private ItemStack RollArmoryEquipment(ArmorRarity rarity)

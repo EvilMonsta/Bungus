@@ -2747,6 +2747,13 @@ public sealed class BossEnemyDestroyer
     private int _burstShotsLeft;
     private float _burstShotCd;
     private bool _alert;
+    private bool _investigating;
+    private bool _returningFromInvestigation;
+    private Vector2 _investigateTarget;
+    private Vector2 _investigateReturnPoint;
+    private float _investigateWait;
+    private float _investigateReturnStartDistance;
+    private float _investigateReturnStartHealth;
     private bool _phaseTwoShieldReset;
     private float _slowTimer;
     private float _poisonTimer;
@@ -2804,6 +2811,19 @@ public sealed class BossEnemyDestroyer
         else if (VisibilityUtils.HasLineOfSight(Position, playerPos, obstacles) && distance <= ViewDistance)
         {
             _alert = true;
+        }
+
+        if (!_alert && _investigating)
+        {
+            if (CanSeePoint(playerPos, obstacles))
+            {
+                ForceAggro(playerPos);
+            }
+            else
+            {
+                UpdateInvestigation(dt, obstacles, worldSize);
+                return;
+            }
         }
 
         if (!_alert) return;
@@ -2933,9 +2953,80 @@ public sealed class BossEnemyDestroyer
 
     public void ForceAggro(Vector2 target)
     {
+        if (!_alert && !_investigating) _investigateReturnPoint = Position;
         _alert = true;
+        _investigating = false;
+        _returningFromInvestigation = false;
         var dir = target - Position;
         if (dir != Vector2.Zero) _facing = Vector2.Normalize(dir);
+    }
+
+    public bool ReactToShot(Vector2 shotSource, List<Obstacle> obstacles)
+    {
+        if (CanSeePoint(shotSource, obstacles))
+        {
+            ForceAggro(shotSource);
+            return true;
+        }
+
+        StartInvestigation(shotSource);
+        return false;
+    }
+
+    private void StartInvestigation(Vector2 target)
+    {
+        if (_alert) return;
+
+        if (!_investigating) _investigateReturnPoint = Position;
+        _investigating = true;
+        _returningFromInvestigation = false;
+        _investigateTarget = target;
+        _investigateWait = 0f;
+    }
+
+    private void UpdateInvestigation(float dt, List<Obstacle> obstacles, int worldSize)
+    {
+        if (!_returningFromInvestigation && _investigateWait > 0f)
+        {
+            _investigateWait -= dt;
+            if (_investigateWait <= 0f) StartInvestigationReturn();
+            return;
+        }
+
+        var target = _returningFromInvestigation ? _investigateReturnPoint : _investigateTarget;
+        var to = target - Position;
+        if (to.Length() < 14f)
+        {
+            if (_returningFromInvestigation)
+            {
+                Health = MaxHealth;
+                RestoreShieldNodes();
+                _investigating = false;
+                return;
+            }
+
+            _investigateWait = 1f;
+            return;
+        }
+
+        var dir = Vector2.Normalize(to);
+        _facing = dir;
+        Position = MovementUtils.MoveWithCollisions(Position, dir * PhaseOneSpeed * GetMovementSpeedMultiplier() * dt, CollisionRadius, obstacles, worldSize);
+        if (_returningFromInvestigation) HealDuringInvestigationReturn();
+    }
+
+    private void StartInvestigationReturn()
+    {
+        _returningFromInvestigation = true;
+        _investigateReturnStartDistance = MathF.Max(1f, Vector2.Distance(Position, _investigateReturnPoint));
+        _investigateReturnStartHealth = Health;
+    }
+
+    private void HealDuringInvestigationReturn()
+    {
+        var remaining = Vector2.Distance(Position, _investigateReturnPoint);
+        var progress = 1f - Math.Clamp(remaining / _investigateReturnStartDistance, 0f, 1f);
+        Health = MathF.Max(Health, _investigateReturnStartHealth + (MaxHealth - _investigateReturnStartHealth) * progress);
     }
 
     public void ApplyStickySlow(float duration = 1f)

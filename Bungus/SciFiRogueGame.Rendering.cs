@@ -725,6 +725,13 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText(text, x, y, fontSize, Palette.C(120, 230, 255));
     }
 
+    private void DrawCryptoTokensCounter(int rightMargin, int y, int fontSize)
+    {
+        var text = $"CryptoTokens: {_meta.CryptoTokens}";
+        var x = Raylib.GetScreenWidth() - rightMargin - Raylib.MeasureText(text, fontSize);
+        Raylib.DrawText(text, x, y, fontSize, Palette.C(210, 150, 255));
+    }
+
     private void DrawItemIcon(ItemStack item, Rectangle rect, ComparisonContext? comparison = null, SlotKind? sourceKind = null)
     {
         var background = item.Type == ItemType.Consumable ? Palette.C(130, 210, 120) : item.Color;
@@ -1423,7 +1430,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMainMenu()
     {
-        Raylib.DrawText("a0.3.1", 86, 150, 24, Palette.C(150, 185, 220));
+        Raylib.DrawText("a0.3.2", 86, 150, 24, Palette.C(150, 185, 220));
         DrawMetaProgressHeader();
 
         DrawButton(MainMenuButtonRect(0), "Play");
@@ -1488,7 +1495,7 @@ public sealed partial class SciFiRogueGame
             }
         }
 
-        DrawButton(new Rectangle(70, 620, 220, 52), "Back");
+        DrawButton(MapSelectBackButtonRect(), "Back");
     }
 
     private void DrawChallengeCard(Rectangle card)
@@ -1574,7 +1581,7 @@ public sealed partial class SciFiRogueGame
         DrawStorageGrid(new Vector2(910, 200), StashGridColumns, StashVisibleRows);
         DrawStashScrollBar(stashPanel);
 
-        DrawButton(new Rectangle(70, 900, 220, 52), "Back");
+        DrawButton(StorageBackButtonRect(), "Back");
 
         var slots = BuildStorageSlots();
         var comparison = new ComparisonContext(previewPlayer, _meta.Armor, _meta.RangedWeapon, _meta.HeavyWeapon, _meta.MeleeWeapon);
@@ -1607,46 +1614,72 @@ public sealed partial class SciFiRogueGame
         var comparison = new ComparisonContext(previewPlayer, _meta.Armor, _meta.RangedWeapon, _meta.HeavyWeapon, _meta.MeleeWeapon);
         Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(8, 12, 20));
         DrawTitle("Armory", 48, 56);
-        Raylib.DrawText("Buy equipment for SynthCoins. Stock refreshes after each run.", 70, 106, 24, Color.LightGray);
+        Raylib.DrawText("Buy equipment. Stock refreshes after each run.", 70, 106, 24, Color.LightGray);
         DrawSynthCoinsCounter(70, 138, 24);
+        DrawCryptoTokensCounter(70, 164, 24);
+
+        for (var i = 0; i < _meta.TokenStoreOffers.Count; i++)
+        {
+            DrawTokenStoreOffer(_meta.TokenStoreOffers[i], TokenStoreOfferRect(i), comparison);
+        }
 
         for (var i = 0; i < _meta.ArmoryOffers.Count; i++)
         {
-            var offer = _meta.ArmoryOffers[i];
-            var rect = ArmoryOfferRect(i);
-            var disabled = offer.Purchased && !offer.Item.IsHeavyAmmo;
-            var border = offer.Item.IsHeavyAmmo ? Palette.C(120, 210, 255) : offer.Item.Rarity == ArmorRarity.Epic ? Palette.C(191, 120, 255) : Color.SkyBlue;
-
-            Raylib.DrawRectangleRec(rect, disabled ? Palette.C(18, 20, 26, 190) : Palette.C(10, 18, 30, 230));
-            Raylib.DrawRectangleLinesEx(rect, 2f, disabled ? Color.DarkGray : border);
-
-            var iconRect = new Rectangle(rect.X + 14, rect.Y + 18, 58, 58);
-            DrawItemIcon(offer.Item, iconRect, comparison);
-
-            Raylib.DrawText(offer.Item.Name, (int)rect.X + 84, (int)rect.Y + 20, 18, disabled ? Color.Gray : Color.White);
-            var typeText = offer.Item.IsHeavyAmmo ? "Ammo" : offer.Item.Type == ItemType.Armor ? "Armor" : offer.Item.WeaponKind == WeaponClass.Ranged ? "Ranged" : "Melee";
-            Raylib.DrawText(typeText, (int)rect.X + 84, (int)rect.Y + 46, 16, Color.LightGray);
-            Raylib.DrawText($"{GetArmoryPrice(offer.Item)} SC", (int)rect.X + 84, (int)rect.Y + 70, 18, Palette.C(120, 230, 255));
-
-            if (offer.Item.IsHeavyAmmo)
-            {
-                Raylib.DrawText($"{offer.Item.AmmoPercent:0.0}% pack", (int)rect.X + 14, (int)rect.Y + 92, 16, Color.Gold);
-            }
-            else if (offer.Item.Type == ItemType.Armor && GetArmorModifierCount(offer.Item) > 0)
-            {
-                Raylib.DrawText($"+{GetArmorModifierCount(offer.Item) * 20}% mods", (int)rect.X + 14, (int)rect.Y + 92, 16, Color.Gold);
-            }
-            else if (offer.Item.Type == ItemType.Weapon)
-            {
-                Raylib.DrawText($"Damage {offer.Item.BaseDamage:0.0}", (int)rect.X + 14, (int)rect.Y + 92, 16, Color.Gold);
-            }
-
-            Raylib.DrawText(disabled ? "Purchased" : "Click to buy", (int)rect.X + 14, (int)rect.Y + 140, 18, disabled ? Color.Gray : Color.Green);
+            DrawArmoryOffer(_meta.ArmoryOffers[i], ArmoryOfferRect(i), comparison);
         }
 
-        DrawButton(new Rectangle(70, 620, 220, 52), "Back");
+        DrawButton(ArmoryBackButtonRect(), "Back");
 
         if (_hovered is not null) DrawTooltip(_hovered, Raylib.GetMousePosition(), comparison);
+    }
+
+    private void DrawArmoryOffer(ArmoryOffer offer, Rectangle rect, ComparisonContext comparison)
+    {
+        var disabled = offer.Purchased && !offer.Item.IsHeavyAmmo;
+        var border = offer.Item.IsHeavyAmmo ? Palette.C(120, 210, 255) : offer.Item.Rarity == ArmorRarity.Epic ? Palette.C(191, 120, 255) : Color.SkyBlue;
+        DrawStoreCardBackground(rect, disabled, border, Palette.C(10, 18, 30, 230));
+
+        var iconRect = new Rectangle(rect.X + 10, rect.Y + 10, rect.Width - 20, rect.Height - 20);
+        DrawItemIcon(offer.Item, iconRect, comparison);
+
+        DrawStorePrice(rect, $"{GetArmoryPrice(offer.Item)} SC", Palette.C(120, 230, 255));
+        if (disabled) DrawStoreDisabledOverlay(rect);
+    }
+
+    private void DrawTokenStoreOffer(TokenStoreOffer offer, Rectangle rect, ComparisonContext comparison)
+    {
+        var disabled = offer.Purchased;
+        var border = Palette.C(210, 150, 255);
+        DrawStoreCardBackground(rect, disabled, border, Palette.C(24, 14, 36, 235));
+
+        var iconRect = new Rectangle(rect.X + 10, rect.Y + 10, rect.Width - 20, rect.Height - 20);
+        DrawItemIcon(offer.Item, iconRect, comparison);
+
+        var price = GetTokenStorePrice(offer);
+        DrawStorePrice(rect, $"{price} CT", Palette.C(210, 150, 255));
+        if (disabled) DrawStoreDisabledOverlay(rect);
+    }
+
+    private static void DrawStoreCardBackground(Rectangle rect, bool disabled, Color border, Color fill)
+    {
+        Raylib.DrawRectangleRec(rect, disabled ? Palette.C(18, 20, 26, 190) : fill);
+        Raylib.DrawRectangleLinesEx(rect, 2f, disabled ? Color.DarkGray : border);
+    }
+
+    private static void DrawStorePrice(Rectangle rect, string text, Color color)
+    {
+        const int fontSize = 16;
+        var textWidth = Raylib.MeasureText(text, fontSize);
+        var x = (int)(rect.X + rect.Width - textWidth - 7);
+        var y = (int)rect.Y + 6;
+        Raylib.DrawRectangle(x - 4, y - 3, textWidth + 8, fontSize + 6, Palette.C(0, 0, 0, 205));
+        Raylib.DrawText(text, x, y, fontSize, color);
+    }
+
+    private static void DrawStoreDisabledOverlay(Rectangle rect)
+    {
+        Raylib.DrawRectangleRec(rect, Palette.C(0, 0, 0, 120));
+        Raylib.DrawRectangleLinesEx(rect, 2f, Color.DarkGray);
     }
 
     private void DrawPitRewardSelection()
@@ -1991,8 +2024,20 @@ public sealed partial class SciFiRogueGame
     {
         var col = index % 6;
         var row = index / 6;
-        return new Rectangle(70 + col * 198, 178 + row * 210, 184, 180);
+        return new Rectangle(70 + col * 154, 246 + row * 154, 138, 138);
     }
+
+    private static Rectangle TokenStoreOfferRect(int index)
+        => new(1116, 246 + index * 154, 138, 138);
+
+    private static Rectangle MapSelectBackButtonRect()
+        => new(70, 676, 220, 52);
+
+    private static Rectangle StorageBackButtonRect()
+        => new(70, 900, 220, 52);
+
+    private static Rectangle ArmoryBackButtonRect()
+        => new(70, 900, 220, 52);
 
     private static Rectangle MainMenuCodesButtonRect()
         => new(Raylib.GetScreenWidth() - 290, Raylib.GetScreenHeight() - 110, 220, 48);

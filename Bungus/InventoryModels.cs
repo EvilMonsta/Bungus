@@ -13,10 +13,12 @@ public sealed class MetaProfile
     public int BaseSpeed { get; set; } = 4;
     public int BaseGuns { get; set; } = 4;
     public int SynthCoins { get; set; }
+    public int CryptoTokens { get; set; }
 
     public List<ItemStack?> StorageSlots { get; } = Enumerable.Repeat<ItemStack?>(null, StorageCapacity).ToList();
     public List<ItemStack?> RunBackpackSlots { get; } = Enumerable.Repeat<ItemStack?>(null, Inventory.BackpackCapacity).ToList();
     public List<ArmoryOffer> ArmoryOffers { get; } = [];
+    public List<TokenStoreOffer> TokenStoreOffers { get; } = [];
     public ItemStack? Armor { get; set; }
     public ItemStack? RangedWeapon { get; set; }
     public ItemStack? HeavyWeapon { get; set; }
@@ -75,9 +77,11 @@ public sealed class MetaProfileSaveData
     public int BaseSpeed { get; set; } = 4;
     public int BaseGuns { get; set; } = 4;
     public int SynthCoins { get; set; }
+    public int CryptoTokens { get; set; }
     public List<ItemStackSaveData?> StorageSlots { get; set; } = [];
     public List<ItemStackSaveData?> RunBackpackSlots { get; set; } = [];
     public List<ArmoryOfferSaveData> ArmoryOffers { get; set; } = [];
+    public List<TokenStoreOfferSaveData> TokenStoreOffers { get; set; } = [];
     public ItemStackSaveData? Armor { get; set; }
     public ItemStackSaveData? RangedWeapon { get; set; }
     public ItemStackSaveData? HeavyWeapon { get; set; }
@@ -123,6 +127,20 @@ public sealed class ArmoryOffer
 public sealed class ArmoryOfferSaveData
 {
     public ItemStackSaveData? Item { get; set; }
+    public bool Purchased { get; set; }
+}
+
+public sealed class TokenStoreOffer
+{
+    public ItemStack Item { get; set; } = ItemStack.Pulsar(new Random());
+    public int DiscountPercent { get; set; }
+    public bool Purchased { get; set; }
+}
+
+public sealed class TokenStoreOfferSaveData
+{
+    public ItemStackSaveData? Item { get; set; }
+    public int DiscountPercent { get; set; }
     public bool Purchased { get; set; }
 }
 

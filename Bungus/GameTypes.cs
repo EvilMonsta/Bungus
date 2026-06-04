@@ -4,6 +4,7 @@ namespace Bungus.Game;
 
 public enum GameState { MainMenu, MapSelect, Storage, Armory, Character, Settings, Playing, Paused, Death }
 public enum DeploymentListMode { Expeditions, Challenges }
+public enum ChallengeKind { None, Pit, PitNightmare }
 public enum WeaponClass { Melee, Ranged }
 
 public enum WeaponSlot { Melee, PrimaryRanged, HeavyRanged }

@@ -156,7 +156,9 @@ public sealed partial class SciFiRogueGame
 
         foreach (var portal in _extractPortals)
         {
-            var active = !_lastChanceActive || IsLastChancePortalOpen();
+            var active = _challengeKind == ChallengeKind.PitNightmare
+                ? _pitNightmarePortalActive
+                : !_lastChanceActive || IsLastChancePortalOpen();
             portal.Draw((float)Raylib.GetTime(), active, _lastChanceActive);
         }
 
@@ -376,6 +378,7 @@ public sealed partial class SciFiRogueGame
             Raylib.DrawText(timer, Raylib.GetScreenWidth() / 2 - Raylib.MeasureText(timer, 56) / 2, 12, 56, Palette.C(130, 230, 255));
             var waveText = $"Wave {Math.Max(1, _pitNextWave - 1)}";
             Raylib.DrawText(waveText, Raylib.GetScreenWidth() / 2 - Raylib.MeasureText(waveText, 22) / 2, 72, 22, Color.White);
+            if (_challengeKind == ChallengeKind.PitNightmare) DrawPitNightmareModifiers();
         }
 
         var activeWeapon = _player.ActiveWeapon;
@@ -387,13 +390,14 @@ public sealed partial class SciFiRogueGame
         DrawLevelUpIndicator();
         DrawStatusEffects();
         if (_pitRewardOpen) DrawPitRewardSelection();
+        if (_pitDifficultyOpen) DrawPitDifficultySelection();
         Raylib.DrawText("WASD move | LMB attack | 1 melee | 2 primary | 3 heavy | TAB inventory | ESC menu", 20, Raylib.GetScreenHeight() - 28, 18, Color.Gray);
         DrawZoneArrows();
     }
 
     private void DrawCombatCursor()
     {
-        if (_player.InventoryOpen || _mapOpen || _pitRewardOpen) return;
+        if (_player.InventoryOpen || _mapOpen || _pitRewardOpen || _pitDifficultyOpen) return;
 
         var mouse = Raylib.GetMousePosition();
         var color = Color.White;
@@ -1434,7 +1438,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMainMenu()
     {
-        Raylib.DrawText("a0.3.3", 86, 150, 24, Palette.C(150, 185, 220));
+        Raylib.DrawText("a0.3.4", 86, 150, 24, Palette.C(150, 185, 220));
         DrawMetaProgressHeader();
 
         DrawButton(MainMenuButtonRect(0), "Play");
@@ -1489,7 +1493,8 @@ public sealed partial class SciFiRogueGame
 
         if (_deploymentListMode == DeploymentListMode.Challenges)
         {
-            DrawChallengeCard(MapCardRect(0));
+            DrawChallengeCard(MapCardRect(0), "Pit", "Wave survival trial", false, 0);
+            DrawChallengeCard(MapCardRect(1), "Pit (Nightmare)", "Bring your own gear", true, 1);
         }
         else
         {
@@ -1500,21 +1505,54 @@ public sealed partial class SciFiRogueGame
         }
 
         DrawButton(MapSelectBackButtonRect(), "Back");
+        if (_pitNightmareInfoOpen) DrawPitNightmareInfoPopup();
     }
 
-    private void DrawChallengeCard(Rectangle card)
+    private void DrawChallengeCard(Rectangle card, string title, string subtitle, bool nightmare, int index)
     {
         var hover = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), card);
         Raylib.DrawRectangleRec(card, hover ? Palette.C(36, 30, 56) : Palette.C(18, 16, 34));
-        Raylib.DrawRectangleLinesEx(card, 2f, Palette.C(191, 120, 255));
+        Raylib.DrawRectangleLinesEx(card, 2f, nightmare ? Palette.C(210, 90, 120) : Palette.C(191, 120, 255));
 
         var arena = new Rectangle(card.X + 28, card.Y + 28, card.Width - 56, 128);
         Raylib.DrawRectangleRec(arena, Palette.C(22, 24, 34));
-        Raylib.DrawCircleGradient((int)(arena.X + arena.Width * 0.5f), (int)(arena.Y + arena.Height * 0.5f), 64, Palette.C(150, 90, 255, 120), Palette.C(40, 20, 80, 20));
-        Raylib.DrawRectangleLinesEx(new Rectangle(arena.X + 36, arena.Y + 22, arena.Width - 72, arena.Height - 44), 3f, Palette.C(120, 80, 200));
+        Raylib.DrawCircleGradient((int)(arena.X + arena.Width * 0.5f), (int)(arena.Y + arena.Height * 0.5f), 64, nightmare ? Palette.C(255, 80, 110, 120) : Palette.C(150, 90, 255, 120), Palette.C(40, 20, 80, 20));
+        Raylib.DrawRectangleLinesEx(new Rectangle(arena.X + 36, arena.Y + 22, arena.Width - 72, arena.Height - 44), 3f, nightmare ? Palette.C(180, 55, 80) : Palette.C(120, 80, 200));
 
-        Raylib.DrawText("Pit", (int)card.X + 42, (int)card.Y + 174, 36, Color.White);
-        Raylib.DrawText("Wave survival trial", (int)card.X + 42, (int)card.Y + 220, 22, Color.LightGray);
+        Raylib.DrawText(title, (int)card.X + 42, (int)card.Y + 174, 36, Color.White);
+        Raylib.DrawText(subtitle, (int)card.X + 42, (int)card.Y + 220, 22, Color.LightGray);
+        if (!nightmare) return;
+
+        var info = ChallengeInfoButtonRect(index);
+        Raylib.DrawCircle((int)(info.X + info.Width * 0.5f), (int)(info.Y + info.Height * 0.5f), info.Width * 0.5f, Palette.C(28, 34, 48));
+        Raylib.DrawCircleLines((int)(info.X + info.Width * 0.5f), (int)(info.Y + info.Height * 0.5f), info.Width * 0.5f, Color.White);
+        Raylib.DrawText("i", (int)info.X + 11, (int)info.Y + 4, 24, Color.White);
+    }
+
+    private void DrawPitNightmareInfoPopup()
+    {
+        var popup = new Rectangle((Raylib.GetScreenWidth() - 620) / 2f, 230, 620, 360);
+        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(0, 0, 0, 145));
+        Raylib.DrawRectangleRec(popup, Palette.C(14, 18, 30, 245));
+        Raylib.DrawRectangleLinesEx(popup, 2f, Palette.C(210, 90, 120));
+        Raylib.DrawText("Pit (Nightmare)", (int)popup.X + 30, (int)popup.Y + 26, 34, Color.White);
+
+        var lines = new[]
+        {
+            "Enter only with your own equipment",
+            "Equipment roulettes are disabled",
+            "Enemy speed +50%",
+            "Enemy health +25%",
+            "Every 3 waves: difficulty modifier",
+            "CryptoTokens for every 10 completed waves"
+        };
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            Raylib.DrawText(lines[i], (int)popup.X + 38, (int)popup.Y + 92 + i * 34, 22, Color.LightGray);
+        }
+
+        DrawButton(PitNightmareInfoCloseRect(), "Ok");
     }
 
     private void DrawMapCard(MapDefinition map, Rectangle card)
@@ -1668,6 +1706,99 @@ public sealed partial class SciFiRogueGame
         DrawStorePrice(rect, $"{price} CT", Palette.C(210, 150, 255));
         if (disabled) DrawStoreDisabledOverlay(rect);
     }
+
+    private void DrawPitNightmareModifiers()
+    {
+        var x = Raylib.GetScreenWidth() - 220;
+        var y = 80;
+        Raylib.DrawText($"Enemy damage: +{_pitNightmareDamageBonusPercent:0}%", x, y, 20, Palette.C(255, 145, 145));
+        Raylib.DrawText($"Enemy health: +{_pitNightmareHealthBonusPercent:0}%", x, y + 26, 20, Palette.C(160, 255, 170));
+        Raylib.DrawText($"Enemy speed: +{_pitNightmareSpeedBonusPercent:0}%", x, y + 52, 20, Palette.C(150, 210, 255));
+    }
+
+    private void DrawPitDifficultySelection()
+    {
+        var ready = _pitDifficultySpinElapsed >= PitDifficultySpinDuration;
+        var panel = PitDifficultyPanelRect();
+        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(0, 0, 0, 170));
+        Raylib.DrawRectangleRec(panel, Palette.C(10, 16, 28, 245));
+        Raylib.DrawRectangleLinesEx(panel, 2f, Palette.C(210, 90, 120));
+        Raylib.DrawText("Nightmare modifier", (int)panel.X + 32, (int)panel.Y + 28, 34, Color.White);
+        if (ready) Raylib.DrawText("The next difficulty modifier is active.", (int)panel.X + 32, (int)panel.Y + 72, 22, Color.LightGray);
+
+        var card = PitDifficultyCardRect();
+        Raylib.DrawRectangleRec(card, Palette.C(18, 26, 42, 245));
+        Raylib.DrawRectangleLinesEx(card, 2f, Color.LightGray);
+        Raylib.DrawText("Modifier", (int)card.X + 18, (int)card.Y + 18, 24, Color.White);
+        DrawPitDifficultyRoulette(card);
+
+        if (ready)
+        {
+            var result = FormatPitDifficultyOffer(_pitDifficultyOffer);
+            Raylib.DrawText(result, (int)card.X + 18, (int)card.Y + 56, 24, GetPitDifficultyColor(_pitDifficultyOffer.Kind));
+        }
+
+        DrawButton(PitDifficultyOkButtonRect(), "Ok", ready);
+    }
+
+    private void DrawPitDifficultyRoulette(Rectangle card)
+    {
+        var reel = new Rectangle(card.X + 150, card.Y + 21, 640, 62);
+        Raylib.DrawRectangleRec(reel, Palette.C(6, 10, 18, 245));
+        Raylib.DrawRectangleLinesEx(reel, 2f, Palette.C(80, 120, 190));
+        Raylib.DrawRectangle((int)(reel.X + reel.Width / 2f - 30), (int)reel.Y, 60, (int)reel.Height, Palette.C(255, 255, 255, 24));
+        Raylib.DrawLine((int)(reel.X + reel.Width / 2f), (int)reel.Y, (int)(reel.X + reel.Width / 2f), (int)(reel.Y + reel.Height), Palette.C(255, 255, 255, 70));
+
+        if (_pitDifficultyRouletteItems.Count == 0) return;
+
+        const float iconSize = 42f;
+        const float step = 58f;
+        var stopped = _pitDifficultySpinElapsed >= PitDifficultySpinDuration;
+        var spinProgress = Math.Clamp(_pitDifficultySpinElapsed / PitDifficultySpinDuration, 0f, 1f);
+        var easedProgress = 1f - MathF.Pow(1f - spinProgress, 3f);
+        var totalSteps = 4 * _pitDifficultyRouletteItems.Count + _pitDifficultyRouletteItems.Count - 1;
+        var reelPosition = totalSteps * easedProgress;
+        var centerIndex = (int)MathF.Floor(reelPosition) % _pitDifficultyRouletteItems.Count;
+        var offset = (reelPosition - MathF.Floor(reelPosition)) * step;
+
+        Raylib.BeginScissorMode((int)reel.X, (int)reel.Y, (int)reel.Width, (int)reel.Height);
+        for (var slot = -7; slot <= 7; slot++)
+        {
+            var itemIndex = (centerIndex + slot + _pitDifficultyRouletteItems.Count) % _pitDifficultyRouletteItems.Count;
+            var offer = _pitDifficultyRouletteItems[itemIndex];
+            var x = reel.X + reel.Width / 2f - iconSize / 2f + slot * step - offset;
+            var y = reel.Y + reel.Height / 2f - iconSize / 2f;
+            var distanceFromCenter = MathF.Abs(x + iconSize / 2f - (reel.X + reel.Width / 2f));
+            var alpha = Math.Clamp(1f - distanceFromCenter / 330f, 0.25f, 1f);
+            var rect = new Rectangle(x - 5, y - 5, iconSize + 10, iconSize + 10);
+            var color = GetPitDifficultyColor(offer.Kind);
+
+            Raylib.DrawRectangleRec(rect, Palette.C(14, 20, 34, (int)(220 * alpha)));
+            Raylib.DrawRectangleLinesEx(rect, 2f, color);
+            Raylib.DrawText(offer.Kind.ToString(), (int)x + 11, (int)y + 7, 28, color);
+            if (stopped && slot == 0)
+            {
+                Raylib.DrawRectangleLinesEx(new Rectangle(x - 4, y - 4, iconSize + 8, iconSize + 8), 3f, Color.White);
+            }
+        }
+        Raylib.EndScissorMode();
+    }
+
+    private static string FormatPitDifficultyOffer(PitDifficultyOffer offer)
+        => offer.Kind switch
+        {
+            'D' => $"Damage +{offer.Percent:0}%",
+            'H' => $"Health +{offer.Percent:0}%",
+            _ => $"Speed +{offer.Percent:0}%"
+        };
+
+    private static Color GetPitDifficultyColor(char kind)
+        => kind switch
+        {
+            'D' => Palette.C(255, 120, 120),
+            'H' => Palette.C(140, 255, 160),
+            _ => Palette.C(130, 210, 255)
+        };
 
     private static void DrawStoreCardBackground(Rectangle rect, bool disabled, Color border, Color fill)
     {
@@ -1984,6 +2115,11 @@ public sealed partial class SciFiRogueGame
         {
             Raylib.DrawText($"Challenge {_selectedMapName}", 20, 138, 22, Palette.C(191, 120, 255));
             Raylib.DrawText($"Completed waves {_pitCompletedWaves.Count}", 20, 168, 20, Palette.C(165, 195, 220));
+            if (_challengeKind == ChallengeKind.PitNightmare)
+            {
+                var portalText = _pitNightmarePortalActive ? "Exit portal active" : "Exit portal inactive";
+                Raylib.DrawText(portalText, 20, 198, 20, _pitNightmarePortalActive ? Palette.C(170, 220, 255) : Color.Gray);
+            }
             return;
         }
 
@@ -2037,6 +2173,15 @@ public sealed partial class SciFiRogueGame
     private static Rectangle MapCardRect(int index)
         => new(70 + index * 585, 160, 555, 380);
 
+    private static Rectangle ChallengeInfoButtonRect(int index)
+    {
+        var card = MapCardRect(index);
+        return new Rectangle(card.X + card.Width - 52, card.Y + 22, 30, 30);
+    }
+
+    private static Rectangle PitNightmareInfoCloseRect()
+        => new((Raylib.GetScreenWidth() - 180) / 2f, 520, 180, 46);
+
     private static Rectangle DeploymentToggleRect()
         => new(Raylib.GetScreenWidth() - 292, 74, 220, 46);
 
@@ -2070,6 +2215,21 @@ public sealed partial class SciFiRogueGame
     private static Rectangle PitRewardSkipButtonRect()
     {
         var panel = PitRewardPanelRect();
+        return new Rectangle(panel.X + panel.Width / 2f - 90f, panel.Y + panel.Height - 60f, 180, 42);
+    }
+
+    private static Rectangle PitDifficultyPanelRect()
+        => PitRewardPanelRect();
+
+    private static Rectangle PitDifficultyCardRect()
+    {
+        var panel = PitDifficultyPanelRect();
+        return new Rectangle(panel.X + 130, panel.Y + 236, 880, 96);
+    }
+
+    private static Rectangle PitDifficultyOkButtonRect()
+    {
+        var panel = PitDifficultyPanelRect();
         return new Rectangle(panel.X + panel.Width / 2f - 90f, panel.Y + panel.Height - 60f, 180, 42);
     }
 

@@ -826,6 +826,8 @@ public sealed class Enemy
     public bool IsPatrol;
     public bool IsEnhanced;
     public bool Alive => Health > 0f;
+    public float ChallengeSpeedMultiplier { get; private set; } = 1f;
+    public float ChallengeDamageMultiplier { get; private set; } = 1f;
 
     public bool KillAwarded;
     public bool JustHitByPlayer;
@@ -971,6 +973,15 @@ public sealed class Enemy
         _target = target;
     }
 
+    public void ApplyChallengeModifiers(float healthMultiplier, float speedMultiplier, float damageMultiplier)
+    {
+        var healthRatio = MaxHealth <= 0f ? 1f : Health / MaxHealth;
+        MaxHealth *= healthMultiplier;
+        Health = MaxHealth * healthRatio;
+        ChallengeSpeedMultiplier = speedMultiplier;
+        ChallengeDamageMultiplier = damageMultiplier;
+    }
+
     private void StartLostAggroReturn()
     {
         _investigating = true;
@@ -1018,7 +1029,7 @@ public sealed class Enemy
                 var dir = Vector2.Normalize(to);
                 _facing = dir;
                 _baseFacing = dir;
-                Position = MovementUtils.MoveWithCollisions(Position, dir * (IsStrong ? 118.75f : 147.5f) * GetMovementSpeedMultiplier() * dt, 14f, obstacles, worldSize);
+                Position = MovementUtils.MoveWithCollisions(Position, dir * (IsStrong ? 118.75f : 147.5f) * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier * dt, 14f, obstacles, worldSize);
             }
 
             _burstCd -= dt;
@@ -1064,7 +1075,7 @@ public sealed class Enemy
                 var dir = Vector2.Normalize(to);
                 _facing = dir;
                 _baseFacing = dir;
-                Position = MovementUtils.MoveWithCollisions(Position, dir * 107.5f * GetMovementSpeedMultiplier() * dt, 14f, obstacles, worldSize);
+                Position = MovementUtils.MoveWithCollisions(Position, dir * 107.5f * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier * dt, 14f, obstacles, worldSize);
             }
         }
     }
@@ -1095,7 +1106,7 @@ public sealed class Enemy
 
         var dir = Vector2.Normalize(to);
         _baseFacing = dir;
-        Position = MovementUtils.MoveWithCollisions(Position, dir * (IsStrong ? 102.5f : 120f) * GetMovementSpeedMultiplier() * dt, 14f, obstacles, worldSize);
+        Position = MovementUtils.MoveWithCollisions(Position, dir * (IsStrong ? 102.5f : 120f) * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier * dt, 14f, obstacles, worldSize);
         if (_returningFromInvestigation) HealDuringInvestigationReturn();
     }
 
@@ -1174,7 +1185,7 @@ public sealed class Enemy
         return true;
     }
 
-    private float ScaleDamage(float damage) => IsEnhanced ? damage * 1.1f : damage;
+    private float ScaleDamage(float damage) => (IsEnhanced ? damage * 1.1f : damage) * ChallengeDamageMultiplier;
 
     public float GetViewDistance() => IsStrong ? StrongView : BaseView;
 
@@ -1246,6 +1257,8 @@ public sealed class HexEnemy
     public float Health = 200f;
     public bool Alive => Health > 0f;
     public bool KillAwarded;
+    public float ChallengeSpeedMultiplier { get; private set; } = 1f;
+    public float ChallengeDamageMultiplier { get; private set; } = 1f;
 
     private Vector2 _facing = new(1f, 0f);
     private float _strafeSwitch;
@@ -1290,7 +1303,7 @@ public sealed class HexEnemy
         var strafeSign = MathF.Sin(_strafeSwitch * 8f + Position.X * 0.01f) > 0f ? 1f : -1f;
         var strafeDir = new Vector2(-dir.Y, dir.X) * strafeSign;
         var move = dir * radial + strafeDir * 100f;
-        Position = MovementUtils.MoveWithCollisions(Position, move * GetMovementSpeedMultiplier() * dt, 16f, obstacles, worldSize);
+        Position = MovementUtils.MoveWithCollisions(Position, move * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier * dt, 16f, obstacles, worldSize);
 
         if (_burstMode)
         {
@@ -1305,7 +1318,7 @@ public sealed class HexEnemy
             _burstShotCd -= dt;
             while (_burstLeft > 0 && _burstShotCd <= 0f)
             {
-                projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, 1.44f, Palette.C(255, 110, 180), true, 4f));
+                projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, 1.44f, Palette.C(255, 110, 180), true, 4f * ChallengeDamageMultiplier));
                 _burstLeft--;
                 _burstShotCd += 0.06f;
             }
@@ -1315,10 +1328,19 @@ public sealed class HexEnemy
             _fireCd -= dt;
             if (_fireCd <= 0f)
             {
-                projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, 1.44f, Palette.C(255, 110, 180), true, 10f));
+                projectiles.Add(new Projectile(Position + dir * 18f, dir, 560f, 1.44f, Palette.C(255, 110, 180), true, 10f * ChallengeDamageMultiplier));
                 _fireCd = 0.5f;
             }
         }
+    }
+
+    public void ApplyChallengeModifiers(float healthMultiplier, float speedMultiplier, float damageMultiplier)
+    {
+        var healthRatio = MaxHealth <= 0f ? 1f : Health / MaxHealth;
+        MaxHealth *= healthMultiplier;
+        Health = MaxHealth * healthRatio;
+        ChallengeSpeedMultiplier = speedMultiplier;
+        ChallengeDamageMultiplier = damageMultiplier;
     }
 
     public void Damage(float amount)
@@ -1380,6 +1402,8 @@ public sealed class GeneratorGuardianEnemy
     public int ZoneId = -1;
     public bool Alive => Health > 0f;
     public bool KillAwarded;
+    public float ChallengeSpeedMultiplier { get; private set; } = 1f;
+    public float ChallengeDamageMultiplier { get; private set; } = 1f;
 
     private readonly Vector2 _spawn;
     private bool _alert;
@@ -1436,21 +1460,21 @@ public sealed class GeneratorGuardianEnemy
 
         var dir = playerDistance <= 0.001f ? _facing : Vector2.Normalize(toPlayer);
         _facing = dir;
-        Position = MovementUtils.MoveWithCollisions(Position, dir * 150f * GetMovementSpeedMultiplier() * dt, 16f, obstacles, worldSize);
+        Position = MovementUtils.MoveWithCollisions(Position, dir * 150f * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier * dt, 16f, obstacles, worldSize);
 
         _sideDashCd -= dt;
         _playerDashCd -= dt;
         if (_sideDashCd <= 0f)
         {
             var side = VisibilityUtils.Rotate(dir, Random.Shared.NextSingle() < 0.5f ? MathF.PI * 0.5f : -MathF.PI * 0.5f);
-            Position = MovementUtils.MoveWithCollisions(Position, side * 110f * GetMovementSpeedMultiplier(), 16f, obstacles, worldSize);
+            Position = MovementUtils.MoveWithCollisions(Position, side * 110f * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier, 16f, obstacles, worldSize);
             DashAfterImage.Spawn(afterImages, Position, side, 110f, Palette.C(80, 220, 255), false);
             _sideDashCd = NextSideDashCooldown();
         }
 
         if (_playerDashCd <= 0f)
         {
-            Position = MovementUtils.MoveWithCollisions(Position, dir * 170f * GetMovementSpeedMultiplier(), 16f, obstacles, worldSize);
+            Position = MovementUtils.MoveWithCollisions(Position, dir * 170f * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier, 16f, obstacles, worldSize);
             DashAfterImage.Spawn(afterImages, Position, dir, 170f, Palette.C(120, 230, 255), false);
             _playerDashCd = NextPlayerDashCooldown();
         }
@@ -1463,7 +1487,7 @@ public sealed class GeneratorGuardianEnemy
             _spearVisualTimer = SpearVisualDuration;
             if (DistanceToSegment(player.Position, _spearStart, _spearEnd) <= SpearHitRadius)
             {
-                player.TakeDamage(30f);
+                player.TakeDamage(30f * ChallengeDamageMultiplier);
             }
             _attackCd = 0.8f;
         }
@@ -1481,8 +1505,17 @@ public sealed class GeneratorGuardianEnemy
 
         var dir = Vector2.Normalize(toSpawn);
         _facing = dir;
-        Position = MovementUtils.MoveWithCollisions(Position, dir * 150f * dt, 16f, obstacles, worldSize);
+        Position = MovementUtils.MoveWithCollisions(Position, dir * 150f * ChallengeSpeedMultiplier * dt, 16f, obstacles, worldSize);
         Health = MathF.Min(MaxHealth, Health + MaxHealth * 0.30f * dt);
+    }
+
+    public void ApplyChallengeModifiers(float healthMultiplier, float speedMultiplier, float damageMultiplier)
+    {
+        var healthRatio = MaxHealth <= 0f ? 1f : Health / MaxHealth;
+        MaxHealth *= healthMultiplier;
+        Health = MaxHealth * healthRatio;
+        ChallengeSpeedMultiplier = speedMultiplier;
+        ChallengeDamageMultiplier = damageMultiplier;
     }
 
     public bool CanSeePoint(Vector2 point, List<Obstacle> obstacles)
@@ -1605,6 +1638,8 @@ public sealed class ToxicTriangleEnemy
     public int ZoneId = -1;
     public bool Alive => Health > 0f;
     public bool KillAwarded;
+    public float ChallengeSpeedMultiplier { get; private set; } = 1f;
+    public float ChallengeDamageMultiplier { get; private set; } = 1f;
 
     private bool _alert;
     private bool _investigating;
@@ -1665,7 +1700,7 @@ public sealed class ToxicTriangleEnemy
         var desiredDistance = 193f;
         var radial = dist > desiredDistance + 16f ? 182f : dist < desiredDistance - 16f ? -143f : 0f;
         var strafeDir = new Vector2(-dir.Y, dir.X) * (MathF.Sin((float)Raylib.GetTime() * 7f + Position.X * 0.01f) > 0f ? 1f : -1f);
-        Position = MovementUtils.MoveWithCollisions(Position, (dir * radial + strafeDir * 104f) * GetMovementSpeedMultiplier() * dt, 16f, obstacles, worldSize);
+        Position = MovementUtils.MoveWithCollisions(Position, (dir * radial + strafeDir * 104f) * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier * dt, 16f, obstacles, worldSize);
 
         _fireCd -= dt;
         if (_fireCd <= 0f && _burstLeft <= 0)
@@ -1680,10 +1715,19 @@ public sealed class ToxicTriangleEnemy
         {
             var spread = ((Random.Shared.NextSingle() * 50f) - 25f) * MathF.PI / 180f;
             var shotDir = VisibilityUtils.Rotate(dir, spread);
-            projectiles.Add(new Projectile(Position + shotDir * 18f, shotDir, 560f, 1.44f, Palette.C(80, 210, 70), true, 5f, playerPoisonDuration: 2f));
+            projectiles.Add(new Projectile(Position + shotDir * 18f, shotDir, 560f, 1.44f, Palette.C(80, 210, 70), true, 5f * ChallengeDamageMultiplier, playerPoisonDuration: 2f));
             _burstLeft--;
             _burstShotCd += 0.07f;
         }
+    }
+
+    public void ApplyChallengeModifiers(float healthMultiplier, float speedMultiplier, float damageMultiplier)
+    {
+        var healthRatio = MaxHealth <= 0f ? 1f : Health / MaxHealth;
+        MaxHealth *= healthMultiplier;
+        Health = MaxHealth * healthRatio;
+        ChallengeSpeedMultiplier = speedMultiplier;
+        ChallengeDamageMultiplier = damageMultiplier;
     }
 
     public void Damage(float amount)
@@ -1781,7 +1825,7 @@ public sealed class ToxicTriangleEnemy
 
         var dir = Vector2.Normalize(to);
         _facing = dir;
-        Position = MovementUtils.MoveWithCollisions(Position, dir * 120f * GetMovementSpeedMultiplier() * dt, 16f, obstacles, worldSize);
+        Position = MovementUtils.MoveWithCollisions(Position, dir * 120f * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier * dt, 16f, obstacles, worldSize);
         if (_returningFromInvestigation) HealDuringInvestigationReturn();
     }
 
@@ -2087,6 +2131,8 @@ public sealed class MiniBossEnemySquare
     public bool Alive => Health > 0;
     public bool KillAwarded;
     public bool IsFast { get; }
+    public float ChallengeSpeedMultiplier { get; private set; } = 1f;
+    public float ChallengeDamageMultiplier { get; private set; } = 1f;
 
     private float _ramCd = 4f;
     private float _shootCd = 1.2f;
@@ -2167,14 +2213,14 @@ public sealed class MiniBossEnemySquare
 
         var dir = Vector2.Normalize(toPlayer);
         _facing = dir;
-        Position = MovementUtils.MoveWithCollisions(Position, dir * 52.5f * GetFastSpeedMultiplier() * GetMovementSpeedMultiplier() * dt, 28f, obstacles, worldSize);
+        Position = MovementUtils.MoveWithCollisions(Position, dir * 52.5f * GetFastSpeedMultiplier() * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier * dt, 28f, obstacles, worldSize);
 
         if (_ramCd <= 0f)
         {
-            Position = MovementUtils.MoveWithCollisions(Position, dir * 150f * GetMovementSpeedMultiplier(), 28f, obstacles, worldSize);
+            Position = MovementUtils.MoveWithCollisions(Position, dir * 150f * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier, 28f, obstacles, worldSize);
             DashAfterImage.Spawn(afterImages, Position, dir, 150f, Palette.C(230, 100, 100), true);
             _ramCd = 4f;
-            if (Vector2.Distance(Position, playerPos) < 56f) player.TakeDamage(24f);
+            if (Vector2.Distance(Position, playerPos) < 56f) player.TakeDamage(24f * ChallengeDamageMultiplier);
         }
 
         if (_shootCd <= 0f && _burstShotsLeft <= 0)
@@ -2191,7 +2237,7 @@ public sealed class MiniBossEnemySquare
             {
                 var spread = ((Random.Shared.NextSingle() * 4f) - 2f) * (MathF.PI / 180f);
                 var shotDir = VisibilityUtils.Rotate(dir, spread);
-                projectiles.Add(new Projectile(Position + shotDir * 28f, shotDir, 560f, 1.62f, Palette.C(255, 150, 120), true, 13f));
+                projectiles.Add(new Projectile(Position + shotDir * 28f, shotDir, 560f, 1.62f, Palette.C(255, 150, 120), true, 13f * ChallengeDamageMultiplier));
                 _burstShotsLeft--;
                 _burstShotCd += 0.08f;
             }
@@ -2201,8 +2247,17 @@ public sealed class MiniBossEnemySquare
         {
             _slamVisual = 0.7f;
             _slamCd = 3.6f * GetSlamCooldownMultiplier();
-            if (Vector2.Distance(Position, playerPos) < GetSlamRadius()) player.TakeDamage(20f);
+            if (Vector2.Distance(Position, playerPos) < GetSlamRadius()) player.TakeDamage(20f * ChallengeDamageMultiplier);
         }
+    }
+
+    public void ApplyChallengeModifiers(float healthMultiplier, float speedMultiplier, float damageMultiplier)
+    {
+        var healthRatio = MaxHealth <= 0f ? 1f : Health / MaxHealth;
+        MaxHealth *= healthMultiplier;
+        Health = MaxHealth * healthRatio;
+        ChallengeSpeedMultiplier = speedMultiplier;
+        ChallengeDamageMultiplier = damageMultiplier;
     }
 
     public bool CanSeePoint(Vector2 point, List<Obstacle> obstacles)
@@ -2293,7 +2348,7 @@ public sealed class MiniBossEnemySquare
 
         var dir = Vector2.Normalize(to);
         _facing = dir;
-        Position = MovementUtils.MoveWithCollisions(Position, dir * 47.5f * GetFastSpeedMultiplier() * GetMovementSpeedMultiplier() * dt, 28f, obstacles, worldSize);
+        Position = MovementUtils.MoveWithCollisions(Position, dir * 47.5f * GetFastSpeedMultiplier() * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier * dt, 28f, obstacles, worldSize);
         if (_returningFromInvestigation) HealDuringInvestigationReturn();
     }
 
@@ -2403,6 +2458,8 @@ public sealed class StationBossEnemy
     public bool KillAwarded;
     public bool Active { get; private set; }
     public bool PhaseTwo { get; private set; }
+    public float ChallengeSpeedMultiplier { get; private set; } = 1f;
+    public float ChallengeDamageMultiplier { get; private set; } = 1f;
 
     private readonly Rectangle _arena;
     private Vector2 _dashDir;
@@ -2434,6 +2491,15 @@ public sealed class StationBossEnemy
     }
 
     public void Activate() => Active = true;
+
+    public void ApplyChallengeModifiers(float healthMultiplier, float speedMultiplier, float damageMultiplier)
+    {
+        var healthRatio = MaxHealth <= 0f ? 1f : Health / MaxHealth;
+        MaxHealth *= healthMultiplier;
+        Health = MaxHealth * healthRatio;
+        ChallengeSpeedMultiplier = speedMultiplier;
+        ChallengeDamageMultiplier = damageMultiplier;
+    }
 
     public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, Player player, List<Obstacle> obstacles, int worldSize)
     {
@@ -2480,13 +2546,13 @@ public sealed class StationBossEnemy
 
         if (_dashing)
         {
-            var dashSpeed = PhaseTwo ? 1350f : 1100f;
+            var dashSpeed = (PhaseTwo ? 1350f : 1100f) * ChallengeSpeedMultiplier;
             var (next, hitWall) = MoveDashUntilCollision(Position, _dashDir * dashSpeed * dt, 32f, obstacles, worldSize);
             Position = next;
             SpawnDashTrailPoint(dt);
             if (!_dashHitPlayer && Vector2.Distance(Position, player.Position) <= 96f)
             {
-                player.TakeDamage(100f);
+                player.TakeDamage(100f * ChallengeDamageMultiplier);
                 _dashHitPlayer = true;
             }
             if (hitWall)
@@ -2499,7 +2565,7 @@ public sealed class StationBossEnemy
             return;
         }
 
-        Position = MovementUtils.MoveWithCollisions(Position, dir * 300f * GetMovementSpeedMultiplier() * dt, 32f, obstacles, worldSize);
+        Position = MovementUtils.MoveWithCollisions(Position, dir * 300f * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier * dt, 32f, obstacles, worldSize);
         Position = Vector2.Clamp(Position, new Vector2(_arena.X + 36f, _arena.Y + 36f), new Vector2(_arena.X + _arena.Width - 36f, _arena.Y + _arena.Height - 36f));
 
         if (PhaseTwo)
@@ -2519,7 +2585,7 @@ public sealed class StationBossEnemy
         _burstShotCd -= dt;
         while (_burstShotsLeft > 0 && _burstShotCd <= 0f)
         {
-            projectiles.Add(new Projectile(Position + dir * 28f, dir, 620f, 2.25f, Palette.C(255, 120, 120), true, 20f));
+            projectiles.Add(new Projectile(Position + dir * 28f, dir, 620f, 2.25f, Palette.C(255, 120, 120), true, 20f * ChallengeDamageMultiplier));
             _burstShotsLeft--;
             _burstShotCd += _burstShotsLeft == 2 ? 0.18f : 0.06f;
         }
@@ -2537,7 +2603,7 @@ public sealed class StationBossEnemy
         {
             var spread = ((Random.Shared.NextSingle() * 60f) - 30f) * MathF.PI / 180f;
             var grenadeDir = VisibilityUtils.Rotate(dir, spread);
-            projectiles.Add(new Projectile(Position + grenadeDir * 32f, grenadeDir, 300f, 1.6875f, Palette.C(255, 155, 90), true, 0f, ProjectileKind.Grenade, 40f, 25f, 5f));
+            projectiles.Add(new Projectile(Position + grenadeDir * 32f, grenadeDir, 300f, 1.6875f, Palette.C(255, 155, 90), true, 0f, ProjectileKind.Grenade, 40f * ChallengeDamageMultiplier, 25f * ChallengeDamageMultiplier, 5f));
             _grenadesLeft--;
             _grenadeShotCd += 0.107f;
         }
@@ -2692,7 +2758,7 @@ public sealed class StationBossEnemy
         {
             var angle = angleOffset + i / (float)count * MathF.Tau;
             var dir = new Vector2(MathF.Cos(angle), MathF.Sin(angle));
-            projectiles.Add(new Projectile(Position + dir * 34f, dir, 620f, 2.25f, Palette.C(255, 120, 120), true, 16f));
+            projectiles.Add(new Projectile(Position + dir * 34f, dir, 620f, 2.25f, Palette.C(255, 120, 120), true, 16f * ChallengeDamageMultiplier));
         }
     }
 

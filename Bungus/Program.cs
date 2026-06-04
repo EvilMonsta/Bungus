@@ -94,6 +94,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private int _worldSize = MapDefinition.Baselands.WorldSize;
     private DeploymentListMode _deploymentListMode = DeploymentListMode.Expeditions;
     private bool _challengeMode;
+    private ChallengeKind _challengeKind = ChallengeKind.None;
     private int _pitNextWave = 1;
     private float _pitWaveTimer;
     private readonly Dictionary<object, int> _pitEnemyWaves = new(ReferenceEqualityComparer.Instance);
@@ -108,6 +109,16 @@ public sealed partial class SciFiRogueGame : IDisposable
     private Vector2[] _pitConsumableSpawnPoints = [];
     private int _pitRunXpEarned;
     private int _pitRunCoinsEarned;
+    private int _pitRunTokensEarned;
+    private float _pitNightmareDamageBonusPercent;
+    private float _pitNightmareHealthBonusPercent;
+    private float _pitNightmareSpeedBonusPercent;
+    private bool _pitNightmarePortalActive;
+    private bool _pitNightmareInfoOpen;
+    private bool _pitDifficultyOpen;
+    private float _pitDifficultySpinElapsed;
+    private PitDifficultyOffer _pitDifficultyOffer;
+    private readonly List<PitDifficultyOffer> _pitDifficultyRouletteItems = [];
     private Rectangle? _stationEntranceDoor;
     private Rectangle? _stationBossDoor;
     private Rectangle? _stationBossArena;
@@ -135,7 +146,9 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private static readonly Rectangle TakeAllButtonRect = new(740, 318, 220, 34);
     private static readonly float[] PitRewardSpinDurations = [3f, 4f, 5f, 6f];
+    private const float PitDifficultySpinDuration = 3f;
     private const float InventoryConsumableUseHoldDuration = 1f;
+    private readonly record struct PitDifficultyOffer(char Kind, float Percent);
     private sealed record MapDefinition(
         string Name,
         int Difficulty,
@@ -173,6 +186,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private void StartRun(string mapName)
     {
         _challengeMode = false;
+        _challengeKind = ChallengeKind.None;
         _pitRewardOpen = false;
         _pitRewardOffers.Clear();
         _pitRouletteItems.Clear();
@@ -180,6 +194,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         _pitCompletedWaves.Clear();
         _pitRunXpEarned = 0;
         _pitRunCoinsEarned = 0;
+        _pitRunTokensEarned = 0;
+        ResetPitNightmareState();
         _currentMap = MapDefinition.All.FirstOrDefault(m => m.Name.Equals(mapName, StringComparison.OrdinalIgnoreCase)) ?? MapDefinition.Baselands;
         _selectedMapName = _currentMap.Name;
         _worldSize = _currentMap.WorldSize;
@@ -249,11 +265,12 @@ public sealed partial class SciFiRogueGame : IDisposable
         SavePersistentState();
     }
 
-    private void StartPitChallenge()
+    private void StartPitChallenge(bool nightmare = false)
     {
         _challengeMode = true;
+        _challengeKind = nightmare ? ChallengeKind.PitNightmare : ChallengeKind.Pit;
         _currentMap = MapDefinition.Baselands;
-        _selectedMapName = "Pit";
+        _selectedMapName = nightmare ? "Pit (Nightmare)" : "Pit";
         _worldSize = 2000;
         _buildings = [];
         _outposts = [];
@@ -273,20 +290,22 @@ public sealed partial class SciFiRogueGame : IDisposable
         _stationBossFightStarted = false;
         _stationBossDoorSealed = false;
         _stationBossDoorSealTimer = -1f;
-        _player = Player.Create(
-            new Vector2(_worldSize / 2f, _worldSize / 2f),
-            GetCommonHealthBonus(),
-            GetCommonDamageBonus(),
-            _meta.BaseStrength,
-            _meta.BaseDexterity,
-            _meta.BaseSpeed,
-            _meta.BaseGuns,
-            ItemStack.StartingPistol(),
-            null,
-            ItemStack.StartingMelee(),
-            ItemStack.StartingArmor(),
-            null,
-            null);
+        _player = nightmare
+            ? CreateNightmarePlayer(new Vector2(_worldSize / 2f, _worldSize / 2f))
+            : Player.Create(
+                new Vector2(_worldSize / 2f, _worldSize / 2f),
+                GetCommonHealthBonus(),
+                GetCommonDamageBonus(),
+                _meta.BaseStrength,
+                _meta.BaseDexterity,
+                _meta.BaseSpeed,
+                _meta.BaseGuns,
+                ItemStack.StartingPistol(),
+                null,
+                ItemStack.StartingMelee(),
+                ItemStack.StartingArmor(),
+                null,
+                null);
         ApplyIsFunnyNextRunBonus();
         _projectiles = [];
         _explosions = [];
@@ -317,6 +336,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         _pitRewardSpinElapsed = 0f;
         _pitRunXpEarned = 0;
         _pitRunCoinsEarned = 0;
+        _pitRunTokensEarned = 0;
+        ResetPitNightmareState(resetBaseBonuses: !nightmare);
+        if (nightmare)
+        {
+            _pitNightmareHealthBonusPercent = 25f;
+            _pitNightmareSpeedBonusPercent = 50f;
+            _extractPortals.Add(new ExtractPortal(new Vector2(_worldSize / 2f, _worldSize / 2f), _rng.NextSingle() * MathF.Tau));
+        }
         ResetPitConsumableSpawns();
         _player.InventoryOpen = false;
         _openedChestIndex = null;
@@ -330,6 +357,48 @@ public sealed partial class SciFiRogueGame : IDisposable
         _camera.Offset = new Vector2(Raylib.GetScreenWidth() / 2f, Raylib.GetScreenHeight() / 2f);
         _camera.Target = _player.Position;
         SavePersistentState();
+    }
+
+    private Player CreateNightmarePlayer(Vector2 position)
+    {
+        var player = Player.Create(
+            position,
+            GetCommonHealthBonus(),
+            GetCommonDamageBonus(),
+            _meta.BaseStrength,
+            _meta.BaseDexterity,
+            _meta.BaseSpeed,
+            _meta.BaseGuns,
+            TakeMetaLoadoutItem(SlotKind.RangedWeapon),
+            TakeMetaLoadoutItem(SlotKind.HeavyWeapon),
+            TakeMetaLoadoutItem(SlotKind.MeleeWeapon),
+            TakeMetaLoadoutItem(SlotKind.Armor),
+            TakeMetaLoadoutItem(SlotKind.QuickSlotQ),
+            TakeMetaLoadoutItem(SlotKind.QuickSlotR));
+
+        for (var i = 0; i < Inventory.BackpackCapacity; i++)
+        {
+            player.Inventory.BackpackSlots[i] = _meta.RunBackpackSlots[i];
+            _meta.RunBackpackSlots[i] = null;
+        }
+
+        return player;
+    }
+
+    private void ResetPitNightmareState(bool resetBaseBonuses = true)
+    {
+        if (resetBaseBonuses)
+        {
+            _pitNightmareDamageBonusPercent = 0f;
+            _pitNightmareHealthBonusPercent = 0f;
+            _pitNightmareSpeedBonusPercent = 0f;
+        }
+
+        _pitNightmarePortalActive = false;
+        _pitDifficultyOpen = false;
+        _pitDifficultySpinElapsed = 0f;
+        _pitDifficultyOffer = default;
+        _pitDifficultyRouletteItems.Clear();
     }
 
     public void Run()
@@ -369,7 +438,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateCursorVisibility()
     {
-        if (_state == GameState.Playing && !_player.InventoryOpen && !_mapOpen && !_pitRewardOpen)
+        if (_state == GameState.Playing && !_player.InventoryOpen && !_mapOpen && !_pitRewardOpen && !_pitDifficultyOpen)
         {
             Raylib.HideCursor();
         }
@@ -398,6 +467,16 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateMapSelect()
     {
+        if (_pitNightmareInfoOpen)
+        {
+            if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(PitNightmareInfoCloseRect()))
+            {
+                _pitNightmareInfoOpen = false;
+            }
+
+            return;
+        }
+
         if (Clicked(DeploymentToggleRect()))
         {
             _deploymentListMode = _deploymentListMode == DeploymentListMode.Expeditions
@@ -416,10 +495,23 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (_deploymentListMode == DeploymentListMode.Challenges)
         {
+            if (Clicked(ChallengeInfoButtonRect(1)))
+            {
+                _pitNightmareInfoOpen = true;
+                return;
+            }
+
             if (Clicked(MapCardRect(0)))
             {
                 ClearUiInteraction();
                 StartPitChallenge();
+                _state = GameState.Playing;
+            }
+
+            if (Clicked(MapCardRect(1)))
+            {
+                ClearUiInteraction();
+                StartPitChallenge(nightmare: true);
                 _state = GameState.Playing;
             }
 
@@ -627,7 +719,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         if (Clicked(CenterRect(0, 320, 320, 62)))
         {
-            if (_challengeMode) StartPitChallenge();
+            if (_challengeMode) StartPitChallenge(_challengeKind == ChallengeKind.PitNightmare);
             else StartRun(_selectedMapName);
             _state = GameState.Playing;
         }
@@ -639,6 +731,13 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (_challengeMode && _pitRewardOpen)
         {
             UpdatePitRewardSelection(dt);
+            UpdateCursorVisibility();
+            return;
+        }
+
+        if (_challengeMode && _pitDifficultyOpen)
+        {
+            UpdatePitDifficultySelection(dt);
             UpdateCursorVisibility();
             return;
         }
@@ -1013,6 +1112,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         _pitWaveTimer -= dt;
         if (_pitWaveTimer <= 0f) SpawnPitWave();
 
+        if (_challengeKind == ChallengeKind.PitNightmare
+            && _pitNightmarePortalActive
+            && _extractPortals.Any(portal => Vector2.Distance(portal.Position, _player.Position) <= portal.InteractionRadius))
+        {
+            CompletePitNightmareExtraction();
+            return;
+        }
+
         for (var i = 0; i < _pitConsumableSpawnPoints.Length; i++)
         {
             if (_pitConsumablePickups[i] is not null) continue;
@@ -1047,11 +1154,17 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void SpawnPitWave()
     {
+        if (_challengeKind == ChallengeKind.PitNightmare) _pitNightmarePortalActive = false;
         var wave = _pitNextWave++;
         _pitWaveTimer = wave % 10 == 0 ? 60f : 30f;
+        if (_challengeKind == ChallengeKind.PitNightmare && wave % 3 == 0)
+        {
+            OpenPitDifficultySelection();
+        }
 
         void AddEnemy(object enemy)
         {
+            ApplyPitNightmareEnemyModifiers(enemy);
             _pitEnemyWaves[enemy] = wave;
             switch (enemy)
             {
@@ -1216,6 +1329,25 @@ public sealed partial class SciFiRogueGame : IDisposable
         ShowNotice($"Wave {wave} started.");
     }
 
+    private void ApplyPitNightmareEnemyModifiers(object enemy)
+    {
+        if (_challengeKind != ChallengeKind.PitNightmare) return;
+
+        var healthMultiplier = 1f + _pitNightmareHealthBonusPercent / 100f;
+        var speedMultiplier = 1f + _pitNightmareSpeedBonusPercent / 100f;
+        var damageMultiplier = 1f + _pitNightmareDamageBonusPercent / 100f;
+
+        switch (enemy)
+        {
+            case Enemy e: e.ApplyChallengeModifiers(healthMultiplier, speedMultiplier, damageMultiplier); break;
+            case HexEnemy h: h.ApplyChallengeModifiers(healthMultiplier, speedMultiplier, damageMultiplier); break;
+            case MiniBossEnemySquare b: b.ApplyChallengeModifiers(healthMultiplier, speedMultiplier, damageMultiplier); break;
+            case GeneratorGuardianEnemy g: g.ApplyChallengeModifiers(healthMultiplier, speedMultiplier, damageMultiplier); break;
+            case ToxicTriangleEnemy t: t.ApplyChallengeModifiers(healthMultiplier, speedMultiplier, damageMultiplier); break;
+            case StationBossEnemy s: s.ApplyChallengeModifiers(healthMultiplier, speedMultiplier, damageMultiplier); break;
+        }
+    }
+
     private void HandlePitEnemyDeath(object enemy)
     {
         if (!_pitEnemyWaves.Remove(enemy, out var wave)) return;
@@ -1232,9 +1364,107 @@ public sealed partial class SciFiRogueGame : IDisposable
         _pitRunXpEarned += rewardXp;
         _pitRunCoinsEarned += rewardCoins;
         _player.Inventory.TryAddHeavyAmmo(20f, out _);
-        if (!HasAnyPitEnemyAlive() && _pitWaveTimer > 3f) _pitWaveTimer = 3f;
-        if (wave % 3 == 0) OpenPitRewardSelection(wave);
+
+        var clearedBeforeNextWave = _pitNextWave == wave + 1 && _pitWaveTimer > 0f;
+        if (_challengeKind == ChallengeKind.PitNightmare && wave % 10 == 0)
+        {
+            AddPitNightmareTokenReward(wave);
+            if (clearedBeforeNextWave)
+            {
+                _pitNightmarePortalActive = true;
+                if (!HasAnyPitEnemyAlive() && _pitWaveTimer > 10f) _pitWaveTimer = 10f;
+                ShowNotice("Nightmare exit portal active.");
+            }
+        }
+
+        if (!HasAnyPitEnemyAlive())
+        {
+            var clearDelay = _challengeKind == ChallengeKind.PitNightmare && wave % 10 == 0 && clearedBeforeNextWave ? 10f : 3f;
+            if (_pitWaveTimer > clearDelay) _pitWaveTimer = clearDelay;
+        }
+
+        if (_challengeKind != ChallengeKind.PitNightmare && wave % 3 == 0) OpenPitRewardSelection(wave);
         SavePersistentState();
+    }
+
+    private void AddPitNightmareTokenReward(int wave)
+    {
+        var decade = Math.Max(1, wave / 10);
+        var tokens = decade switch
+        {
+            1 => 5,
+            2 => 10,
+            3 => 20,
+            4 => 35,
+            _ => 50
+        };
+
+        _meta.CryptoTokens += tokens;
+        _pitRunTokensEarned += tokens;
+    }
+
+    private void OpenPitDifficultySelection()
+    {
+        _pitDifficultyOffer = RollPitDifficultyOffer();
+        _pitDifficultyRouletteItems.Clear();
+        for (var i = 0; i < 18; i++) _pitDifficultyRouletteItems.Add(RollPitDifficultyOffer());
+        _pitDifficultyRouletteItems.Add(_pitDifficultyOffer);
+        _pitDifficultySpinElapsed = 0f;
+        ApplyPitDifficultyOffer(_pitDifficultyOffer);
+        _pitDifficultyOpen = true;
+    }
+
+    private void UpdatePitDifficultySelection(float dt)
+    {
+        _pitDifficultySpinElapsed += dt;
+        if (_pitDifficultySpinElapsed < PitDifficultySpinDuration) return;
+
+        if (Clicked(PitDifficultyOkButtonRect()))
+        {
+            _pitDifficultyOpen = false;
+            _pitDifficultySpinElapsed = 0f;
+            _pitDifficultyRouletteItems.Clear();
+            SavePersistentState();
+        }
+    }
+
+    private PitDifficultyOffer RollPitDifficultyOffer()
+    {
+        return _rng.Next(3) switch
+        {
+            0 => new PitDifficultyOffer('D', new[] { 5f, 8f, 10f }[_rng.Next(3)]),
+            1 => new PitDifficultyOffer('H', new[] { 10f, 13f, 15f }[_rng.Next(3)]),
+            _ => new PitDifficultyOffer('S', new[] { 5f, 8f, 10f }[_rng.Next(3)])
+        };
+    }
+
+    private void ApplyPitDifficultyOffer(PitDifficultyOffer offer)
+    {
+        if (offer.Kind == 'D') _pitNightmareDamageBonusPercent += offer.Percent;
+        else if (offer.Kind == 'H') _pitNightmareHealthBonusPercent += offer.Percent;
+        else if (offer.Kind == 'S') _pitNightmareSpeedBonusPercent += offer.Percent;
+    }
+
+    private void CompletePitNightmareExtraction()
+    {
+        var stored = 0;
+        var lostForCapacity = 0;
+        foreach (var item in CollectExtractedItems())
+        {
+            if (item.IsStarter) continue;
+            if (_meta.AddToStorage(item)) stored++;
+            else lostForCapacity++;
+        }
+
+        RefreshStoreAfterQualifiedRun();
+        SavePersistentState();
+        ClearUiInteraction();
+        _extractPortals.Clear();
+        _pitNightmarePortalActive = false;
+        _state = GameState.Storage;
+        ShowNotice(lostForCapacity > 0
+            ? $"Nightmare ended: {stored} items stored, {lostForCapacity} lost. Earned: {_pitRunTokensEarned} CryptoTokens."
+            : $"Nightmare ended: {stored} items stored. Earned: {_pitRunTokensEarned} CryptoTokens.");
     }
 
     private bool HasAnyPitEnemyAlive()
@@ -3471,12 +3701,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         _pitRewardOffers.Clear();
         _pitRouletteItems.Clear();
         _pitRewardSpinElapsed = 0f;
+        _pitDifficultyOpen = false;
+        _pitDifficultySpinElapsed = 0f;
         ClearUiInteraction();
         UpdateStoreAfterFailedRun();
         SavePersistentState();
         _deathHeader = header;
         _deathBody = _challengeMode
-            ? $"{body}\nEarned: {_pitRunXpEarned} XP, {_pitRunCoinsEarned} SynthCoins."
+            ? $"{body}\nEarned: {_pitRunXpEarned} XP, {_pitRunCoinsEarned} SynthCoins, {_pitRunTokensEarned} CryptoTokens."
             : body;
         _state = GameState.Death;
     }

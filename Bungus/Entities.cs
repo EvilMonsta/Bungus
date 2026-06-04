@@ -35,6 +35,16 @@ public sealed class Player
     private const float SniperProjectileLifetime = 2000f / SniperProjectileSpeed;
     private const float PulseProjectileSpeed = 600f;
     private const float PulseProjectileLifetime = 650f / PulseProjectileSpeed;
+    private const float AutoRifleDamageMultiplier = 0.53f;
+    private const float AutoRifleCooldown = 60f / 500f;
+    private const float AutoRifleProjectileSpeed = 600f;
+    private const float AutoRifleProjectileLifetime = 620f / AutoRifleProjectileSpeed;
+    private const float RocketPulseRifleFireRate = 400f / 60f;
+    private const float RocketPulseRifleShotInterval = 0.064f;
+    private const float RocketPulseRifleCooldown = 3f / RocketPulseRifleFireRate;
+    private const float RocketPulseRifleRange = 600f;
+    private const float RocketPulseRifleProjectileSpeed = 600f;
+    private const float RocketPulseRifleProjectileLifetime = RocketPulseRifleRange / RocketPulseRifleProjectileSpeed;
     private const float ToxikusProjectileSpeed = 550f;
     private const float ToxikusProjectileLifetime = 625f / ToxikusProjectileSpeed;
     private const float TraceRifleCooldown = 60f / 1000f;
@@ -73,6 +83,12 @@ public sealed class Player
     private float _pulsePoisonDuration;
     private float _pulseProjectileSpeed;
     private float _pulseProjectileLifetime;
+    private float _pulseShotInterval = 0.064f;
+    private bool _pulseQueuedExplosive;
+    private float _pulseExplosionDamage;
+    private float _pulseExplosionRadius;
+    private float _pulseDrawRadius;
+    private float _pulseSpreadRadians;
     private float _sniperStillTimer;
     private float _legendarySniperChargeTimer;
     private bool _legendarySniperChargePrimed;
@@ -268,10 +284,9 @@ public sealed class Player
 
     public bool Attack(Vector2 target, List<Projectile> projectiles, List<SwingArc> swings, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages)
     {
-        if (_attackCd > 0f) return false;
-
         var weapon = ActiveWeapon;
         if (weapon is null) return false;
+        if (_attackCd > 0f && weapon.Pattern != WeaponPattern.RamBomber) return false;
 
         var dir = target - Position;
         if (dir == Vector2.Zero) dir = new Vector2(1f, 0f);
@@ -280,6 +295,26 @@ public sealed class Player
         if (ActiveWeaponClass == WeaponClass.Ranged)
         {
             var damage = GetWeaponDamage(weapon);
+            if (weapon.Pattern == WeaponPattern.RamBomber)
+            {
+                var (blastDamage, blastColor) = RollRamBomberBlast();
+                projectiles.Add(new Projectile(
+                    Position,
+                    Vector2.Zero,
+                    0f,
+                    0.02f,
+                    blastColor,
+                    false,
+                    blastDamage,
+                    ProjectileKind.RamBlast,
+                    1000f,
+                    blastDamage,
+                    0f,
+                    false,
+                    Position));
+                _attackCd = 0f;
+                return true;
+            }
             if (weapon.Pattern == WeaponPattern.TraceRifle)
             {
                 if (!TryConsumeHeavyAmmo(weapon)) return false;
@@ -375,6 +410,51 @@ public sealed class Player
                 _attackCd = 1f / 1.5f;
                 return true;
             }
+            else if (weapon.Pattern == WeaponPattern.AutoRifle)
+            {
+                dir = ApplyMovementSpread(dir);
+                projectiles.Add(new Projectile(
+                    Position + dir * 18f,
+                    dir,
+                    AutoRifleProjectileSpeed,
+                    AutoRifleProjectileLifetime,
+                    weapon.Color,
+                    false,
+                    damage * AutoRifleDamageMultiplier,
+                    sourcePosition: Position));
+                _attackCd = AutoRifleCooldown;
+                return true;
+            }
+            else if (weapon.Pattern == WeaponPattern.RocketPulseRifle)
+            {
+                var ammoCost = ItemStack.GetHeavyAmmoCostPercent(weapon);
+                if (Inventory.HeavyAmmoPercent + 0.0001f < ammoCost * 3f) return false;
+                for (var i = 0; i < 3; i++)
+                {
+                    if (!TryConsumeHeavyAmmo(weapon)) return false;
+                }
+
+                var rocketDamage = damage * 0.8f;
+                var explosionDamage = damage * 0.45f;
+                _pulseDir = dir;
+                _pulseColor = weapon.Color;
+                _pulseDamage = rocketDamage;
+                _pulsePoisonDamagePerSecond = 0f;
+                _pulsePoisonDuration = 0f;
+                _pulseProjectileSpeed = RocketPulseRifleProjectileSpeed;
+                _pulseProjectileLifetime = RocketPulseRifleProjectileLifetime;
+                _pulseQueuedExplosive = true;
+                _pulseExplosionDamage = explosionDamage;
+                _pulseExplosionRadius = 35f;
+                _pulseDrawRadius = 4.8f;
+                _pulseSpreadRadians = 5f * MathF.PI / 180f;
+                FireRocketPulseShot(projectiles, dir, weapon.Color, rocketDamage, explosionDamage);
+                _pulseQueuedShots = 2;
+                _pulseShotCd = RocketPulseRifleShotInterval;
+                _pulseShotInterval = RocketPulseRifleShotInterval;
+                _attackCd = RocketPulseRifleCooldown;
+                return true;
+            }
             else if (weapon.Pattern is WeaponPattern.PulseRifle or WeaponPattern.Toxikus)
             {
                 var pulseShotDamage = GetPulseShotDamage(weapon);
@@ -392,6 +472,8 @@ public sealed class Player
                 _pulsePoisonDuration = poisonDuration;
                 _pulseProjectileSpeed = projectileSpeed;
                 _pulseProjectileLifetime = projectileLifetime;
+                _pulseShotInterval = _pulseShotCd;
+                _pulseQueuedExplosive = false;
                 _attackCd = weapon.Pattern == WeaponPattern.Toxikus ? 1f / 2.2f : 0.374f;
                 return true;
             }
@@ -468,10 +550,19 @@ public sealed class Player
         _pulseShotCd -= dt;
         while (_pulseQueuedShots > 0 && _pulseShotCd <= 0f)
         {
-            FirePulseShot(projectiles, _pulseDir, _pulseColor, _pulseDamage, _pulseProjectileSpeed, _pulseProjectileLifetime, _pulsePoisonDamagePerSecond, _pulsePoisonDuration);
+            if (_pulseQueuedExplosive)
+            {
+                FireRocketPulseShot(projectiles, _pulseDir, _pulseColor, _pulseDamage, _pulseExplosionDamage);
+            }
+            else
+            {
+                FirePulseShot(projectiles, _pulseDir, _pulseColor, _pulseDamage, _pulseProjectileSpeed, _pulseProjectileLifetime, _pulsePoisonDamagePerSecond, _pulsePoisonDuration);
+            }
             _pulseQueuedShots--;
-            _pulseShotCd += 0.064f;
+            _pulseShotCd += _pulseShotInterval;
         }
+
+        if (_pulseQueuedShots <= 0) _pulseQueuedExplosive = false;
     }
 
     private void FirePulseShot(List<Projectile> projectiles, Vector2 dir, Color color, float damage, float speed, float lifetime, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
@@ -480,11 +571,39 @@ public sealed class Player
         projectiles.Add(new Projectile(Position + dir * 18f, dir, speed, lifetime, color, false, damage, sourcePosition: Position, poisonDamagePerSecond: poisonDamagePerSecond, poisonDuration: poisonDuration));
     }
 
+    private void FireRocketPulseShot(List<Projectile> projectiles, Vector2 dir, Color color, float damage, float explosionDamage)
+    {
+        dir = VisibilityUtils.Rotate(dir, (Random.Shared.NextSingle() * 2f - 1f) * _pulseSpreadRadians);
+        dir = ApplyMovementSpread(dir);
+        projectiles.Add(new Projectile(
+            Position + dir * 20f,
+            dir,
+            RocketPulseRifleProjectileSpeed,
+            RocketPulseRifleProjectileLifetime,
+            color,
+            false,
+            damage,
+            ProjectileKind.Grenade,
+            _pulseExplosionRadius,
+            explosionDamage,
+            _pulseDrawRadius,
+            false,
+            Position));
+    }
+
     private void FireStandardShot(List<Projectile> projectiles, Vector2 dir, Color color, float damage, float angleOffset = 0f)
     {
         var shotDir = angleOffset == 0f ? dir : VisibilityUtils.Rotate(dir, angleOffset);
         shotDir = ApplyMovementSpread(shotDir);
         projectiles.Add(new Projectile(Position + shotDir * 18f, shotDir, 520f, 550f / 520f, color, false, damage, sourcePosition: Position));
+    }
+
+    private static (float Damage, Color Color) RollRamBomberBlast()
+    {
+        var roll = Random.Shared.NextSingle();
+        if (roll < 0.95f) return (1f, Palette.C(255, 45, 45, 120));
+        if (roll < 0.99f) return (1000f, Palette.C(90, 255, 120, 120));
+        return (10000f, Palette.C(255, 255, 255, 145));
     }
 
     private bool TryConsumeHeavyAmmo(ItemStack weapon)

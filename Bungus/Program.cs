@@ -794,7 +794,16 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         var mouseWorld = Raylib.GetScreenToWorld2D(Raylib.GetMousePosition(), _camera);
         var linearRelease = _player.IsLinearRifleEquipped && Raylib.IsMouseButtonReleased(MouseButton.Left);
-        if ((Raylib.IsMouseButtonDown(MouseButton.Left) || linearRelease) && !_player.InventoryOpen)
+        var activeWeapon = _player.ActiveWeapon;
+        if (!_player.InventoryOpen
+            && activeWeapon?.Pattern == WeaponPattern.RamBomber
+            && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _player.Attack(mouseWorld, _projectiles, _swings, _obstacles, _worldSize, _dashAfterImages);
+        }
+        else if (activeWeapon?.Pattern != WeaponPattern.RamBomber
+            && (Raylib.IsMouseButtonDown(MouseButton.Left) || linearRelease)
+            && !_player.InventoryOpen)
         {
             _player.Attack(mouseWorld, _projectiles, _swings, _obstacles, _worldSize, _dashAfterImages);
         }
@@ -1561,18 +1570,23 @@ public sealed partial class SciFiRogueGame : IDisposable
     }
 
     private ItemStack RollPitPrimaryWeapon(ArmorRarity rarity)
-        => ItemStack.PatternWeapon(
-            WeaponClass.Ranged,
-            _rng.NextSingle() < 0.5625f ? WeaponPattern.Standard : WeaponPattern.PulseRifle,
-            rarity,
-            _rng);
+    {
+        var patterns = new[]
+        {
+            WeaponPattern.Standard,
+            WeaponPattern.PulseRifle,
+            WeaponPattern.AutoRifle
+        };
+        return ItemStack.PatternWeapon(WeaponClass.Ranged, patterns[_rng.Next(patterns.Length)], rarity, _rng);
+    }
 
     private ItemStack RollPitHeavyWeapon(ArmorRarity rarity)
     {
         var patterns = new[]
         {
             WeaponPattern.SniperRifle,
-            WeaponPattern.LinearRifle
+            WeaponPattern.LinearRifle,
+            WeaponPattern.RocketPulseRifle
         };
         return ItemStack.PatternWeapon(WeaponClass.Ranged, patterns[_rng.Next(patterns.Length)], rarity, _rng);
     }
@@ -1828,6 +1842,13 @@ public sealed partial class SciFiRogueGame : IDisposable
             var p = _projectiles[i];
             p.Update(dt);
 
+            if (p.Kind == ProjectileKind.RamBlast)
+            {
+                ExplodeProjectile(p);
+                _projectiles.RemoveAt(i);
+                continue;
+            }
+
             if (p.Kind == ProjectileKind.TraceBeam)
             {
                 var beamEnd = TryGetNearestPlayerSegmentHitPoint(p.SourcePosition, p.Position, p.DrawRadius, out var hitPoint)
@@ -1897,7 +1918,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (domeHit is not null)
             {
                 domeHit.Damage(p.Damage);
-                _explosions.Add(new Explosion(p.Position, 26f, p.Color));
+                AddBulletImpact(p);
                 AddLinearShotFadeTrail(p);
                 _projectiles.RemoveAt(i);
                 continue;
@@ -1925,7 +1946,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 {
                     _player.TakeDamage(p.Damage);
                     if (p.PlayerPoisonDuration > 0f) _player.ApplyPoison(p.PlayerPoisonDuration);
-                    _explosions.Add(new Explosion(p.Position, 26f, p.Color));
+                    AddBulletImpact(p);
                     AddLinearShotFadeTrail(p);
                     _projectiles.RemoveAt(i);
                 }
@@ -1945,7 +1966,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 }
                 else
                 {
-                    _explosions.Add(new Explosion(p.Position, 34f, p.Color));
+                    AddBulletImpact(p);
                 }
 
                 AddLinearShotFadeTrail(p);
@@ -1959,6 +1980,11 @@ public sealed partial class SciFiRogueGame : IDisposable
                 _projectiles.RemoveAt(i);
             }
         }
+    }
+
+    private void AddBulletImpact(Projectile projectile)
+    {
+        _explosions.Add(new Explosion(projectile.Position, projectile.DrawRadius * 4f, projectile.Color, filled: true, outlined: false, fillAlpha: 0.264f));
     }
 
     private void AddLinearShotFadeTrail(Projectile projectile)
@@ -2182,7 +2208,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void ExplodeProjectile(Projectile projectile)
     {
-        _explosions.Add(new Explosion(projectile.Position, projectile.ExplosionRadius, projectile.Color));
+        _explosions.Add(new Explosion(projectile.Position, projectile.ExplosionRadius, projectile.Color, projectile.Kind == ProjectileKind.RamBlast));
 
         if (projectile.OwnerEnemy)
         {
@@ -2196,49 +2222,49 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         var aggroWitnesses = false;
 
-        foreach (var enemy in _enemies.Where(e => e.Alive && Vector2.Distance(e.Position, projectile.Position) <= projectile.ExplosionRadius))
+        foreach (var enemy in _enemies.Where(e => e.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, e.Position, 16f)))
         {
             enemy.Damage(projectile.ExplosionDamage);
             ApplyPlayerHitEffects(enemy);
             aggroWitnesses |= enemy.ReactToShot(projectile.SourcePosition, _obstacles);
         }
 
-        foreach (var hex in _hexEnemies.Where(h => h.Alive && Vector2.Distance(h.Position, projectile.Position) <= projectile.ExplosionRadius))
+        foreach (var hex in _hexEnemies.Where(h => h.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, h.Position, 15f)))
         {
             hex.Damage(projectile.ExplosionDamage);
             ApplyPlayerHitEffects(hex);
             aggroWitnesses = true;
         }
 
-        foreach (var turret in _turrets.Where(t => t.Alive && Vector2.Distance(t.Position, projectile.Position) <= projectile.ExplosionRadius))
+        foreach (var turret in _turrets.Where(t => t.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, t.Position, 18f)))
         {
             turret.Damage(projectile.ExplosionDamage);
             ApplyPlayerHitEffects(turret);
             aggroWitnesses |= turret.ReactToShot(projectile.SourcePosition, _player.Position, _obstacles);
         }
 
-        foreach (var miniBoss in _miniBosses.Where(b => b.Alive && Vector2.Distance(b.Position, projectile.Position) <= projectile.ExplosionRadius))
+        foreach (var miniBoss in _miniBosses.Where(b => b.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, b.Position, 21f)))
         {
             miniBoss.Damage(projectile.ExplosionDamage);
             ApplyPlayerHitEffects(miniBoss);
             aggroWitnesses |= miniBoss.ReactToShot(projectile.SourcePosition, _obstacles);
         }
 
-        foreach (var guard in _generatorGuards.Where(g => g.Alive && Vector2.Distance(g.Position, projectile.Position) <= projectile.ExplosionRadius + 14f))
+        foreach (var guard in _generatorGuards.Where(g => g.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, g.Position, 14f)))
         {
             guard.Damage(projectile.ExplosionDamage);
             ApplyPlayerHitEffects(guard);
             aggroWitnesses |= guard.TryAggroFromPlayerHit(_player.Position);
         }
 
-        foreach (var toxic in _toxicEnemies.Where(e => e.Alive && Vector2.Distance(e.Position, projectile.Position) <= projectile.ExplosionRadius + 12f))
+        foreach (var toxic in _toxicEnemies.Where(e => e.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, e.Position, 12f)))
         {
             toxic.Damage(projectile.ExplosionDamage);
             ApplyPlayerHitEffects(toxic);
             aggroWitnesses |= toxic.ReactToShot(projectile.SourcePosition, _obstacles);
         }
 
-        foreach (var generator in _generators.Where(g => !g.Destroyed && Vector2.Distance(g.Position, projectile.Position) <= projectile.ExplosionRadius + 24f))
+        foreach (var generator in _generators.Where(g => !g.Destroyed && IsInExplosion(projectile.Position, projectile.ExplosionRadius, g.Position, 24f)))
         {
             generator.Damage(projectile.ExplosionDamage);
         }
@@ -2274,6 +2300,11 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         AggroWitnesses(projectile.Position, aggroWitnesses);
+    }
+
+    private static bool IsInExplosion(Vector2 explosionPosition, float explosionRadius, Vector2 targetPosition, float targetRadius)
+    {
+        return Vector2.Distance(targetPosition, explosionPosition) <= explosionRadius + targetRadius;
     }
 
     private void ApplyPlayerHitEffects(Enemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
@@ -3849,6 +3880,14 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
+        if (code == "MIBOMBO")
+        {
+            var result = ApplyMiBomboCode();
+            SetCodeStatus(result.Success, result.Message);
+            if (result.Success) _codeInput = string.Empty;
+            return;
+        }
+
         SetCodeStatus(false, "No such code.");
     }
 
@@ -4057,6 +4096,24 @@ public sealed partial class SciFiRogueGame : IDisposable
         RegisterPromoCodeUse(code, false);
         SavePersistentState();
         return (true, "Success: +100 CryptoTokens.");
+    }
+
+    private (bool Success, string Message) ApplyMiBomboCode()
+    {
+        const string code = "MIBOMBO";
+        if (!CanUsePromoCode(code, null, false, out var error))
+        {
+            return (false, error);
+        }
+
+        if (!_meta.AddToStorage(ItemStack.RamBomber(_rng)))
+        {
+            return (false, "Storage is full.");
+        }
+
+        RegisterPromoCodeUse(code, false);
+        SavePersistentState();
+        return (true, "Success");
     }
 
     private bool CanUsePromoCode(string code, int? maxUses, bool sessionOnly, out string error)
@@ -4467,6 +4524,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private static string BuildWeaponDamageText(Player player, ItemStack? weapon, WeaponClass kind)
     {
         if (weapon is null) return string.Empty;
+        if (weapon.Pattern == WeaponPattern.RamBomber) return "Damage ??? | DPS ???";
 
         var (totalDamage, bonusDamage, dps, label) = GetDisplayedWeaponStats(player, weapon, kind);
         if (weapon.Pattern == WeaponPattern.Toxikus)
@@ -4481,6 +4539,22 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private static (float TotalDamage, float BonusDamage, float Dps, string Label) GetDisplayedWeaponStats(Player player, ItemStack weapon, WeaponClass kind)
     {
+        if (weapon.Pattern == WeaponPattern.RamBomber) return (0f, 0f, 0f, "???");
+
+        if (weapon.Pattern == WeaponPattern.AutoRifle)
+        {
+            var baseBullet = weapon.BaseDamage * 0.53f;
+            var bullet = player.GetWeaponDamage(weapon) * 0.53f;
+            return (bullet, bullet - baseBullet, bullet * (500f / 60f), "bullet");
+        }
+
+        if (weapon.Pattern == WeaponPattern.RocketPulseRifle)
+        {
+            var baseImpact = weapon.BaseDamage * 1.25f;
+            var impact = player.GetWeaponDamage(weapon) * 1.25f;
+            return (impact, impact - baseImpact, impact * (400f / 60f), "x3 rocket");
+        }
+
         if (weapon.Pattern == WeaponPattern.GrenadeLauncher)
         {
             var baseDirect = weapon.BaseDamage + 135f;

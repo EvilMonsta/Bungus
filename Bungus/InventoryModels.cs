@@ -277,8 +277,8 @@ public sealed class ItemStack
     public bool IsStationKey
         => Type == ItemType.KeyItem && Name.Equals("S.T.A.T.I.O.N", StringComparison.OrdinalIgnoreCase)
            || Type == ItemType.Consumable && ConsumableKind == ConsumableType.StationKey;
-    public bool IsPrimaryWeapon => Type == ItemType.Weapon && WeaponKind == WeaponClass.Ranged && Pattern is WeaponPattern.Standard or WeaponPattern.PulseRifle or WeaponPattern.Pulsar or WeaponPattern.Toxikus;
-    public bool IsHeavyWeapon => Type == ItemType.Weapon && WeaponKind == WeaponClass.Ranged && Pattern is WeaponPattern.GrenadeLauncher or WeaponPattern.LinearRifle or WeaponPattern.RocketLauncher or WeaponPattern.SniperRifle or WeaponPattern.TraceRifle;
+    public bool IsPrimaryWeapon => Type == ItemType.Weapon && WeaponKind == WeaponClass.Ranged && Pattern is WeaponPattern.Standard or WeaponPattern.PulseRifle or WeaponPattern.AutoRifle or WeaponPattern.Pulsar or WeaponPattern.Toxikus;
+    public bool IsHeavyWeapon => Type == ItemType.Weapon && WeaponKind == WeaponClass.Ranged && Pattern is WeaponPattern.GrenadeLauncher or WeaponPattern.LinearRifle or WeaponPattern.RocketLauncher or WeaponPattern.SniperRifle or WeaponPattern.TraceRifle or WeaponPattern.RamBomber or WeaponPattern.RocketPulseRifle;
     public bool IsHeavyAmmo => Type == ItemType.Ammo;
 
     public float Defense { get; }
@@ -440,6 +440,7 @@ public sealed class ItemStack
             WeaponPattern.RocketLauncher => 12,
             WeaponPattern.SniperRifle => 33,
             WeaponPattern.LinearRifle => 25,
+            WeaponPattern.RocketPulseRifle => 66,
             _ => 0
         };
 
@@ -614,8 +615,8 @@ public sealed class ItemStack
 
         if (kind == WeaponClass.Ranged)
         {
-            var primary = new[] { WeaponPattern.Standard, WeaponPattern.PulseRifle };
-            var heavy = new[] { WeaponPattern.SniperRifle, WeaponPattern.LinearRifle };
+            var primary = new[] { WeaponPattern.Standard, WeaponPattern.PulseRifle, WeaponPattern.AutoRifle };
+            var heavy = new[] { WeaponPattern.SniperRifle, WeaponPattern.LinearRifle, WeaponPattern.RocketPulseRifle };
             var pool = rng.NextSingle() < 0.60f ? primary : heavy;
             return pool[rng.Next(pool.Length)];
         }
@@ -641,7 +642,13 @@ public sealed class ItemStack
         string name;
         string description;
 
-        if (kind == WeaponClass.Ranged && pattern == WeaponPattern.Toxikus)
+        if (kind == WeaponClass.Ranged && pattern == WeaponPattern.RamBomber)
+        {
+            name = "???";
+            description = "???";
+            baseDamage = 0f;
+        }
+        else if (kind == WeaponClass.Ranged && pattern == WeaponPattern.Toxikus)
         {
             name = "Toxikus";
             description = "Unique pulse rifle. Slower 2-round burst; bullets poison enemies.";
@@ -669,6 +676,16 @@ public sealed class ItemStack
             name = "Pulsar";
             description = "Unique automatic rifle. Impacts scatter delayed micro-explosions.";
             baseDamage = 30f;
+        }
+        else if (kind == WeaponClass.Ranged && pattern == WeaponPattern.AutoRifle)
+        {
+            name = "Auto Rifle";
+            description = "Primary automatic rifle. High fire rate with stable bullet speed.";
+        }
+        else if (kind == WeaponClass.Ranged && pattern == WeaponPattern.RocketPulseRifle)
+        {
+            name = "Rocket Pulse Rifle";
+            description = "Heavy burst rifle. Fires three micro-rockets with small blast damage.";
         }
         else if (kind == WeaponClass.Melee && pattern == WeaponPattern.Lancelot)
         {
@@ -823,6 +840,9 @@ public sealed class ItemStack
 
     public static ItemStack Pulsar(Random rng)
         => CreatePatternWeapon(WeaponClass.Ranged, WeaponPattern.Pulsar, ArmorRarity.Red, rng);
+
+    public static ItemStack RamBomber(Random rng)
+        => CreatePatternWeapon(WeaponClass.Ranged, WeaponPattern.RamBomber, ArmorRarity.Red, rng);
 
     public static ItemStack StationKey()
         => new(

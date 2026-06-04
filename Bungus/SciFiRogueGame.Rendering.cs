@@ -225,7 +225,14 @@ public sealed partial class SciFiRogueGame
         {
             var t = ex.Life / ex.MaxLife;
             var r = ex.Radius * (1f - t);
-            Raylib.DrawCircleLines((int)ex.Position.X, (int)ex.Position.Y, r, ex.Color);
+            if (ex.Filled)
+            {
+                Raylib.DrawCircleV(ex.Position, r, WithAlpha(ex.Color, ex.FillAlpha * t));
+            }
+            if (ex.Outlined)
+            {
+                Raylib.DrawCircleLines((int)ex.Position.X, (int)ex.Position.Y, r, ex.Color);
+            }
         }
 
         foreach (var s in _swings)
@@ -956,6 +963,9 @@ public sealed partial class SciFiRogueGame
             WeaponPattern.TraceRifle => "trace_rifle.png",
             WeaponPattern.LinearRifle => "linear_rifle.png",
             WeaponPattern.Pulsar => "pulsar.png",
+            WeaponPattern.RamBomber => "ram.png",
+            WeaponPattern.AutoRifle => "auto_rifle.png",
+            WeaponPattern.RocketPulseRifle => "rocket_pulse_rifle.png",
             WeaponPattern.SniperRifle => "sniper_rifle.png",
             WeaponPattern.Toxikus => "toxikus.png",
             WeaponPattern.PulseRifle => "pulse_rifle.png",
@@ -1011,6 +1021,7 @@ public sealed partial class SciFiRogueGame
         if (item.Type == ItemType.Weapon)
         {
             if (item.WeaponKind is null) return ComparisonMarker.None;
+            if (item.Pattern == WeaponPattern.RamBomber) return ComparisonMarker.None;
             var equipped = GetComparedWeapon(item, comparison);
             if (equipped is null || equipped.Type != ItemType.Weapon || equipped.WeaponKind != item.WeaponKind) return ComparisonMarker.Better;
 
@@ -1307,6 +1318,14 @@ public sealed partial class SciFiRogueGame
 
         if (item.Type == ItemType.Weapon)
         {
+            if (item.Pattern == WeaponPattern.RamBomber)
+            {
+                lines.Add(("Base damage: ??? | Ranged", item.Color));
+                lines.Add(("Fire rate: ???", Palette.C(170, 220, 255)));
+                lines.Add(("DPS: ???", Color.LightGray));
+                return lines;
+            }
+
             lines.Add(($"Base damage: {item.BaseDamage:0.0} | {item.WeaponKind}", item.Color));
             lines.Add(($"Fire rate: {GetWeaponFireRatePerMinute(item):0}/min", Palette.C(170, 220, 255)));
             var dps = GetWeaponDps(item);
@@ -1350,6 +1369,9 @@ public sealed partial class SciFiRogueGame
     {
         if (item.Type != ItemType.Weapon) return 0f;
 
+        if (item.Pattern == WeaponPattern.RamBomber) return 0f;
+        if (item.Pattern == WeaponPattern.AutoRifle) return 500f;
+        if (item.Pattern == WeaponPattern.RocketPulseRifle) return 3f * (1f / GetWeaponCooldown(item)) * 60f;
         if (item.Pattern == WeaponPattern.GrenadeLauncher) return 90f;
         if (item.Pattern == WeaponPattern.RocketLauncher) return 40f;
         if (item.Pattern == WeaponPattern.TraceRifle) return 1000f;
@@ -1373,7 +1395,10 @@ public sealed partial class SciFiRogueGame
     {
         if (item.Type != ItemType.Weapon) return 0f;
 
+        if (item.Pattern == WeaponPattern.RamBomber) return 0f;
         var damage = item.BaseDamage;
+        if (item.Pattern == WeaponPattern.AutoRifle) return damage * 0.53f / GetWeaponCooldown(item);
+        if (item.Pattern == WeaponPattern.RocketPulseRifle) return damage * 1.25f / GetWeaponCooldown(item);
         if (item.Pattern == WeaponPattern.GrenadeLauncher) return (damage + 135f) / GetWeaponCooldown(item);
         if (item.Pattern == WeaponPattern.RocketLauncher) return (damage + 200f) / GetWeaponCooldown(item);
         if (item.Pattern == WeaponPattern.TraceRifle) return damage / GetWeaponCooldown(item);
@@ -1412,6 +1437,9 @@ public sealed partial class SciFiRogueGame
     private static float GetWeaponCooldown(ItemStack item)
     {
         if (item.Pattern == WeaponPattern.GrenadeLauncher) return 1f / 1.5f;
+        if (item.Pattern == WeaponPattern.RamBomber) return 0f;
+        if (item.Pattern == WeaponPattern.AutoRifle) return 60f / 500f;
+        if (item.Pattern == WeaponPattern.RocketPulseRifle) return 3f / (400f / 60f);
         if (item.Pattern == WeaponPattern.RocketLauncher) return 1.5f;
         if (item.Pattern == WeaponPattern.TraceRifle) return 60f / 1000f;
         if (item.Pattern == WeaponPattern.LinearRifle) return (item.Rarity == ArmorRarity.Legendary ? 0.7f : 0.8f) + 0.45f;

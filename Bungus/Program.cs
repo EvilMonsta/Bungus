@@ -508,7 +508,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
-        if (offer.Item.IsHeavyAmmo && !_meta.CanStoreHeavyAmmo(offer.Item.AmmoPercent))
+        if (offer.Item.IsHeavyAmmo && !CanStorePurchasedHeavyAmmo(offer.Item.AmmoPercent))
         {
             ShowNotice("Not enough storage space for Heavy Ammo.");
             return;
@@ -522,7 +522,10 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         _meta.SynthCoins -= price;
         if (!offer.Item.IsHeavyAmmo) offer.Purchased = true;
-        if (!_meta.AddToStorage(offer.Item))
+        var stored = offer.Item.IsHeavyAmmo
+            ? StorePurchasedHeavyAmmo(offer.Item.AmmoPercent)
+            : _meta.AddToStorage(offer.Item);
+        if (!stored)
         {
             _meta.SynthCoins += price;
             if (!offer.Item.IsHeavyAmmo) offer.Purchased = false;
@@ -532,6 +535,21 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         SavePersistentState();
         ShowNotice($"Bought {offer.Item.Name} for {price} SynthCoins.");
+    }
+
+    private bool CanStorePurchasedHeavyAmmo(float percent)
+        => ItemStack.GetHeavyAmmoFreeCapacity(_meta.RunBackpackSlots)
+           + ItemStack.GetHeavyAmmoFreeCapacity(_meta.StorageSlots)
+           + 0.0001f >= percent;
+
+    private bool StorePurchasedHeavyAmmo(float percent)
+    {
+        if (!ItemStack.TryAddHeavyAmmoToSlots(_meta.RunBackpackSlots, percent, out var remainingPercent) && remainingPercent > 0f)
+        {
+            return ItemStack.TryAddHeavyAmmoToSlots(_meta.StorageSlots, remainingPercent, out _);
+        }
+
+        return true;
     }
 
     private void TryBuyTokenStoreOffer(int index)
@@ -1307,7 +1325,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             null => ItemStack.Armor(rarity, _rng),
             WeaponSlot.Melee => ItemStack.Weapon(WeaponClass.Melee, rarity, _rng),
             WeaponSlot.PrimaryRanged => RollPitPrimaryWeapon(rarity),
-            WeaponSlot.HeavyRanged => ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.SniperRifle, rarity, _rng),
+            WeaponSlot.HeavyRanged => RollPitHeavyWeapon(rarity),
             _ => ItemStack.Weapon(WeaponClass.Melee, rarity, _rng)
         };
     }
@@ -1318,6 +1336,16 @@ public sealed partial class SciFiRogueGame : IDisposable
             _rng.NextSingle() < 0.5625f ? WeaponPattern.Standard : WeaponPattern.PulseRifle,
             rarity,
             _rng);
+
+    private ItemStack RollPitHeavyWeapon(ArmorRarity rarity)
+    {
+        var patterns = new[]
+        {
+            WeaponPattern.SniperRifle,
+            WeaponPattern.LinearRifle
+        };
+        return ItemStack.PatternWeapon(WeaponClass.Ranged, patterns[_rng.Next(patterns.Length)], rarity, _rng);
+    }
 
     private List<ItemStack> BuildPitRouletteItems(WeaponSlot? weaponSlot, int wave, ItemStack finalItem)
     {
@@ -1640,6 +1668,14 @@ public sealed partial class SciFiRogueGame : IDisposable
             {
                 domeHit.Damage(p.Damage);
                 _explosions.Add(new Explosion(p.Position, 26f, p.Color));
+                AddLinearShotFadeTrail(p);
+                _projectiles.RemoveAt(i);
+                continue;
+            }
+
+            if (!p.OwnerEnemy && p.Kind == ProjectileKind.LinearShot
+                && TryApplyPlayerSegmentDamage(p.PreviousPosition, p.Position, p.DrawRadius + 6f, p.Damage, p.SourcePosition, p.PoisonDamagePerSecond, p.PoisonDuration))
+            {
                 AddLinearShotFadeTrail(p);
                 _projectiles.RemoveAt(i);
                 continue;
@@ -3399,8 +3435,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         AddMetaScore(_runScore);
-        RefreshArmoryOffers();
-        RefreshTokenStoreOffers();
+        RefreshStoreAfterQualifiedRun();
         SavePersistentState();
         ClearUiInteraction();
         _extractPortals.Clear();
@@ -3437,8 +3472,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _pitRouletteItems.Clear();
         _pitRewardSpinElapsed = 0f;
         ClearUiInteraction();
-        RefreshArmoryOffers();
-        RefreshTokenStoreOffers();
+        UpdateStoreAfterFailedRun();
         SavePersistentState();
         _deathHeader = header;
         _deathBody = _challengeMode
@@ -3757,7 +3791,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         var rewards = new List<ItemStack>
         {
             ItemStack.TraceRifle(_rng),
-            ItemStack.LinearRifle(_rng),
+            ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.LinearRifle, ArmorRarity.Legendary, _rng),
             ItemStack.RocketLauncher(_rng),
             ItemStack.Pulsar(_rng)
         };
@@ -3969,7 +4003,12 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (item.IsHeavyAmmo) return 300;
         if (item.Type == ItemType.Consumable) return 200;
 
-        var price = item.Rarity == ArmorRarity.Epic ? 2500 : 500;
+        var price = item.Rarity switch
+        {
+            ArmorRarity.Legendary => 10000,
+            ArmorRarity.Epic => 2500,
+            _ => 500
+        };
         if (item.Type == ItemType.Armor)
         {
             price = (int)MathF.Ceiling(price * (1f + GetArmorModifierCount(item) * 0.2f));
@@ -3992,11 +4031,37 @@ public sealed partial class SciFiRogueGame : IDisposable
         return count;
     }
 
+    private void RefreshStoreAfterQualifiedRun()
+    {
+        _meta.FailedRunsSinceStoreRefresh = 0;
+        RefreshArmoryOffers();
+        RefreshTokenStoreOffers();
+    }
+
+    private void UpdateStoreAfterFailedRun()
+    {
+        if (_challengeMode && _pitCompletedWaves.Count >= 10)
+        {
+            RefreshStoreAfterQualifiedRun();
+            return;
+        }
+
+        _meta.FailedRunsSinceStoreRefresh++;
+        if (_meta.FailedRunsSinceStoreRefresh < 3) return;
+
+        RefreshStoreAfterQualifiedRun();
+    }
+
     private void RefreshArmoryOffers()
     {
         _meta.ArmoryOffers.Clear();
-        for (var i = 0; i < 7; i++) _meta.ArmoryOffers.Add(new ArmoryOffer { Item = RollArmoryEquipment(ArmorRarity.Rare) });
-        for (var i = 0; i < 3; i++) _meta.ArmoryOffers.Add(new ArmoryOffer { Item = RollArmoryEquipment(ArmorRarity.Epic) });
+        for (var i = 0; i < 5; i++) _meta.ArmoryOffers.Add(new ArmoryOffer { Item = RollArmoryEquipment(ArmorRarity.Rare) });
+        for (var i = 0; i < 2; i++) _meta.ArmoryOffers.Add(new ArmoryOffer { Item = RollArmoryEquipment(ArmorRarity.Epic) });
+        for (var i = 0; i < 3; i++)
+        {
+            var rarity = _rng.NextSingle() < 0.30f ? ArmorRarity.Legendary : ArmorRarity.Epic;
+            _meta.ArmoryOffers.Add(new ArmoryOffer { Item = RollArmoryEquipment(rarity) });
+        }
         _meta.ArmoryOffers.Add(new ArmoryOffer { Item = ItemStack.HeavyAmmo(25f) });
         _meta.ArmoryOffers.Add(new ArmoryOffer { Item = ItemStack.Consumable(RollConsumableType()) });
     }
@@ -4021,6 +4086,12 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private bool EnsureTokenStoreOffers()
     {
+        if (_meta.TokenStoreOffers.Any(offer => offer.Item.Pattern == WeaponPattern.LinearRifle))
+        {
+            RefreshTokenStoreOffers();
+            return true;
+        }
+
         if (_meta.TokenStoreOffers.Count >= 3) return false;
         RefreshTokenStoreOffers();
         return true;
@@ -4033,7 +4104,6 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             WeaponPattern.Pulsar,
             WeaponPattern.Toxikus,
-            WeaponPattern.LinearRifle,
             WeaponPattern.TraceRifle,
             WeaponPattern.RocketLauncher
         };
@@ -4056,7 +4126,6 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             WeaponPattern.Pulsar => ItemStack.Pulsar(_rng),
             WeaponPattern.Toxikus => ItemStack.Toxikus(_rng),
-            WeaponPattern.LinearRifle => ItemStack.LinearRifle(_rng),
             WeaponPattern.TraceRifle => ItemStack.TraceRifle(_rng),
             WeaponPattern.RocketLauncher => ItemStack.RocketLauncher(_rng),
             _ => ItemStack.Pulsar(_rng)
@@ -4067,7 +4136,6 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             WeaponPattern.Pulsar => 100,
             WeaponPattern.Toxikus => 80,
-            WeaponPattern.LinearRifle => 150,
             WeaponPattern.TraceRifle => 125,
             WeaponPattern.RocketLauncher => 175,
             _ => 100
@@ -4082,6 +4150,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private ItemStack RollArmoryEquipment(ArmorRarity rarity)
     {
         if (_rng.NextSingle() < 0.35f) return ItemStack.Armor(rarity, _rng);
+        if (_rng.NextSingle() < 0.20f) return ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.LinearRifle, rarity, _rng);
         return ItemStack.Weapon(_rng.NextSingle() < 0.5f ? WeaponClass.Ranged : WeaponClass.Melee, rarity, _rng);
     }
 
@@ -4204,8 +4273,10 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (weapon.Pattern == WeaponPattern.LinearRifle)
         {
-            var linearDamage = player.GetWeaponDamage(weapon);
-            return (linearDamage, linearDamage - weapon.BaseDamage, linearDamage / 1.25f, "shot");
+            var baseLinearDamage = weapon.BaseDamage * 9f;
+            var linearDamage = player.GetWeaponDamage(weapon) * 9f;
+            var cooldown = GetLinearRifleDisplayedCooldown(weapon);
+            return (linearDamage, linearDamage - baseLinearDamage, linearDamage / cooldown, "shot");
         }
 
         if (weapon.Pattern == WeaponPattern.Pulsar)
@@ -4248,6 +4319,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         var dps = total * expectedShotsPerAttack / 0.22f;
         return (total, total - weapon.BaseDamage, dps, "dmg");
     }
+
+    private static float GetLinearRifleDisplayedCooldown(ItemStack weapon)
+        => (weapon.Rarity == ArmorRarity.Legendary ? 0.7f : 0.8f) + 0.45f;
 
     private (List<LootZone> buildings, List<LootZone> outposts) GenerateZones(int buildingCount, int outpostCount)
     {

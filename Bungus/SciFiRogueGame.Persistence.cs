@@ -187,6 +187,7 @@ public sealed partial class SciFiRogueGame
             BaseGuns = _meta.BaseGuns,
             SynthCoins = _meta.SynthCoins,
             CryptoTokens = _meta.CryptoTokens,
+            FailedRunsSinceStoreRefresh = _meta.FailedRunsSinceStoreRefresh,
             StorageSlots = _meta.StorageSlots.Select(ItemStack.ToSaveData).ToList(),
             RunBackpackSlots = _meta.RunBackpackSlots.Select(ItemStack.ToSaveData).ToList(),
             ArmoryOffers = _meta.ArmoryOffers
@@ -215,6 +216,7 @@ public sealed partial class SciFiRogueGame
         _meta.BaseGuns = Math.Max(0, data?.BaseGuns ?? 4);
         _meta.SynthCoins = Math.Max(0, data?.SynthCoins ?? 0);
         _meta.CryptoTokens = Math.Max(0, data?.CryptoTokens ?? 0);
+        _meta.FailedRunsSinceStoreRefresh = Math.Clamp(data?.FailedRunsSinceStoreRefresh ?? 0, 0, 2);
         _meta.StorageSlots.Clear();
         _meta.RunBackpackSlots.Clear();
         _meta.ArmoryOffers.Clear();

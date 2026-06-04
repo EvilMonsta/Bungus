@@ -14,6 +14,7 @@ public sealed class MetaProfile
     public int BaseGuns { get; set; } = 4;
     public int SynthCoins { get; set; }
     public int CryptoTokens { get; set; }
+    public int FailedRunsSinceStoreRefresh { get; set; }
 
     public List<ItemStack?> StorageSlots { get; } = Enumerable.Repeat<ItemStack?>(null, StorageCapacity).ToList();
     public List<ItemStack?> RunBackpackSlots { get; } = Enumerable.Repeat<ItemStack?>(null, Inventory.BackpackCapacity).ToList();
@@ -78,6 +79,7 @@ public sealed class MetaProfileSaveData
     public int BaseGuns { get; set; } = 4;
     public int SynthCoins { get; set; }
     public int CryptoTokens { get; set; }
+    public int FailedRunsSinceStoreRefresh { get; set; }
     public List<ItemStackSaveData?> StorageSlots { get; set; } = [];
     public List<ItemStackSaveData?> RunBackpackSlots { get; set; } = [];
     public List<ArmoryOfferSaveData> ArmoryOffers { get; set; } = [];
@@ -455,7 +457,6 @@ public sealed class ItemStack
         return data.Pattern switch
         {
             WeaponPattern.TraceRifle => 13f,
-            WeaponPattern.LinearRifle => 325f,
             WeaponPattern.RocketLauncher => 225f,
             WeaponPattern.Pulsar => 30f,
             WeaponPattern.GrenadeLauncher => 90f,
@@ -613,10 +614,10 @@ public sealed class ItemStack
 
         if (kind == WeaponClass.Ranged)
         {
-            var rangedRoll = rng.NextSingle();
-            if (rangedRoll < 0.20f) return WeaponPattern.SniperRifle;
-            if (rangedRoll < 0.55f) return WeaponPattern.PulseRifle;
-            return WeaponPattern.Standard;
+            var primary = new[] { WeaponPattern.Standard, WeaponPattern.PulseRifle };
+            var heavy = new[] { WeaponPattern.SniperRifle, WeaponPattern.LinearRifle };
+            var pool = rng.NextSingle() < 0.60f ? primary : heavy;
+            return pool[rng.Next(pool.Length)];
         }
 
         if (kind == WeaponClass.Melee && rng.NextSingle() < 0.35f) return WeaponPattern.EnergySpear;
@@ -655,8 +656,7 @@ public sealed class ItemStack
         else if (kind == WeaponClass.Ranged && pattern == WeaponPattern.LinearRifle)
         {
             name = "Linear Rifle";
-            description = "Unique charge rifle. Hold to charge, then release to fire a heavy linear shot.";
-            baseDamage = 325f;
+            description = "Charge rifle. Hold to charge, then release to fire a heavy linear shot.";
         }
         else if (kind == WeaponClass.Ranged && pattern == WeaponPattern.RocketLauncher)
         {

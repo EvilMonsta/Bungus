@@ -1349,7 +1349,7 @@ public sealed partial class SciFiRogueGame
         if (item.Pattern == WeaponPattern.GrenadeLauncher) return 90f;
         if (item.Pattern == WeaponPattern.RocketLauncher) return 40f;
         if (item.Pattern == WeaponPattern.TraceRifle) return 1000f;
-        if (item.Pattern == WeaponPattern.LinearRifle) return (1f / 1.25f) * 60f;
+        if (item.Pattern == WeaponPattern.LinearRifle) return (1f / GetWeaponCooldown(item)) * 60f;
         if (item.Pattern == WeaponPattern.Pulsar) return 3f * 60f;
         if (item.Pattern == WeaponPattern.PulseRifle)
         {
@@ -1373,7 +1373,7 @@ public sealed partial class SciFiRogueGame
         if (item.Pattern == WeaponPattern.GrenadeLauncher) return (damage + 135f) / GetWeaponCooldown(item);
         if (item.Pattern == WeaponPattern.RocketLauncher) return (damage + 200f) / GetWeaponCooldown(item);
         if (item.Pattern == WeaponPattern.TraceRifle) return damage / GetWeaponCooldown(item);
-        if (item.Pattern == WeaponPattern.LinearRifle) return damage / GetWeaponCooldown(item);
+        if (item.Pattern == WeaponPattern.LinearRifle) return damage * 9f / GetWeaponCooldown(item);
         if (item.Pattern == WeaponPattern.Pulsar) return (damage + 2.5f * 15f) / GetWeaponCooldown(item);
         if (item.Pattern == WeaponPattern.PulseRifle)
         {
@@ -1410,7 +1410,7 @@ public sealed partial class SciFiRogueGame
         if (item.Pattern == WeaponPattern.GrenadeLauncher) return 1f / 1.5f;
         if (item.Pattern == WeaponPattern.RocketLauncher) return 1.5f;
         if (item.Pattern == WeaponPattern.TraceRifle) return 60f / 1000f;
-        if (item.Pattern == WeaponPattern.LinearRifle) return 1.25f;
+        if (item.Pattern == WeaponPattern.LinearRifle) return (item.Rarity == ArmorRarity.Legendary ? 0.7f : 0.8f) + 0.45f;
         if (item.Pattern == WeaponPattern.Pulsar) return 1f / 3f;
         if (item.Pattern == WeaponPattern.Toxikus) return 1f / 2.2f;
         if (item.Pattern == WeaponPattern.PulseRifle) return 0.374f;
@@ -1434,7 +1434,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMainMenu()
     {
-        Raylib.DrawText("a0.3.2", 86, 150, 24, Palette.C(150, 185, 220));
+        Raylib.DrawText("a0.3.3", 86, 150, 24, Palette.C(150, 185, 220));
         DrawMetaProgressHeader();
 
         DrawButton(MainMenuButtonRect(0), "Play");

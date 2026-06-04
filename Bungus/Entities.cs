@@ -40,6 +40,7 @@ public sealed class Player
     private const float TraceRifleCooldown = 60f / 1000f;
     private const float TraceRifleRange = 820f;
     private const float LinearRifleChargeDuration = 0.8f;
+    private const float LegendaryLinearRifleChargeDuration = 0.7f;
     private const float LinearRifleCooldown = 0.45f;
     private const float LinearRifleChargeDecaySpeed = 3f;
     private const float LinearRifleProjectileSpeed = 3800f;
@@ -101,7 +102,7 @@ public sealed class Player
     public bool IsSniperEquipped => ActiveWeaponClass == WeaponClass.Ranged && ActiveWeapon?.Pattern == WeaponPattern.SniperRifle;
     public bool IsLegendarySniperEquipped => IsSniperEquipped && ActiveWeapon?.Rarity == ArmorRarity.Legendary;
     public bool IsLinearRifleEquipped => ActiveWeaponClass == WeaponClass.Ranged && ActiveWeapon?.Pattern == WeaponPattern.LinearRifle;
-    public float LinearRifleChargeProgress => Math.Clamp(_linearRifleCharge / LinearRifleChargeDuration, 0f, 1f);
+    public float LinearRifleChargeProgress => Math.Clamp(_linearRifleCharge / GetLinearRifleChargeDuration(), 0f, 1f);
     public bool SniperChargeVisible => IsLegendarySniperEquipped && _legendarySniperChargePrimed;
     public float SniperChargeProgress => !SniperChargeVisible ? 0f : Math.Clamp(_legendarySniperChargeTimer / LegendarySniperChargeDuration, 0f, 1f);
     public bool SniperChargeReady => IsLegendarySniperEquipped && _legendarySniperChargePrimed && _legendarySniperChargeTimer >= LegendarySniperChargeDuration;
@@ -236,11 +237,11 @@ public sealed class Player
 
         if (Raylib.IsMouseButtonDown(MouseButton.Left))
         {
-            _linearRifleCharge = MathF.Min(LinearRifleChargeDuration, _linearRifleCharge + dt);
+            _linearRifleCharge = MathF.Min(GetLinearRifleChargeDuration(), _linearRifleCharge + dt);
             return;
         }
 
-        if (_linearRifleCharge < LinearRifleChargeDuration)
+        if (_linearRifleCharge < GetLinearRifleChargeDuration())
         {
             _linearRifleCharge = MathF.Max(0f, _linearRifleCharge - dt * LinearRifleChargeDecaySpeed);
         }
@@ -291,19 +292,21 @@ public sealed class Player
             }
             else if (weapon.Pattern == WeaponPattern.LinearRifle)
             {
-                if (!Raylib.IsMouseButtonReleased(MouseButton.Left) || _linearRifleCharge < LinearRifleChargeDuration) return false;
+                if (!Raylib.IsMouseButtonReleased(MouseButton.Left) || _linearRifleCharge < GetLinearRifleChargeDuration()) return false;
                 if (!TryConsumeHeavyAmmo(weapon)) return false;
 
+                var linearDamage = damage * 9f;
                 var end = ClipRayToObstacles(Position, dir, LinearRifleRange, obstacles, worldSize, 3f);
-                var distance = MathF.Max(1f, Vector2.Distance(Position, end));
+                var shotStart = Position + dir * 20f;
+                var distance = MathF.Max(1f, Vector2.Distance(shotStart, end));
                 projectiles.Add(new Projectile(
-                    Position + dir * 20f,
+                    shotStart,
                     dir,
                     LinearRifleProjectileSpeed,
                     distance / LinearRifleProjectileSpeed,
                     weapon.Color,
                     false,
-                    damage,
+                    linearDamage,
                     ProjectileKind.LinearShot,
                     drawRadius: 3.85f,
                     highlighted: true,
@@ -573,6 +576,11 @@ public sealed class Player
 
     public float GetMeleeFlatDamageBonus() => Str;
     public float GetRangedFlatDamageBonus() => Guns * 0.3f;
+
+    private float GetLinearRifleChargeDuration()
+        => ActiveWeapon?.Pattern == WeaponPattern.LinearRifle && ActiveWeapon.Rarity == ArmorRarity.Legendary
+            ? LegendaryLinearRifleChargeDuration
+            : LinearRifleChargeDuration;
 
     public float GetMeleeCooldown(float baseCooldown)
     {

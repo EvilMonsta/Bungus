@@ -371,12 +371,22 @@ public sealed class ItemStack
         if (data is null) return null;
         if (data.Type == ItemType.Consumable && data.ConsumableKind == ConsumableType.StationKey) return StationKey();
 
+        var rarity = data.Rarity;
+        var color = new Color(data.ColorR, data.ColorG, data.ColorB, data.ColorA);
+        var baseDamage = NormalizeSavedWeaponDamage(data);
+        if (data.Type == ItemType.Weapon && data.Pattern == WeaponPattern.LinearRifle && data.Rarity == ArmorRarity.Red)
+        {
+            rarity = ArmorRarity.Legendary;
+            color = Palette.Rarity(rarity);
+            baseDamage = Math.Clamp(baseDamage, 27f, 31f);
+        }
+
         return new ItemStack(
             data.Type,
             data.Name,
             data.Description,
-            data.Rarity,
-            new Color(data.ColorR, data.ColorG, data.ColorB, data.ColorA),
+            rarity,
+            color,
             data.WeaponKind,
             data.Pattern,
             data.ConsumableKind,
@@ -388,7 +398,7 @@ public sealed class ItemStack
             data.DashRecoveryPercent,
             data.ShieldMax,
             data.RegenPercentPerSecond,
-            NormalizeSavedWeaponDamage(data),
+            baseDamage,
             data.IsStarter,
             data.AmmoPercent);
     }
@@ -436,11 +446,11 @@ public sealed class ItemStack
         => weapon?.Pattern switch
         {
             WeaponPattern.TraceRifle => 500,
-            WeaponPattern.GrenadeLauncher => 30,
-            WeaponPattern.RocketLauncher => 12,
+            WeaponPattern.GrenadeLauncher => 25,
+            WeaponPattern.RocketLauncher => 11,
             WeaponPattern.SniperRifle => 33,
             WeaponPattern.LinearRifle => 25,
-            WeaponPattern.RocketPulseRifle => 66,
+            WeaponPattern.RocketPulseRifle => 120,
             _ => 0
         };
 
@@ -833,7 +843,7 @@ public sealed class ItemStack
         => CreatePatternWeapon(WeaponClass.Ranged, WeaponPattern.TraceRifle, ArmorRarity.Red, rng);
 
     public static ItemStack LinearRifle(Random rng)
-        => CreatePatternWeapon(WeaponClass.Ranged, WeaponPattern.LinearRifle, ArmorRarity.Red, rng);
+        => CreatePatternWeapon(WeaponClass.Ranged, WeaponPattern.LinearRifle, ArmorRarity.Legendary, rng);
 
     public static ItemStack RocketLauncher(Random rng)
         => CreatePatternWeapon(WeaponClass.Ranged, WeaponPattern.RocketLauncher, ArmorRarity.Red, rng);

@@ -42,6 +42,8 @@ public sealed class Player
     private const float RocketPulseRifleFireRate = 400f / 60f;
     private const float RocketPulseRifleShotInterval = 0.064f;
     private const float RocketPulseRifleCooldown = 3f / RocketPulseRifleFireRate;
+    private const float RocketPulseRifleBurstSpreadDegrees = 5f;
+    private const float RocketPulseRifleNormalSpreadDegrees = 3f;
     private const float RocketPulseRifleRange = 600f;
     private const float RocketPulseRifleProjectileSpeed = 600f;
     private const float RocketPulseRifleProjectileLifetime = RocketPulseRifleRange / RocketPulseRifleProjectileSpeed;
@@ -89,6 +91,7 @@ public sealed class Player
     private float _pulseExplosionRadius;
     private float _pulseDrawRadius;
     private float _pulseSpreadRadians;
+    private bool _rocketPulseBurstMode;
     private float _sniperStillTimer;
     private float _legendarySniperChargeTimer;
     private bool _legendarySniperChargePrimed;
@@ -118,6 +121,8 @@ public sealed class Player
     public bool IsSniperEquipped => ActiveWeaponClass == WeaponClass.Ranged && ActiveWeapon?.Pattern == WeaponPattern.SniperRifle;
     public bool IsLegendarySniperEquipped => IsSniperEquipped && ActiveWeapon?.Rarity == ArmorRarity.Legendary;
     public bool IsLinearRifleEquipped => ActiveWeaponClass == WeaponClass.Ranged && ActiveWeapon?.Pattern == WeaponPattern.LinearRifle;
+    public bool IsLegendaryRocketPulseRifleEquipped => ActiveWeaponClass == WeaponClass.Ranged && ActiveWeapon?.Pattern == WeaponPattern.RocketPulseRifle && ActiveWeapon.Rarity == ArmorRarity.Legendary;
+    public bool RocketPulseBurstMode => IsLegendaryRocketPulseRifleEquipped && _rocketPulseBurstMode;
     public float LinearRifleChargeProgress => Math.Clamp(_linearRifleCharge / GetLinearRifleChargeDuration(), 0f, 1f);
     public bool SniperChargeVisible => IsLegendarySniperEquipped && _legendarySniperChargePrimed;
     public float SniperChargeProgress => !SniperChargeVisible ? 0f : Math.Clamp(_legendarySniperChargeTimer / LegendarySniperChargeDuration, 0f, 1f);
@@ -421,7 +426,8 @@ public sealed class Player
                     weapon.Color,
                     false,
                     damage * AutoRifleDamageMultiplier,
-                    sourcePosition: Position));
+                    sourcePosition: Position,
+                    ricochetRemaining: weapon.Rarity == ArmorRarity.Legendary ? 1 : 0));
                 _attackCd = AutoRifleCooldown;
                 return true;
             }
@@ -434,8 +440,10 @@ public sealed class Player
                     if (!TryConsumeHeavyAmmo(weapon)) return false;
                 }
 
-                var rocketDamage = damage * 0.8f;
+                var rocketDamage = damage * 0.9f;
                 var explosionDamage = damage * 0.45f;
+                var burstMode = IsLegendaryRocketPulseRifleEquipped && _rocketPulseBurstMode;
+                var shotInterval = burstMode ? RocketPulseRifleShotInterval / 1.5f : RocketPulseRifleShotInterval;
                 _pulseDir = dir;
                 _pulseColor = weapon.Color;
                 _pulseDamage = rocketDamage;
@@ -447,12 +455,12 @@ public sealed class Player
                 _pulseExplosionDamage = explosionDamage;
                 _pulseExplosionRadius = 35f;
                 _pulseDrawRadius = 4.8f;
-                _pulseSpreadRadians = 5f * MathF.PI / 180f;
+                _pulseSpreadRadians = (burstMode ? RocketPulseRifleBurstSpreadDegrees : RocketPulseRifleNormalSpreadDegrees) * MathF.PI / 180f;
                 FireRocketPulseShot(projectiles, dir, weapon.Color, rocketDamage, explosionDamage);
                 _pulseQueuedShots = 2;
-                _pulseShotCd = RocketPulseRifleShotInterval;
-                _pulseShotInterval = RocketPulseRifleShotInterval;
-                _attackCd = RocketPulseRifleCooldown;
+                _pulseShotCd = shotInterval;
+                _pulseShotInterval = shotInterval;
+                _attackCd = burstMode ? RocketPulseRifleCooldown / (1.3f * 1.1f) : RocketPulseRifleCooldown;
                 return true;
             }
             else if (weapon.Pattern is WeaponPattern.PulseRifle or WeaponPattern.Toxikus)
@@ -773,6 +781,13 @@ public sealed class Player
     }
 
     public void SelectWeaponSlot(WeaponSlot slot) => ActiveWeaponSlot = slot;
+
+    public bool ToggleRocketPulseMode()
+    {
+        if (!IsLegendaryRocketPulseRifleEquipped) return false;
+        _rocketPulseBurstMode = !_rocketPulseBurstMode;
+        return true;
+    }
 
     public ConsumableType? UseQuickSlotQ()
     {

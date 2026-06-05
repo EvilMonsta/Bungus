@@ -381,7 +381,7 @@ public sealed partial class SciFiRogueGame
         else
         {
             Raylib.DrawText($"Pit level {_player.Level}", 20, 14, 24, Color.White);
-            var timer = $"{MathF.Ceiling(MathF.Max(0f, _pitWaveTimer)):0}";
+            var timer = float.IsPositiveInfinity(_pitWaveTimer) ? "∞" : $"{MathF.Ceiling(MathF.Max(0f, _pitWaveTimer)):0}";
             Raylib.DrawText(timer, Raylib.GetScreenWidth() / 2 - Raylib.MeasureText(timer, 56) / 2, 12, 56, Palette.C(130, 230, 255));
             var waveText = $"Wave {Math.Max(1, _pitNextWave - 1)}";
             Raylib.DrawText(waveText, Raylib.GetScreenWidth() / 2 - Raylib.MeasureText(waveText, 22) / 2, 72, 22, Color.White);
@@ -418,6 +418,13 @@ public sealed partial class SciFiRogueGame
             Raylib.DrawLineEx(new Vector2(mouse.X, mouse.Y - length), new Vector2(mouse.X, mouse.Y - gap), 2f, color);
             Raylib.DrawLineEx(new Vector2(mouse.X, mouse.Y + gap), new Vector2(mouse.X, mouse.Y + length), 2f, color);
             Raylib.DrawCircleLines((int)mouse.X, (int)mouse.Y, 3f, color);
+            if (_player.IsLegendaryRocketPulseRifleEquipped)
+            {
+                var barColor = Palette.C(150, 150, 150);
+                Raylib.DrawLineEx(new Vector2(mouse.X - 22f, mouse.Y - length), new Vector2(mouse.X - 22f, mouse.Y + length), 2f, barColor);
+                Raylib.DrawLineEx(new Vector2(mouse.X + 22f, mouse.Y - length), new Vector2(mouse.X + 22f, mouse.Y + length), 2f, barColor);
+            }
+
             if (_player.IsLinearRifleEquipped)
             {
                 DrawCircularProgressFrame(mouse, 22f, _player.LinearRifleChargeProgress, Palette.C(130, 230, 255));
@@ -619,7 +626,24 @@ public sealed partial class SciFiRogueGame
         var heavyWeapon = _player.ActiveWeapon?.IsHeavyWeapon == true ? _player.ActiveWeapon : _player.HeavyWeapon;
         var ammoText = $"Heavy Ammo: {_player.Inventory.GetHeavyAmmoShotCount(heavyWeapon)}";
         var ammoFont = 20;
-        Raylib.DrawText(ammoText, (int)(hpRect.X + hpRect.Width - Raylib.MeasureText(ammoText, ammoFont)), (int)hpRect.Y - 78, ammoFont, Palette.C(120, 210, 255));
+        var ammoX = hpRect.X + hpRect.Width - Raylib.MeasureText(ammoText, ammoFont);
+        if (_player.IsLegendaryRocketPulseRifleEquipped)
+        {
+            ammoX -= 48f;
+            DrawRocketPulseModeText(new Vector2(ammoX, hpRect.Y - 78), ammoFont);
+            ammoX += 48f;
+        }
+
+        Raylib.DrawText(ammoText, (int)ammoX, (int)hpRect.Y - 78, ammoFont, Palette.C(120, 210, 255));
+    }
+
+    private void DrawRocketPulseModeText(Vector2 position, int fontSize)
+    {
+        var normalColor = _player.RocketPulseBurstMode ? Color.Gray : Color.White;
+        var burstColor = _player.RocketPulseBurstMode ? Color.White : Color.Gray;
+        Raylib.DrawText("1", (int)position.X, (int)position.Y, fontSize, normalColor);
+        Raylib.DrawText("/", (int)position.X + Raylib.MeasureText("1", fontSize) + 2, (int)position.Y, fontSize, Color.Gray);
+        Raylib.DrawText("2", (int)position.X + Raylib.MeasureText("1/", fontSize) + 4, (int)position.Y, fontSize, burstColor);
     }
 
     private static void DrawStatusBar(Rectangle rect, float ratio, Color fillColor, Color lineColor, string label, int fontSize)
@@ -1321,13 +1345,14 @@ public sealed partial class SciFiRogueGame
             if (item.Pattern == WeaponPattern.RamBomber)
             {
                 lines.Add(("Base damage: ??? | Ranged", item.Color));
-                lines.Add(("Fire rate: ???", Palette.C(170, 220, 255)));
+                lines.Add(("Fire rate: click only", Palette.C(170, 220, 255)));
+                lines.Add(("Explosion radius: 1000", Palette.C(255, 170, 120)));
+                lines.Add(("Effect damage: 1 / 1000 / 10000", Palette.C(180, 230, 255)));
                 lines.Add(("DPS: ???", Color.LightGray));
                 return lines;
             }
 
-            lines.Add(($"Base damage: {item.BaseDamage:0.0} | {item.WeaponKind}", item.Color));
-            lines.Add(($"Fire rate: {GetWeaponFireRatePerMinute(item):0}/min", Palette.C(170, 220, 255)));
+            AddWeaponStatLines(lines, item);
             var dps = GetWeaponDps(item);
             lines.Add(($"DPS: {dps:0.0}", GetWeaponDpsColor(item, dps, comparison)));
             return lines;
@@ -1343,6 +1368,41 @@ public sealed partial class SciFiRogueGame
         if (item.IsStationKey) lines.Add(("Key item | opens station entrance", item.Color));
         else lines.Add(("Use by Q/R", Color.Green));
         return lines;
+    }
+
+    private static void AddWeaponStatLines(List<(string Text, Color Color)> lines, ItemStack item)
+    {
+        lines.Add(($"Base damage: {GetWeaponBaseHitDamage(item):0.0} | {item.WeaponKind}", item.Color));
+
+        if (GetWeaponBurstCount(item) is int burstCount)
+        {
+            lines.Add(($"Burst: {burstCount} shots", Palette.C(170, 220, 255)));
+            lines.Add(($"Burst rate: {GetWeaponBurstRatePerMinute(item):0}/min", Palette.C(170, 220, 255)));
+        }
+        else
+        {
+            lines.Add(($"Fire rate: {GetWeaponFireRatePerMinute(item):0}/min", Palette.C(170, 220, 255)));
+        }
+
+        if (item.Pattern == WeaponPattern.LinearRifle)
+        {
+            lines.Add(($"Charge time: {GetLinearRifleChargeTime(item):0.00}s", Palette.C(130, 230, 255)));
+        }
+
+        var range = GetWeaponRange(item);
+        if (range > 0f) lines.Add(($"Range: {range:0}", Palette.C(190, 210, 240)));
+
+        var explosionRadius = GetWeaponExplosionRadius(item);
+        if (explosionRadius > 0f)
+        {
+            lines.Add(($"Explosion radius: {explosionRadius:0}", Palette.C(255, 170, 120)));
+            lines.Add(($"Explosion damage: {GetWeaponExplosionDamage(item):0.0}", Palette.C(255, 190, 130)));
+        }
+
+        foreach (var effect in GetWeaponEffectLines(item))
+        {
+            lines.Add(effect);
+        }
     }
 
     private static Color GetWeaponDpsColor(ItemStack item, float dps, ComparisonContext? comparison)
@@ -1363,6 +1423,118 @@ public sealed partial class SciFiRogueGame
         if (item.WeaponKind == WeaponClass.Melee) return comparison.MeleeWeapon;
         if (item.IsHeavyWeapon) return comparison.HeavyWeapon;
         return comparison.RangedWeapon;
+    }
+
+    private static float GetWeaponBaseHitDamage(ItemStack item)
+    {
+        var damage = item.BaseDamage;
+        return item.Pattern switch
+        {
+            WeaponPattern.AutoRifle => damage * 0.53f,
+            WeaponPattern.RocketPulseRifle => damage * 0.9f,
+            WeaponPattern.GrenadeLauncher => damage + 135f,
+            WeaponPattern.RocketLauncher => damage + 200f,
+            WeaponPattern.LinearRifle => damage * 9f,
+            WeaponPattern.SniperRifle => damage * 8.325f,
+            WeaponPattern.PulseRifle or WeaponPattern.Toxikus => damage * 0.525f,
+            WeaponPattern.Pulsar => damage,
+            WeaponPattern.TraceRifle => damage,
+            WeaponPattern.EnergySpear or WeaponPattern.Lancelot => damage * 6.3f,
+            _ => item.WeaponKind == WeaponClass.Melee ? damage * 6.3f : damage
+        };
+    }
+
+    private static int? GetWeaponBurstCount(ItemStack item)
+        => item.Pattern switch
+        {
+            WeaponPattern.PulseRifle => item.Rarity == ArmorRarity.Legendary ? 4 : 3,
+            WeaponPattern.Toxikus => 2,
+            WeaponPattern.RocketPulseRifle => 3,
+            _ => null
+        };
+
+    private static float GetWeaponBurstRatePerMinute(ItemStack item)
+        => item.Pattern switch
+        {
+            WeaponPattern.Toxikus => 2.2f * 60f,
+            WeaponPattern.PulseRifle => (1f / 0.374f) * 60f,
+            WeaponPattern.RocketPulseRifle => (1f / (3f / (400f / 60f))) * 60f,
+            _ => 0f
+        };
+
+    private static float GetWeaponRange(ItemStack item)
+        => item.Pattern switch
+        {
+            WeaponPattern.Standard when item.WeaponKind == WeaponClass.Ranged => 550f,
+            WeaponPattern.PulseRifle => 650f,
+            WeaponPattern.AutoRifle => 620f,
+            WeaponPattern.SniperRifle => 2000f,
+            WeaponPattern.LinearRifle => 1000f,
+            WeaponPattern.RocketPulseRifle => 600f,
+            WeaponPattern.GrenadeLauncher => 350f,
+            WeaponPattern.RocketLauncher => 510f,
+            WeaponPattern.TraceRifle => 820f,
+            WeaponPattern.Pulsar => 600f,
+            WeaponPattern.Toxikus => 625f,
+            WeaponPattern.EnergySpear => item.Rarity == ArmorRarity.Legendary ? 150f : 125f,
+            WeaponPattern.Lancelot => 150f,
+            WeaponPattern.Standard when item.WeaponKind == WeaponClass.Melee => 75f,
+            _ => 0f
+        };
+
+    private static float GetWeaponExplosionRadius(ItemStack item)
+        => item.Pattern switch
+        {
+            WeaponPattern.GrenadeLauncher => 90f,
+            WeaponPattern.RocketLauncher => 117f,
+            WeaponPattern.RocketPulseRifle => 35f,
+            WeaponPattern.Pulsar => 14.9625f,
+            _ => 0f
+        };
+
+    private static float GetWeaponExplosionDamage(ItemStack item)
+        => item.Pattern switch
+        {
+            WeaponPattern.GrenadeLauncher => item.BaseDamage,
+            WeaponPattern.RocketLauncher => item.BaseDamage,
+            WeaponPattern.RocketPulseRifle => item.BaseDamage * 0.45f,
+            WeaponPattern.Pulsar => 15f,
+            _ => 0f
+        };
+
+    private static float GetLinearRifleChargeTime(ItemStack item)
+        => item.Rarity == ArmorRarity.Legendary ? 0.7f : 0.8f;
+
+    private static List<(string Text, Color Color)> GetWeaponEffectLines(ItemStack item)
+    {
+        var lines = new List<(string Text, Color Color)>();
+        if (item.Pattern == WeaponPattern.Toxikus)
+        {
+            lines.Add(($"Poison damage: {30f + item.BaseDamage * 0.4f:0.0}/sec for 3s", Palette.C(120, 230, 120)));
+        }
+
+        if (item.Pattern == WeaponPattern.Pulsar)
+        {
+            lines.Add(("Micro charges: 2-3", Palette.C(140, 230, 255)));
+            lines.Add(("Micro delay: 0.25s", Palette.C(140, 230, 255)));
+        }
+
+        if (item.Pattern == WeaponPattern.AutoRifle && item.Rarity == ArmorRarity.Legendary)
+        {
+            lines.Add(("Effect: 20% ricochet, once", Palette.C(170, 220, 255)));
+        }
+
+        if (item.Pattern == WeaponPattern.RocketPulseRifle && item.Rarity == ArmorRarity.Legendary)
+        {
+            lines.Add(("Mode 2: faster burst, 5 deg spread", Palette.C(170, 220, 255)));
+        }
+
+        if (item.Pattern == WeaponPattern.SniperRifle && item.Rarity == ArmorRarity.Legendary)
+        {
+            lines.Add(("Charged damage: x20.8125 after standing", Palette.C(176, 92, 255)));
+        }
+
+        return lines;
     }
 
     private static float GetWeaponFireRatePerMinute(ItemStack item)
@@ -1398,7 +1570,7 @@ public sealed partial class SciFiRogueGame
         if (item.Pattern == WeaponPattern.RamBomber) return 0f;
         var damage = item.BaseDamage;
         if (item.Pattern == WeaponPattern.AutoRifle) return damage * 0.53f / GetWeaponCooldown(item);
-        if (item.Pattern == WeaponPattern.RocketPulseRifle) return damage * 1.25f / GetWeaponCooldown(item);
+        if (item.Pattern == WeaponPattern.RocketPulseRifle) return damage * 1.35f / GetWeaponCooldown(item);
         if (item.Pattern == WeaponPattern.GrenadeLauncher) return (damage + 135f) / GetWeaponCooldown(item);
         if (item.Pattern == WeaponPattern.RocketLauncher) return (damage + 200f) / GetWeaponCooldown(item);
         if (item.Pattern == WeaponPattern.TraceRifle) return damage / GetWeaponCooldown(item);

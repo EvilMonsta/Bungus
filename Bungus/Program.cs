@@ -791,6 +791,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (Raylib.IsKeyPressed((KeyboardKey)49)) _player.SelectWeaponSlot(WeaponSlot.Melee);
         if (Raylib.IsKeyPressed((KeyboardKey)50)) _player.SelectWeaponSlot(WeaponSlot.PrimaryRanged);
         if (Raylib.IsKeyPressed((KeyboardKey)51)) _player.SelectWeaponSlot(WeaponSlot.HeavyRanged);
+        if (!_player.InventoryOpen && Raylib.IsMouseButtonPressed(MouseButton.Right)) _player.ToggleRocketPulseMode();
 
         var mouseWorld = Raylib.GetScreenToWorld2D(Raylib.GetMousePosition(), _camera);
         var linearRelease = _player.IsLinearRifleEquipped && Raylib.IsMouseButtonReleased(MouseButton.Left);
@@ -1165,7 +1166,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         if (_challengeKind == ChallengeKind.PitNightmare) _pitNightmarePortalActive = false;
         var wave = _pitNextWave++;
-        _pitWaveTimer = wave % 10 == 0 ? 60f : 30f;
+        _pitWaveTimer = wave == 100 ? float.PositiveInfinity : wave % 10 == 0 ? 60f : 30f;
         if (_challengeKind == ChallengeKind.PitNightmare && wave % 3 == 0)
         {
             OpenPitDifficultySelection();
@@ -1285,54 +1286,58 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
         else if (wave == 50)
         {
-            AddGuards(3);
-            AddFastSquares(1);
-        }
-        else if (wave <= 51)
-        {
-            AddFastSquares(1);
-            AddCircles(3);
-        }
-        else if (wave <= 55)
-        {
-            AddFastSquares(1);
-            AddCircles(3);
-            AddTriangles(wave - 51, true);
-        }
-        else if (wave == 56)
-        {
+            AddGuards(6);
             AddFastSquares(2);
         }
         else if (wave <= 59)
         {
-            AddFastSquares(2);
-            AddTriangles(wave - 56, true);
+            AddFastSquares(3);
+            AddHexes(wave - 47);
         }
         else if (wave == 60)
         {
-            AddStationBosses(1);
-            AddHexes(5);
+            AddStationBosses(2);
+            AddHexes(3);
         }
         else if (wave <= 69)
         {
-            AddFastSquares(3);
+            AddFastSquares(5);
+            AddToxic(2);
+            AddHexes(wave - 60);
         }
         else if (wave == 70)
         {
             AddStationBosses(2);
+            AddGuards(2);
+            AddSquares(2);
+            AddFastSquares(2);
+            AddToxic(2);
         }
         else if (wave <= 79)
         {
-            AddFastSquares(4);
+            AddGuards(1);
+            AddToxic(wave - 61);
         }
         else if (wave == 80)
         {
-            AddStationBosses(3);
+            AddStationBosses(6);
+        }
+        else if (wave <= 89)
+        {
+            AddStationBosses(1);
+            AddHexes(wave - 80);
+        }
+        else if (wave <= 99)
+        {
+            AddHexes(50);
+        }
+        else if (wave == 100)
+        {
+            AddStationBosses(10);
         }
         else
         {
-            AddFastSquares(5);
-            AddGuards(2);
+            return;
         }
 
         ShowNotice($"Wave {wave} started.");
@@ -1392,8 +1397,37 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (_pitWaveTimer > clearDelay) _pitWaveTimer = clearDelay;
         }
 
+        if (wave == 100)
+        {
+            CompletePitVictory();
+            return;
+        }
+
         if (_challengeKind != ChallengeKind.PitNightmare && wave % 3 == 0) OpenPitRewardSelection(wave);
         SavePersistentState();
+    }
+
+    private void CompletePitVictory()
+    {
+        if (_challengeKind == ChallengeKind.PitNightmare)
+        {
+            CompletePitNightmareExtraction();
+            return;
+        }
+
+        RefreshStoreAfterQualifiedRun();
+        SavePersistentState();
+        ClearUiInteraction();
+        _extractPortals.Clear();
+        _pitNightmarePortalActive = false;
+        _pitRewardOpen = false;
+        _pitRewardOffers.Clear();
+        _pitRouletteItems.Clear();
+        _pitRewardSpinElapsed = 0f;
+        _pitDifficultyOpen = false;
+        _pitDifficultySpinElapsed = 0f;
+        _state = GameState.Storage;
+        ShowNotice($"Pit cleared. Earned: {_pitRunXpEarned} XP, {_pitRunCoinsEarned} SynthCoins, {_pitRunTokensEarned} CryptoTokens.");
     }
 
     private void AddPitNightmareTokenReward(int wave)
@@ -1629,7 +1663,6 @@ public sealed partial class SciFiRogueGame : IDisposable
             return ArmorRarity.Rare;
         }
 
-        if (roll < 0.01f) return ArmorRarity.Red;
         if (roll < 0.16f) return ArmorRarity.Legendary;
         if (roll < 0.91f) return ArmorRarity.Epic;
         return ArmorRarity.Rare;
@@ -1958,7 +1991,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 continue;
             }
 
-            if (TryApplyPlayerSegmentDamage(p.PreviousPosition, p.Position, p.DrawRadius, p.Damage, p.SourcePosition, p.PoisonDamagePerSecond, p.PoisonDuration))
+            if (TryApplyPlayerSegmentDamageCore(p.PreviousPosition, p.Position, p.DrawRadius, p.Damage, p.SourcePosition, p.PoisonDamagePerSecond, p.PoisonDuration, p.IgnoreTarget, out var ricochetTarget))
             {
                 if (p.Kind == ProjectileKind.PulsarBolt)
                 {
@@ -1966,6 +1999,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 }
                 else
                 {
+                    TrySpawnRicochet(p, ricochetTarget);
                     AddBulletImpact(p);
                 }
 
@@ -1985,6 +2019,29 @@ public sealed partial class SciFiRogueGame : IDisposable
     private void AddBulletImpact(Projectile projectile)
     {
         _explosions.Add(new Explosion(projectile.Position, projectile.DrawRadius * 4f, projectile.Color, filled: true, outlined: false, fillAlpha: 0.264f));
+    }
+
+    private void TrySpawnRicochet(Projectile projectile, object? hitTarget)
+    {
+        if (projectile.RicochetRemaining <= 0 || hitTarget is null || _rng.NextSingle() >= 0.20f) return;
+
+        var incoming = projectile.Direction.LengthSquared() <= 0.001f ? new Vector2(1f, 0f) : Vector2.Normalize(projectile.Direction);
+        var angle = (_rng.NextSingle() - 0.5f) * MathF.PI;
+        var dir = VisibilityUtils.Rotate(-incoming, angle);
+        _projectiles.Add(new Projectile(
+            projectile.Position + dir * (projectile.DrawRadius + 2f),
+            dir,
+            600f,
+            310f / 600f,
+            projectile.Color,
+            false,
+            projectile.Damage,
+            ProjectileKind.Bullet,
+            drawRadius: projectile.DrawRadius,
+            highlighted: projectile.Highlighted,
+            sourcePosition: projectile.Position,
+            ricochetRemaining: projectile.RicochetRemaining - 1,
+            ignoreTarget: hitTarget));
     }
 
     private void AddLinearShotFadeTrail(Projectile projectile)
@@ -2092,13 +2149,18 @@ public sealed partial class SciFiRogueGame : IDisposable
     }
 
     private bool TryApplyPlayerSegmentDamage(Vector2 from, Vector2 to, float radius, float damage, Vector2 shotSource, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
+        => TryApplyPlayerSegmentDamageCore(from, to, radius, damage, shotSource, poisonDamagePerSecond, poisonDuration, null, out _);
+
+    private bool TryApplyPlayerSegmentDamageCore(Vector2 from, Vector2 to, float radius, float damage, Vector2 shotSource, float poisonDamagePerSecond, float poisonDuration, object? ignoreTarget, out object? hitTarget)
     {
+        hitTarget = null;
         var enemyHit = _enemies
-            .Where(e => e.Alive && DistanceToSegment(e.Position, from, to) <= radius + 11f)
+            .Where(e => e.Alive && !ReferenceEquals(e, ignoreTarget) && DistanceToSegment(e.Position, from, to) <= radius + 11f)
             .OrderBy(e => DistanceToSegment(e.Position, from, to))
             .FirstOrDefault();
         if (enemyHit is not null)
         {
+            hitTarget = enemyHit;
             enemyHit.Damage(damage);
             ApplyPlayerHitEffects(enemyHit, poisonDamagePerSecond, poisonDuration);
             var targetAggroed = enemyHit.ReactToShot(shotSource, _obstacles);
@@ -2107,11 +2169,12 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         var hexHit = _hexEnemies
-            .Where(h => h.Alive && DistanceToSegment(h.Position, from, to) <= radius + 15f)
+            .Where(h => h.Alive && !ReferenceEquals(h, ignoreTarget) && DistanceToSegment(h.Position, from, to) <= radius + 15f)
             .OrderBy(h => DistanceToSegment(h.Position, from, to))
             .FirstOrDefault();
         if (hexHit is not null)
         {
+            hitTarget = hexHit;
             hexHit.Damage(damage);
             ApplyPlayerHitEffects(hexHit, poisonDamagePerSecond, poisonDuration);
             AggroWitnesses(hexHit.Position, true);
@@ -2119,11 +2182,12 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         var turretHit = _turrets
-            .Where(t => t.Alive && DistanceToSegment(t.Position, from, to) <= radius + 18f)
+            .Where(t => t.Alive && !ReferenceEquals(t, ignoreTarget) && DistanceToSegment(t.Position, from, to) <= radius + 18f)
             .OrderBy(t => DistanceToSegment(t.Position, from, to))
             .FirstOrDefault();
         if (turretHit is not null)
         {
+            hitTarget = turretHit;
             turretHit.Damage(damage);
             ApplyPlayerHitEffects(turretHit, poisonDamagePerSecond, poisonDuration);
             var targetAggroed = turretHit.ReactToShot(shotSource, _player.Position, _obstacles);
@@ -2132,11 +2196,12 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         var miniBossHit = _miniBosses
-            .Where(b => b.Alive && DistanceToSegment(b.Position, from, to) <= radius + 26f)
+            .Where(b => b.Alive && !ReferenceEquals(b, ignoreTarget) && DistanceToSegment(b.Position, from, to) <= radius + 26f)
             .OrderBy(b => DistanceToSegment(b.Position, from, to))
             .FirstOrDefault();
         if (miniBossHit is not null)
         {
+            hitTarget = miniBossHit;
             miniBossHit.Damage(damage);
             ApplyPlayerHitEffects(miniBossHit, poisonDamagePerSecond, poisonDuration);
             var targetAggroed = miniBossHit.ReactToShot(shotSource, _obstacles);
@@ -2145,11 +2210,12 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         var guardHit = _generatorGuards
-            .Where(g => g.Alive && DistanceToSegment(g.Position, from, to) <= radius + 18f)
+            .Where(g => g.Alive && !ReferenceEquals(g, ignoreTarget) && DistanceToSegment(g.Position, from, to) <= radius + 18f)
             .OrderBy(g => DistanceToSegment(g.Position, from, to))
             .FirstOrDefault();
         if (guardHit is not null)
         {
+            hitTarget = guardHit;
             guardHit.Damage(damage);
             ApplyPlayerHitEffects(guardHit, poisonDamagePerSecond, poisonDuration);
             var targetAggroed = guardHit.TryAggroFromPlayerHit(_player.Position);
@@ -2158,11 +2224,12 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         var toxicHit = _toxicEnemies
-            .Where(e => e.Alive && DistanceToSegment(e.Position, from, to) <= radius + 16f)
+            .Where(e => e.Alive && !ReferenceEquals(e, ignoreTarget) && DistanceToSegment(e.Position, from, to) <= radius + 16f)
             .OrderBy(e => DistanceToSegment(e.Position, from, to))
             .FirstOrDefault();
         if (toxicHit is not null)
         {
+            hitTarget = toxicHit;
             toxicHit.Damage(damage);
             ApplyPlayerHitEffects(toxicHit, poisonDamagePerSecond, poisonDuration);
             var targetAggroed = toxicHit.ReactToShot(shotSource, _obstacles);
@@ -2171,32 +2238,36 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         var generatorHit = _generators
-            .Where(g => !g.Destroyed && DistanceToSegment(g.Position, from, to) <= radius + 28f)
+            .Where(g => !g.Destroyed && !ReferenceEquals(g, ignoreTarget) && DistanceToSegment(g.Position, from, to) <= radius + 28f)
             .OrderBy(g => DistanceToSegment(g.Position, from, to))
             .FirstOrDefault();
         if (generatorHit is not null)
         {
+            hitTarget = generatorHit;
             generatorHit.Damage(damage);
             return true;
         }
 
-        if (_stationBoss is not null && _stationBoss.TryApplySegmentDamage(from, to, radius, damage))
+        if (_stationBoss is not null && !ReferenceEquals(_stationBoss, ignoreTarget) && _stationBoss.TryApplySegmentDamage(from, to, radius, damage))
         {
+            hitTarget = _stationBoss;
             ApplyPlayerHitEffects(_stationBoss, poisonDamagePerSecond, poisonDuration);
             AggroWitnesses(_stationBoss.Position, true);
             return true;
         }
 
-        var pitStationBossHit = _pitStationBosses.FirstOrDefault(b => b.Alive && b.TryApplySegmentDamage(from, to, radius, damage));
+        var pitStationBossHit = _pitStationBosses.FirstOrDefault(b => b.Alive && !ReferenceEquals(b, ignoreTarget) && b.TryApplySegmentDamage(from, to, radius, damage));
         if (pitStationBossHit is not null)
         {
+            hitTarget = pitStationBossHit;
             ApplyPlayerHitEffects(pitStationBossHit, poisonDamagePerSecond, poisonDuration);
             AggroWitnesses(pitStationBossHit.Position, true);
             return true;
         }
 
-        if (_destroyerBoss is not null && _destroyerBoss.Alive && _destroyerBoss.TryApplySegmentDamage(from, to, radius, damage))
+        if (_destroyerBoss is not null && _destroyerBoss.Alive && !ReferenceEquals(_destroyerBoss, ignoreTarget) && _destroyerBoss.TryApplySegmentDamage(from, to, radius, damage))
         {
+            hitTarget = _destroyerBoss;
             ApplyPlayerHitEffects(_destroyerBoss, poisonDamagePerSecond, poisonDuration);
             var targetAggroed = _destroyerBoss.ReactToShot(shotSource, _obstacles);
             AggroWitnesses(_destroyerBoss.Position, targetAggroed);
@@ -3915,12 +3986,12 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.Standard, ArmorRarity.Legendary, _rng),
             ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.PulseRifle, ArmorRarity.Legendary, _rng),
+            ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.AutoRifle, ArmorRarity.Legendary, _rng),
             ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.SniperRifle, ArmorRarity.Legendary, _rng),
-            ItemStack.Toxikus(_rng),
+            ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.LinearRifle, ArmorRarity.Legendary, _rng),
+            ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.RocketPulseRifle, ArmorRarity.Legendary, _rng),
             ItemStack.PatternWeapon(WeaponClass.Melee, WeaponPattern.Standard, ArmorRarity.Legendary, _rng),
-            ItemStack.PatternWeapon(WeaponClass.Melee, WeaponPattern.EnergySpear, ArmorRarity.Legendary, _rng),
-            ItemStack.Lancelot(_rng),
-            ItemStack.BossGrenadeLauncher()
+            ItemStack.PatternWeapon(WeaponClass.Melee, WeaponPattern.EnergySpear, ArmorRarity.Legendary, _rng)
         };
 
         var stored = 0;
@@ -4061,10 +4132,12 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         var rewards = new List<ItemStack>
         {
+            ItemStack.Toxikus(_rng),
+            ItemStack.Lancelot(_rng),
             ItemStack.TraceRifle(_rng),
-            ItemStack.PatternWeapon(WeaponClass.Ranged, WeaponPattern.LinearRifle, ArmorRarity.Legendary, _rng),
             ItemStack.RocketLauncher(_rng),
-            ItemStack.Pulsar(_rng)
+            ItemStack.Pulsar(_rng),
+            ItemStack.BossGrenadeLauncher()
         };
 
         var stored = 0;
@@ -4550,9 +4623,10 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (weapon.Pattern == WeaponPattern.RocketPulseRifle)
         {
-            var baseImpact = weapon.BaseDamage * 1.25f;
-            var impact = player.GetWeaponDamage(weapon) * 1.25f;
-            return (impact, impact - baseImpact, impact * (400f / 60f), "x3 rocket");
+            var baseImpact = weapon.BaseDamage * 1.35f;
+            var impact = player.GetWeaponDamage(weapon) * 1.35f;
+            var fireRate = player.RocketPulseBurstMode ? (400f / 60f) * 1.3f * 1.1f : 400f / 60f;
+            return (impact, impact - baseImpact, impact * fireRate, "x3 rocket");
         }
 
         if (weapon.Pattern == WeaponPattern.GrenadeLauncher)

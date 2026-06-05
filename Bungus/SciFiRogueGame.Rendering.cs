@@ -13,50 +13,97 @@ public sealed partial class SciFiRogueGame
         switch (_state)
         {
             case GameState.MainMenu:
+                BeginUiScale();
                 DrawMainMenu();
+                DrawNotice();
+                DrawLowHealthOverlay();
+                EndUiScale();
                 break;
             case GameState.MapSelect:
+                BeginUiScale();
                 DrawMapSelect();
+                DrawNotice();
+                DrawLowHealthOverlay();
+                EndUiScale();
                 break;
             case GameState.Storage:
+                BeginUiScale();
                 DrawStorage();
+                DrawNotice();
+                DrawLowHealthOverlay();
+                EndUiScale();
                 break;
             case GameState.Armory:
+                BeginUiScale();
                 DrawArmory();
+                DrawNotice();
+                DrawLowHealthOverlay();
+                EndUiScale();
                 break;
             case GameState.Cradle:
+                BeginUiScale();
                 DrawCradle();
+                DrawNotice();
+                DrawLowHealthOverlay();
+                EndUiScale();
                 break;
             case GameState.Settings:
+                BeginUiScale();
                 DrawSettings();
+                DrawNotice();
+                DrawLowHealthOverlay();
+                EndUiScale();
                 break;
             case GameState.Playing:
                 DrawWorld();
+                BeginUiScale();
                 DrawHud();
                 DrawCombatCursor();
                 if (_mapOpen) DrawMapWindow();
                 else DrawInventory();
+                DrawNotice();
+                DrawLowHealthOverlay();
+                EndUiScale();
                 break;
             case GameState.Paused:
                 DrawWorld();
+                BeginUiScale();
                 DrawHud();
                 DrawPause();
+                DrawNotice();
+                DrawLowHealthOverlay();
+                EndUiScale();
                 break;
             case GameState.Death:
                 DrawWorld();
+                BeginUiScale();
                 DrawDeath();
+                DrawNotice();
+                DrawLowHealthOverlay();
+                EndUiScale();
                 break;
         }
-
-        DrawNotice();
-        DrawLowHealthOverlay();
 
         Raylib.EndDrawing();
     }
 
+    private static void BeginUiScale()
+    {
+        var scale = GetUiScale();
+        var offset = GetUiOffset();
+        Rlgl.PushMatrix();
+        Rlgl.Translatef(offset.X, offset.Y, 0f);
+        Rlgl.Scalef(scale, scale, 1f);
+    }
+
+    private static void EndUiScale()
+    {
+        Rlgl.PopMatrix();
+    }
+
     private void DrawWorld()
     {
-        Raylib.BeginMode2D(_camera);
+        Raylib.BeginMode2D(GetRenderCamera());
         DrawGrid();
 
         foreach (var b in _buildings)
@@ -246,6 +293,19 @@ public sealed partial class SciFiRogueGame
         Raylib.EndMode2D();
     }
 
+    private Camera2D GetRenderCamera()
+    {
+        var scale = GetUiScale();
+        var offset = GetUiOffset();
+        return new Camera2D
+        {
+            Target = _camera.Target,
+            Offset = _camera.Offset * scale + offset,
+            Rotation = _camera.Rotation,
+            Zoom = _camera.Zoom * scale
+        };
+    }
+
     private void DrawPlayerShieldAura()
     {
         if (_player.ShieldCapacity <= 0f || _player.Shield <= 0f) return;
@@ -261,7 +321,7 @@ public sealed partial class SciFiRogueGame
     {
         if (!_player.IsSniperEquipped || _player.InventoryOpen) return;
 
-        var mouseWorld = Raylib.GetScreenToWorld2D(Raylib.GetMousePosition(), _camera);
+        var mouseWorld = Raylib.GetScreenToWorld2D(GetUiMousePosition(), _camera);
         var toCursor = mouseWorld - _player.Position;
         if (toCursor.LengthSquared() <= 0.001f) return;
 
@@ -382,9 +442,9 @@ public sealed partial class SciFiRogueGame
         {
             Raylib.DrawText($"Pit level {_player.Level}", 20, 14, 24, Color.White);
             var timer = float.IsPositiveInfinity(_pitWaveTimer) ? "∞" : $"{MathF.Ceiling(MathF.Max(0f, _pitWaveTimer)):0}";
-            Raylib.DrawText(timer, Raylib.GetScreenWidth() / 2 - Raylib.MeasureText(timer, 56) / 2, 12, 56, Palette.C(130, 230, 255));
+            Raylib.DrawText(timer, GetUiScreenWidth() / 2 - Raylib.MeasureText(timer, 56) / 2, 12, 56, Palette.C(130, 230, 255));
             var waveText = $"Wave {Math.Max(1, _pitNextWave - 1)}";
-            Raylib.DrawText(waveText, Raylib.GetScreenWidth() / 2 - Raylib.MeasureText(waveText, 22) / 2, 72, 22, Color.White);
+            Raylib.DrawText(waveText, GetUiScreenWidth() / 2 - Raylib.MeasureText(waveText, 22) / 2, 72, 22, Color.White);
             if (_challengeKind == ChallengeKind.PitNightmare) DrawPitNightmareModifiers();
         }
 
@@ -398,7 +458,7 @@ public sealed partial class SciFiRogueGame
         DrawStatusEffects();
         if (_pitRewardOpen) DrawPitRewardSelection();
         if (_pitDifficultyOpen) DrawPitDifficultySelection();
-        Raylib.DrawText("WASD move | LMB attack | 1 melee | 2 primary | 3 heavy | TAB inventory | ESC menu", 20, Raylib.GetScreenHeight() - 28, 18, Color.Gray);
+        Raylib.DrawText("WASD move | LMB attack | 1 melee | 2 primary | 3 heavy | TAB inventory | ESC menu", 20, GetUiScreenHeight() - 28, 18, Color.Gray);
         DrawZoneArrows();
     }
 
@@ -406,7 +466,7 @@ public sealed partial class SciFiRogueGame
     {
         if (_player.InventoryOpen || _mapOpen || _pitRewardOpen || _pitDifficultyOpen) return;
 
-        var mouse = Raylib.GetMousePosition();
+        var mouse = GetUiMousePosition();
         var color = Color.White;
 
         if (_player.ActiveWeaponClass == WeaponClass.Ranged)
@@ -442,8 +502,8 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMapWindow()
     {
-        var screenWidth = Raylib.GetScreenWidth();
-        var screenHeight = Raylib.GetScreenHeight();
+        var screenWidth = GetUiScreenWidth();
+        var screenHeight = GetUiScreenHeight();
         Raylib.DrawRectangle(0, 0, screenWidth, screenHeight, Palette.C(0, 0, 0, 150));
 
         var mapRect = GetMapRect();
@@ -526,7 +586,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawExperienceBar()
     {
-        var width = Raylib.GetScreenWidth();
+        var width = GetUiScreenWidth();
         var ratio = Math.Clamp(_player.Kills / (float)Math.Max(1, _player.KillsTarget), 0f, 1f);
         Raylib.DrawRectangle(0, 0, width, 10, Palette.C(12, 20, 34, 230));
         Raylib.DrawRectangle(0, 0, (int)(width * ratio), 10, Palette.C(70, 190, 255));
@@ -537,7 +597,7 @@ public sealed partial class SciFiRogueGame
     {
         if (_player.StatPoints <= 0) return;
 
-        var x = Raylib.GetScreenWidth() - 156;
+        var x = GetUiScreenWidth() - 156;
         var y = 24;
         Raylib.DrawTriangle(
             new Vector2(x + 12, y),
@@ -549,7 +609,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawStatusEffects()
     {
-        var x = Raylib.GetScreenWidth() - 42f;
+        var x = GetUiScreenWidth() - 42f;
         var y = _player.StatPoints > 0 ? 74f : 28f;
 
         if (_player.Poisoned)
@@ -602,8 +662,8 @@ public sealed partial class SciFiRogueGame
 
     private void DrawVitalBars()
     {
-        var screenWidth = Raylib.GetScreenWidth();
-        var screenHeight = Raylib.GetScreenHeight();
+        var screenWidth = GetUiScreenWidth();
+        var screenHeight = GetUiScreenHeight();
         var barWidth = 450f;
         var hpRect = new Rectangle(screenWidth - barWidth - 24f, screenHeight - 64f, barWidth, 22f);
         var dashRect = new Rectangle(screenWidth - barWidth - 24f, screenHeight - 36f, barWidth, 15f);
@@ -738,11 +798,11 @@ public sealed partial class SciFiRogueGame
 
         if (_drag is not null)
         {
-            var m = Raylib.GetMousePosition();
+            var m = GetUiMousePosition();
             DrawItemIcon(_drag.Item, new Rectangle(m.X + 8, m.Y + 8, UiSlotSize, UiSlotSize), comparison, _drag.Kind);
         }
 
-        if (_hovered is not null) DrawTooltip(_hovered, Raylib.GetMousePosition(), comparison);
+        if (_hovered is not null) DrawTooltip(_hovered, GetUiMousePosition(), comparison);
     }
 
     private static void DrawBackpackGrid(Vector2 origin, int cols, int rows)
@@ -760,14 +820,14 @@ public sealed partial class SciFiRogueGame
     private void DrawSynthCoinsCounter(int rightMargin, int y, int fontSize)
     {
         var text = $"SynthCoins: {_meta.SynthCoins}";
-        var x = Raylib.GetScreenWidth() - rightMargin - Raylib.MeasureText(text, fontSize);
+        var x = GetUiScreenWidth() - rightMargin - Raylib.MeasureText(text, fontSize);
         Raylib.DrawText(text, x, y, fontSize, Palette.C(120, 230, 255));
     }
 
     private void DrawCryptoTokensCounter(int rightMargin, int y, int fontSize)
     {
         var text = $"CryptoTokens: {_meta.CryptoTokens}";
-        var x = Raylib.GetScreenWidth() - rightMargin - Raylib.MeasureText(text, fontSize);
+        var x = GetUiScreenWidth() - rightMargin - Raylib.MeasureText(text, fontSize);
         Raylib.DrawText(text, x, y, fontSize, Palette.C(210, 150, 255));
     }
 
@@ -1654,7 +1714,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawCodesPopup()
     {
-        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(0, 0, 0, 165));
+        Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(0, 0, 0, 165));
 
         var popup = CodesPopupRect();
         var input = CodesPopupInputRect();
@@ -1710,7 +1770,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawChallengeCard(Rectangle card, string title, string subtitle, bool nightmare, int index)
     {
-        var hover = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), card);
+        var hover = Raylib.CheckCollisionPointRec(GetUiMousePosition(), card);
         Raylib.DrawRectangleRec(card, hover ? Palette.C(36, 30, 56) : Palette.C(18, 16, 34));
         Raylib.DrawRectangleLinesEx(card, 2f, nightmare ? Palette.C(210, 90, 120) : Palette.C(191, 120, 255));
 
@@ -1731,8 +1791,8 @@ public sealed partial class SciFiRogueGame
 
     private void DrawPitNightmareInfoPopup()
     {
-        var popup = new Rectangle((Raylib.GetScreenWidth() - 620) / 2f, 230, 620, 360);
-        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(0, 0, 0, 145));
+        var popup = new Rectangle((GetUiScreenWidth() - 620) / 2f, 230, 620, 360);
+        Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(0, 0, 0, 145));
         Raylib.DrawRectangleRec(popup, Palette.C(14, 18, 30, 245));
         Raylib.DrawRectangleLinesEx(popup, 2f, Palette.C(210, 90, 120));
         Raylib.DrawText("Pit (Nightmare)", (int)popup.X + 30, (int)popup.Y + 26, 34, Color.White);
@@ -1757,7 +1817,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMapCard(MapDefinition map, Rectangle card)
     {
-        var hover = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), card);
+        var hover = Raylib.CheckCollisionPointRec(GetUiMousePosition(), card);
         Raylib.DrawRectangleRec(card, hover ? Palette.C(22, 40, 62) : Palette.C(14, 24, 40));
         Raylib.DrawRectangleLinesEx(card, 2f, Palette.C(116, 180, 235));
 
@@ -1791,7 +1851,7 @@ public sealed partial class SciFiRogueGame
     private void DrawStorage()
     {
         var previewPlayer = CreateLandingPreviewPlayer();
-        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(8, 12, 20));
+        Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(8, 12, 20));
         DrawTitle("Storage", 48, 56);
         Raylib.DrawText("Equip items here before deployment. Extracted loot returns to this stash.", 70, 106, 24, Color.LightGray);
         Raylib.DrawText($"Capacity {GetStoredItemCount()}/{MetaProfile.StorageCapacity}", 70, 138, 22, Color.White);
@@ -1848,18 +1908,18 @@ public sealed partial class SciFiRogueGame
 
         if (_drag is not null)
         {
-            var m = Raylib.GetMousePosition();
+            var m = GetUiMousePosition();
             DrawItemIcon(_drag.Item, new Rectangle(m.X + 8, m.Y + 8, UiSlotSize, UiSlotSize), comparison, _drag.Kind);
         }
 
-        if (_hovered is not null) DrawTooltip(_hovered, Raylib.GetMousePosition(), comparison);
+        if (_hovered is not null) DrawTooltip(_hovered, GetUiMousePosition(), comparison);
     }
 
     private void DrawArmory()
     {
         var previewPlayer = CreateLandingPreviewPlayer();
         var comparison = new ComparisonContext(previewPlayer, _meta.Armor, _meta.RangedWeapon, _meta.HeavyWeapon, _meta.MeleeWeapon);
-        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(8, 12, 20));
+        Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(8, 12, 20));
         DrawTitle("Armory", 48, 56);
         Raylib.DrawText("Buy equipment. Stock refreshes after each run.", 70, 106, 24, Color.LightGray);
         DrawSynthCoinsCounter(70, 138, 24);
@@ -1877,7 +1937,7 @@ public sealed partial class SciFiRogueGame
 
         DrawButton(ArmoryBackButtonRect(), "Back");
 
-        if (_hovered is not null) DrawTooltip(_hovered, Raylib.GetMousePosition(), comparison);
+        if (_hovered is not null) DrawTooltip(_hovered, GetUiMousePosition(), comparison);
     }
 
     private void DrawArmoryOffer(ArmoryOffer offer, Rectangle rect, ComparisonContext comparison)
@@ -1909,7 +1969,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawPitNightmareModifiers()
     {
-        var x = Raylib.GetScreenWidth() - 220;
+        var x = GetUiScreenWidth() - 220;
         var y = 80;
         Raylib.DrawText($"Enemy damage: +{_pitNightmareDamageBonusPercent:0}%", x, y, 20, Palette.C(255, 145, 145));
         Raylib.DrawText($"Enemy health: +{_pitNightmareHealthBonusPercent:0}%", x, y + 26, 20, Palette.C(160, 255, 170));
@@ -1920,7 +1980,7 @@ public sealed partial class SciFiRogueGame
     {
         var ready = _pitDifficultySpinElapsed >= PitDifficultySpinDuration;
         var panel = PitDifficultyPanelRect();
-        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(0, 0, 0, 170));
+        Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(0, 0, 0, 170));
         Raylib.DrawRectangleRec(panel, Palette.C(10, 16, 28, 245));
         Raylib.DrawRectangleLinesEx(panel, 2f, Palette.C(210, 90, 120));
         Raylib.DrawText("Nightmare modifier", (int)panel.X + 32, (int)panel.Y + 28, 34, Color.White);
@@ -2025,10 +2085,10 @@ public sealed partial class SciFiRogueGame
     private void DrawPitRewardSelection()
     {
         var ready = PitRewardReady;
-        var mouse = Raylib.GetMousePosition();
+        var mouse = GetUiMousePosition();
         ItemStack? hoveredReward = null;
         var comparison = new ComparisonContext(_player, _player.Armor, _player.RangedWeapon, _player.HeavyWeapon, _player.MeleeWeapon);
-        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(0, 0, 0, 170));
+        Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(0, 0, 0, 170));
         var panel = PitRewardPanelRect();
         Raylib.DrawRectangleRec(panel, Palette.C(10, 16, 28, 245));
         Raylib.DrawRectangleLinesEx(panel, 2f, Palette.C(191, 120, 255));
@@ -2177,7 +2237,12 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawRectangleRec(rect, fill);
         Raylib.DrawRectangleLinesEx(rect, 2f, line);
         var fontSize = 24;
-        Raylib.DrawText(label, (int)(rect.X + rect.Width / 2f - Raylib.MeasureText(label, fontSize) / 2f), (int)rect.Y + 2, fontSize, line);
+        Raylib.DrawText(
+            label,
+            (int)(rect.X + rect.Width / 2f - Raylib.MeasureText(label, fontSize) / 2f),
+            (int)(rect.Y + rect.Height / 2f - fontSize / 2f),
+            fontSize,
+            line);
     }
 
     private static string GetCradleTrackLabel(CradleTrack track) => track switch
@@ -2208,7 +2273,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawCradleTrackTooltip()
     {
-        var mouse = Raylib.GetMousePosition();
+        var mouse = GetUiMousePosition();
         foreach (var track in CradleTracks)
         {
             var row = GetCradleTrackIndex(track);
@@ -2226,8 +2291,8 @@ public sealed partial class SciFiRogueGame
         const int padding = 14;
         var bodyLines = WrapText(body, 18, width - padding * 2);
         var height = 58 + bodyLines.Count * 24;
-        var x = Math.Min(mouse.X + 18, Raylib.GetScreenWidth() - width - 16);
-        var y = Math.Min(mouse.Y + 18, Raylib.GetScreenHeight() - height - 16);
+        var x = Math.Min(mouse.X + 18, GetUiScreenWidth() - width - 16);
+        var y = Math.Min(mouse.Y + 18, GetUiScreenHeight() - height - 16);
         var rect = new Rectangle(x, y, width, height);
 
         Raylib.DrawRectangleRec(rect, Palette.C(8, 14, 24, 245));
@@ -2292,7 +2357,7 @@ public sealed partial class SciFiRogueGame
     private void DrawMetaProgressHeader()
     {
         var square = new Rectangle(24, 24, 78, 78);
-        var bar = new Rectangle(square.X + square.Width, square.Y, Raylib.GetScreenWidth() - (square.X + square.Width) - 24, square.Height);
+        var bar = new Rectangle(square.X + square.Width, square.Y, GetUiScreenWidth() - (square.X + square.Width) - 24, square.Height);
         var progressInset = 6f;
         var required = GetMetaScoreRequired(_meta.Level);
         var progress = required <= 0 ? 0f : Math.Clamp(_meta.Score / (float)required, 0f, 1f);
@@ -2313,11 +2378,11 @@ public sealed partial class SciFiRogueGame
     private void DrawSettings()
     {
         DrawTitle("Settings", 100, 66);
-        Raylib.DrawText("Video", (Raylib.GetScreenWidth() - Raylib.MeasureText("Video", 28)) / 2, 180, 28, Color.LightGray);
+        Raylib.DrawText("Video", (GetUiScreenWidth() - Raylib.MeasureText("Video", 28)) / 2, 180, 28, Color.LightGray);
         DrawButton(CenterRect(0, 226, 360, 56), _displayMode == DisplayMode.Windowed ? "> Windowed <" : "Windowed");
         DrawButton(CenterRect(0, 290, 360, 56), _displayMode == DisplayMode.Fullscreen ? "> Fullscreen <" : "Fullscreen");
 
-        Raylib.DrawText("Choose theme", (Raylib.GetScreenWidth() - Raylib.MeasureText("Choose theme", 28)) / 2, 360, 28, Color.LightGray);
+        Raylib.DrawText("Choose theme", (GetUiScreenWidth() - Raylib.MeasureText("Choose theme", 28)) / 2, 360, 28, Color.LightGray);
         for (var i = 0; i < _themes.Count; i++)
         {
             var name = i == _themeIndex ? $"> {_themes[i].Name} <" : _themes[i].Name;
@@ -2329,7 +2394,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawPause()
     {
-        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(0, 0, 0, 175));
+        Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(0, 0, 0, 175));
         DrawTitle("Paused", 170, 64);
         DrawButton(CenterRect(0, 320, 320, 62), "Resume");
         DrawButton(CenterRect(0, 400, 320, 62), "Abandon run");
@@ -2337,13 +2402,13 @@ public sealed partial class SciFiRogueGame
 
     private void DrawDeath()
     {
-        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(0, 0, 0, 180));
+        Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(0, 0, 0, 180));
         DrawTitle(_deathHeader, 150, 68);
         var lines = _deathBody.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];
-            Raylib.DrawText(line, (Raylib.GetScreenWidth() - Raylib.MeasureText(line, 24)) / 2, 250 + i * 34, 24, Color.LightGray);
+            Raylib.DrawText(line, (GetUiScreenWidth() - Raylib.MeasureText(line, 24)) / 2, 250 + i * 34, 24, Color.LightGray);
         }
         DrawButton(CenterRect(0, 320, 320, 62), "Deploy again");
         DrawButton(CenterRect(0, 400, 320, 62), "Main menu");
@@ -2354,7 +2419,7 @@ public sealed partial class SciFiRogueGame
         if (string.IsNullOrWhiteSpace(_noticeText)) return;
 
         var width = Math.Max(360, Raylib.MeasureText(_noticeText, 20) + 36);
-        var rect = new Rectangle(Raylib.GetScreenWidth() - width - 30, 26, width, 46);
+        var rect = new Rectangle(GetUiScreenWidth() - width - 30, 26, width, 46);
         Raylib.DrawRectangleRec(rect, Palette.C(12, 22, 36, 220));
         Raylib.DrawRectangleLinesEx(rect, 2f, Palette.C(110, 185, 240));
         Raylib.DrawText(_noticeText, (int)rect.X + 18, (int)rect.Y + 12, 20, Color.White);
@@ -2362,13 +2427,13 @@ public sealed partial class SciFiRogueGame
 
     private static void DrawTitle(string text, int y, int size)
     {
-        var x = (Raylib.GetScreenWidth() - Raylib.MeasureText(text, size)) / 2;
+        var x = (GetUiScreenWidth() - Raylib.MeasureText(text, size)) / 2;
         Raylib.DrawText(text, x, y, size, Color.White);
     }
 
     private static void DrawButton(Rectangle rect, string text, bool enabled = true)
     {
-        var hover = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), rect);
+        var hover = Raylib.CheckCollisionPointRec(GetUiMousePosition(), rect);
         Raylib.DrawRectangleRec(rect, !enabled ? Palette.C(34, 38, 48) : hover ? Palette.C(68, 112, 186) : Palette.C(36, 56, 90));
         Raylib.DrawRectangleLinesEx(rect, 2f, enabled ? Color.White : Color.DarkGray);
         const int fs = 24;
@@ -2399,7 +2464,7 @@ public sealed partial class SciFiRogueGame
     {
         var rect = StorageSortButtonRect(index);
         var active = _storageSortMode == index;
-        var hover = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), rect);
+        var hover = Raylib.CheckCollisionPointRec(GetUiMousePosition(), rect);
         var fill = active
             ? Palette.C(92, 150, 235)
             : hover ? Palette.C(68, 112, 186) : Palette.C(36, 56, 90);
@@ -2493,8 +2558,8 @@ public sealed partial class SciFiRogueGame
         var intensity = (0.20f - hpRatio) / 0.20f;
         var alpha = (byte)(255 * Math.Clamp(pulse * intensity, 0f, 0.45f));
         var color = Palette.C(220, 40, 40, alpha);
-        var w = Raylib.GetScreenWidth();
-        var h = Raylib.GetScreenHeight();
+        var w = GetUiScreenWidth();
+        var h = GetUiScreenHeight();
         var thick = 12;
 
         Raylib.DrawRectangle(0, 0, w, thick, color);
@@ -2504,7 +2569,7 @@ public sealed partial class SciFiRogueGame
     }
 
     private Rectangle MainMenuButtonRect(int index)
-        => new(70, Raylib.GetScreenHeight() - 404 + index * 60, 220, 48);
+        => new(70, GetUiScreenHeight() - 404 + index * 60, 220, 48);
 
     private static Rectangle MapCardRect(int index)
         => new(70 + index * 585, 160, 555, 380);
@@ -2516,13 +2581,13 @@ public sealed partial class SciFiRogueGame
     }
 
     private static Rectangle PitNightmareInfoCloseRect()
-        => new((Raylib.GetScreenWidth() - 180) / 2f, 520, 180, 46);
+        => new((GetUiScreenWidth() - 180) / 2f, 520, 180, 46);
 
     private static Rectangle DeploymentToggleRect()
-        => new(Raylib.GetScreenWidth() - 292, 74, 220, 46);
+        => new(GetUiScreenWidth() - 292, 74, 220, 46);
 
     private static Rectangle PitRewardPanelRect()
-        => new((Raylib.GetScreenWidth() - 1140f) / 2f, (Raylib.GetScreenHeight() - 680f) / 2f, 1140, 680);
+        => new((GetUiScreenWidth() - 1140f) / 2f, (GetUiScreenHeight() - 680f) / 2f, 1140, 680);
 
     private static Rectangle PitRewardCardRect(int index)
     {
@@ -2596,10 +2661,10 @@ public sealed partial class SciFiRogueGame
         => new(70, 900, 220, 52);
 
     private static Rectangle MainMenuCodesButtonRect()
-        => new(Raylib.GetScreenWidth() - 290, Raylib.GetScreenHeight() - 110, 220, 48);
+        => new(GetUiScreenWidth() - 290, GetUiScreenHeight() - 110, 220, 48);
 
     private static Rectangle CodesPopupRect()
-         => new((Raylib.GetScreenWidth() - 470) / 2f, (Raylib.GetScreenHeight() - 240) / 2f, 470, 240);
+         => new((GetUiScreenWidth() - 470) / 2f, (GetUiScreenHeight() - 240) / 2f, 470, 240);
 
     private static Rectangle CodesPopupInputRect()
     {
@@ -2619,6 +2684,9 @@ public sealed partial class SciFiRogueGame
         return new Rectangle(popup.X + popup.Width - 46, popup.Y + 14, 32, 32);
     }
 
-    private static Rectangle CenterRect(int offsetX, int y, int w, int h) => new((Raylib.GetScreenWidth() - w) / 2f + offsetX, y, w, h);
-    private static bool Clicked(Rectangle rect) => Raylib.IsMouseButtonPressed(MouseButton.Left) && Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), rect);
+    private static Rectangle CenterRect(int offsetX, int y, int w, int h) => new((GetUiScreenWidth() - w) / 2f + offsetX, y, w, h);
+    private static bool Clicked(Rectangle rect) => Raylib.IsMouseButtonPressed(MouseButton.Left) && Raylib.CheckCollisionPointRec(GetUiMousePosition(), rect);
 }
+
+
+

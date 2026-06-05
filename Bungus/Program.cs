@@ -17,6 +17,8 @@ public sealed partial class SciFiRogueGame : IDisposable
 {
     private const int W = 1280;
     private const int H = 720;
+    private const int WindowedDesignW = 1920;
+    private const int WindowedDesignH = 1080;
     private const float MinZoneGap = 300f;
     private const float CenterNoZoneRadius = 850f;
     private const int ProtectedSaveVersion = 2;
@@ -96,6 +98,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private readonly List<VisualTheme> _themes;
     private int _themeIndex;
     private DisplayMode _displayMode;
+    private static DisplayMode s_activeDisplayMode = DisplayMode.Windowed;
     private float _nextHexSpawnTimer;
     private readonly MetaProfile _meta = new();
     private readonly List<ExtractPortal> _extractPortals = [];
@@ -193,6 +196,34 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private VisualTheme Theme => _themes[_themeIndex];
 
+    private static bool IsUiScaledWindowed => s_activeDisplayMode == DisplayMode.Windowed;
+
+    private static int GetUiScreenWidth() => IsUiScaledWindowed ? WindowedDesignW : Raylib.GetScreenWidth();
+
+    private static int GetUiScreenHeight() => IsUiScaledWindowed ? WindowedDesignH : Raylib.GetScreenHeight();
+
+    private static Vector2 GetUiScreenCenter() => new(GetUiScreenWidth() / 2f, GetUiScreenHeight() / 2f);
+
+    private static float GetUiScale()
+    {
+        if (!IsUiScaledWindowed) return 1f;
+        return MathF.Min(Raylib.GetScreenWidth() / (float)WindowedDesignW, Raylib.GetScreenHeight() / (float)WindowedDesignH);
+    }
+
+    private static Vector2 GetUiOffset()
+    {
+        var scale = GetUiScale();
+        return new Vector2(
+            (Raylib.GetScreenWidth() - GetUiScreenWidth() * scale) * 0.5f,
+            (Raylib.GetScreenHeight() - GetUiScreenHeight() * scale) * 0.5f);
+    }
+
+    private static Vector2 GetUiMousePosition()
+    {
+        var scale = MathF.Max(0.001f, GetUiScale());
+        return (Raylib.GetMousePosition() - GetUiOffset()) / scale;
+    }
+
     private void StartRun(string mapName)
     {
         _challengeMode = false;
@@ -277,7 +308,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         ClearPendingLevelUpPoints();
         LoadMetaRunBackpackIntoPlayer();
 
-        _camera.Offset = new Vector2(Raylib.GetScreenWidth() / 2f, Raylib.GetScreenHeight() / 2f);
+        _camera.Offset = GetUiScreenCenter();
         _camera.Target = _player.Position;
         SavePersistentState();
     }
@@ -378,7 +409,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         ClearPendingLevelUpPoints();
         SpawnPitWave();
 
-        _camera.Offset = new Vector2(Raylib.GetScreenWidth() / 2f, Raylib.GetScreenHeight() / 2f);
+        _camera.Offset = GetUiScreenCenter();
         _camera.Target = _player.Position;
         SavePersistentState();
     }
@@ -588,7 +619,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         EnsureArmoryHeavyAmmoOffer();
         _hovered = null;
-        var mouse = Raylib.GetMousePosition();
+        var mouse = GetUiMousePosition();
 
         for (var i = 0; i < _meta.ArmoryOffers.Count; i++)
         {
@@ -842,7 +873,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (Raylib.IsKeyPressed((KeyboardKey)51)) _player.SelectWeaponSlot(WeaponSlot.HeavyRanged);
         if (!_player.InventoryOpen && Raylib.IsMouseButtonPressed(MouseButton.Right)) _player.ToggleRocketPulseMode();
 
-        var mouseWorld = Raylib.GetScreenToWorld2D(Raylib.GetMousePosition(), _camera);
+        var mouseWorld = Raylib.GetScreenToWorld2D(GetUiMousePosition(), _camera);
         var linearRelease = _player.IsLinearRifleEquipped && Raylib.IsMouseButtonReleased(MouseButton.Left);
         var activeWeapon = _player.ActiveWeapon;
         if (!_player.InventoryOpen
@@ -908,8 +939,8 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private float GetMaxSniperCameraOffset(Vector2 dir)
     {
-        var halfWidth = Raylib.GetScreenWidth() * 0.5f;
-        var halfHeight = Raylib.GetScreenHeight() * 0.5f;
+        var halfWidth = GetUiScreenWidth() * 0.5f;
+        var halfHeight = GetUiScreenHeight() * 0.5f;
         var xLimit = MathF.Abs(dir.X) < 0.001f ? float.PositiveInfinity : halfWidth / MathF.Abs(dir.X);
         var yLimit = MathF.Abs(dir.Y) < 0.001f ? float.PositiveInfinity : halfHeight / MathF.Abs(dir.Y);
         var distanceFromCenterToEdge = MathF.Min(xLimit, yLimit);
@@ -925,7 +956,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         var mapRect = GetMapRect();
-        var mouse = Raylib.GetMousePosition();
+        var mouse = GetUiMousePosition();
         if (!Raylib.CheckCollisionPointRec(mouse, mapRect)) return;
 
         if (Raylib.IsMouseButtonPressed(MouseButton.Right) && _mapMarker is Vector2 marker)
@@ -2788,7 +2819,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (!_player.InventoryOpen) return;
 
         var slots = BuildSlots();
-        var m = Raylib.GetMousePosition();
+        var m = GetUiMousePosition();
 
         foreach (var s in slots)
         {
@@ -2947,7 +2978,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         _hovered = null;
         UpdateStorageScroll();
-        var mouse = Raylib.GetMousePosition();
+        var mouse = GetUiMousePosition();
 
         if (_drag is null && Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
@@ -3077,7 +3108,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateStorageScroll()
     {
-        var mouse = Raylib.GetMousePosition();
+        var mouse = GetUiMousePosition();
         if (!Raylib.CheckCollisionPointRec(mouse, StashPanelRect())) return;
 
         var wheel = Raylib.GetMouseWheelMove();
@@ -3645,25 +3676,33 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void ApplyDisplayMode()
     {
-        var fullscreen = Raylib.IsWindowFullscreen();
+        s_activeDisplayMode = _displayMode;
+        var exclusiveFullscreen = Raylib.IsWindowFullscreen();
+        var borderlessFullscreen = Raylib.IsWindowState(ConfigFlags.BorderlessWindowMode);
+
         if (_displayMode == DisplayMode.Fullscreen)
         {
-            if (fullscreen) return;
+            if (exclusiveFullscreen) Raylib.ToggleFullscreen();
+            if (borderlessFullscreen) return;
 
             var monitor = Raylib.GetCurrentMonitor();
+            var monitorPosition = Raylib.GetMonitorPosition(monitor);
+            Raylib.SetWindowPosition((int)monitorPosition.X, (int)monitorPosition.Y);
             Raylib.SetWindowSize(Raylib.GetMonitorWidth(monitor), Raylib.GetMonitorHeight(monitor));
-            Raylib.ToggleFullscreen();
+            Raylib.ToggleBorderlessWindowed();
             return;
         }
 
-        if (!fullscreen)
+        if (exclusiveFullscreen) Raylib.ToggleFullscreen();
+        if (borderlessFullscreen) Raylib.ToggleBorderlessWindowed();
+
+        if (!exclusiveFullscreen && !borderlessFullscreen)
         {
             Raylib.SetWindowSize(W, H);
             CenterWindow();
             return;
         }
 
-        Raylib.ToggleFullscreen();
         Raylib.SetWindowSize(W, H);
         CenterWindow();
     }
@@ -4313,11 +4352,11 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private static Rectangle GetMapRect()
     {
-        var size = MathF.Min(Raylib.GetScreenWidth() - 140f, Raylib.GetScreenHeight() - 120f);
+        var size = MathF.Min(GetUiScreenWidth() - 140f, GetUiScreenHeight() - 120f);
         size = MathF.Min(size, 620f);
         return new Rectangle(
-            Raylib.GetScreenWidth() * 0.5f - size * 0.5f,
-            Raylib.GetScreenHeight() * 0.5f - size * 0.5f + 20f,
+            GetUiScreenWidth() * 0.5f - size * 0.5f,
+            GetUiScreenHeight() * 0.5f - size * 0.5f + 20f,
             size,
             size);
     }
@@ -4348,7 +4387,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (to.LengthSquared() < 0.01f) return;
 
         var dir = Vector2.Normalize(to);
-        var center = new Vector2(Raylib.GetScreenWidth() / 2f, Raylib.GetScreenHeight() / 2f);
+        var center = GetUiScreenCenter();
         var tip = center + dir * 82f;
         var normal = new Vector2(-dir.Y, dir.X);
         var backCenter = center + dir * 54f;
@@ -4359,7 +4398,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void DrawStatTooltip()
     {
-        var mouse = Raylib.GetMousePosition();
+        var mouse = GetUiMousePosition();
         var hints = new (Rectangle Rect, string Header, string Body)[]
         {
             (new Rectangle(54, 176, 220, 24), "STR", "+5 HP, +1 melee damage and +0.25% melee damage per point."),
@@ -5239,8 +5278,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         var screen = Raylib.GetWorldToScreen2D(point, _camera);
         return screen.X < -margin
             || screen.Y < -margin
-            || screen.X > Raylib.GetScreenWidth() + margin
-            || screen.Y > Raylib.GetScreenHeight() + margin;
+            || screen.X > GetUiScreenWidth() + margin
+            || screen.Y > GetUiScreenHeight() + margin;
     }
 
     private List<Obstacle> GenerateObstacles()

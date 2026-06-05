@@ -68,6 +68,13 @@ public sealed class Player
 
     private readonly float _globalMaxHealthBonus;
     private readonly float _globalDamageBonus;
+    private readonly int _cradleSpeed;
+    private readonly int _cradleMeleeSpeed;
+    private readonly int _cradleDashRecovery;
+    private readonly int _cradleStability;
+    private readonly int _cradleGunsmith;
+    private readonly int _cradleFighter;
+    private readonly int _cradleArcane;
     private float _attackCd;
     private float _dodgeCd;
     private float _stim;
@@ -106,7 +113,7 @@ public sealed class Player
     public Vector2 Position { get; private set; }
     public float Health { get; private set; }
     public float MaxHealth => BaseMaxHealthValue + _globalMaxHealthBonus + Str * 5f;
-    public float SpeedMultiplier => 1f + Spd * 0.04f + (Armor?.SpeedBonusPercent ?? 0f);
+    public float SpeedMultiplier => 1f + Spd * 0.04f + _cradleSpeed * 0.028f + (Armor?.SpeedBonusPercent ?? 0f);
     public float DashCooldownProgress => 1f - Math.Clamp(_dodgeCd / GetDashCooldownDuration(), 0f, 1f);
     public bool DashReady => _dodgeCd <= 0f;
     public float Shield => _shield;
@@ -156,11 +163,18 @@ public sealed class Player
         _ => RangedWeapon
     };
 
-    private Player(Vector2 p, float globalMaxHealthBonus, float globalDamageBonus, int baseStrength, int baseDexterity, int baseSpeed, int baseGuns, ItemStack? rangedWeapon, ItemStack? heavyWeapon, ItemStack? meleeWeapon, ItemStack? armor, ItemStack? quickSlotQ, ItemStack? quickSlotR)
+    private Player(Vector2 p, float globalMaxHealthBonus, float globalDamageBonus, int baseStrength, int baseDexterity, int baseSpeed, int baseGuns, int cradleSpeed, int cradleMeleeSpeed, int cradleDashRecovery, int cradleStability, int cradleGunsmith, int cradleFighter, int cradleArcane, ItemStack? rangedWeapon, ItemStack? heavyWeapon, ItemStack? meleeWeapon, ItemStack? armor, ItemStack? quickSlotQ, ItemStack? quickSlotR)
     {
         Position = p;
         _globalMaxHealthBonus = globalMaxHealthBonus;
         _globalDamageBonus = globalDamageBonus;
+        _cradleSpeed = Math.Clamp(cradleSpeed, 0, 15);
+        _cradleMeleeSpeed = Math.Clamp(cradleMeleeSpeed, 0, 15);
+        _cradleDashRecovery = Math.Clamp(cradleDashRecovery, 0, 15);
+        _cradleStability = Math.Clamp(cradleStability, 0, 15);
+        _cradleGunsmith = Math.Clamp(cradleGunsmith, 0, 15);
+        _cradleFighter = Math.Clamp(cradleFighter, 0, 15);
+        _cradleArcane = Math.Clamp(cradleArcane, 0, 15);
         Str = Math.Max(0, baseStrength);
         Dex = Math.Max(0, baseDexterity);
         Spd = Math.Max(0, baseSpeed);
@@ -176,8 +190,8 @@ public sealed class Player
         SyncArmorState();
     }
 
-    public static Player Create(Vector2 p, float globalMaxHealthBonus, float globalDamageBonus, int baseStrength, int baseDexterity, int baseSpeed, int baseGuns, ItemStack? rangedWeapon, ItemStack? heavyWeapon, ItemStack? meleeWeapon, ItemStack? armor, ItemStack? quickSlotQ, ItemStack? quickSlotR)
-        => new(p, globalMaxHealthBonus, globalDamageBonus, baseStrength, baseDexterity, baseSpeed, baseGuns, rangedWeapon, heavyWeapon, meleeWeapon, armor, quickSlotQ, quickSlotR);
+    public static Player Create(Vector2 p, float globalMaxHealthBonus, float globalDamageBonus, int baseStrength, int baseDexterity, int baseSpeed, int baseGuns, int cradleSpeed, int cradleMeleeSpeed, int cradleDashRecovery, int cradleStability, int cradleGunsmith, int cradleFighter, int cradleArcane, ItemStack? rangedWeapon, ItemStack? heavyWeapon, ItemStack? meleeWeapon, ItemStack? armor, ItemStack? quickSlotQ, ItemStack? quickSlotR)
+        => new(p, globalMaxHealthBonus, globalDamageBonus, baseStrength, baseDexterity, baseSpeed, baseGuns, cradleSpeed, cradleMeleeSpeed, cradleDashRecovery, cradleStability, cradleGunsmith, cradleFighter, cradleArcane, rangedWeapon, heavyWeapon, meleeWeapon, armor, quickSlotQ, quickSlotR);
 
     public void PlaceAt(Vector2 position) => Position = position;
 
@@ -230,7 +244,7 @@ public sealed class Player
         if (d != Vector2.Zero)
         {
             var speed = BaseMoveSpeed * SpeedMultiplier;
-            if (_stim > 0) speed *= 1.25f;
+            if (_stim > 0) speed *= 1f + 0.25f * GetArcaneEffectMultiplier();
             if (IsLinearRifleEquipped && Raylib.IsMouseButtonDown(MouseButton.Left) && _attackCd <= 0f && _linearRifleCharge > 0f) speed *= 0.6f;
             var delta = Vector2.Normalize(d) * speed * dt;
             Position = MovementUtils.MoveWithCollisions(Position, delta, 16f, obstacles, worldSize);
@@ -251,6 +265,12 @@ public sealed class Player
         }
 
         if (_attackCd > 0f)
+        {
+            _linearRifleCharge = 0f;
+            return;
+        }
+
+        if (ActiveWeapon?.IsHeavyWeapon == true && Inventory.GetHeavyAmmoShotCount(ActiveWeapon) <= 0)
         {
             _linearRifleCharge = 0f;
             return;
@@ -466,7 +486,7 @@ public sealed class Player
             else if (weapon.Pattern is WeaponPattern.PulseRifle or WeaponPattern.Toxikus)
             {
                 var pulseShotDamage = GetPulseShotDamage(weapon);
-                var poisonDps = weapon.Pattern == WeaponPattern.Toxikus ? 30f + damage * 0.4f : 0f;
+                var poisonDps = weapon.Pattern == WeaponPattern.Toxikus ? GetToxikusPoisonDamage(weapon) : 0f;
                 var poisonDuration = weapon.Pattern == WeaponPattern.Toxikus ? 3f : 0f;
                 var projectileSpeed = weapon.Pattern == WeaponPattern.Toxikus ? ToxikusProjectileSpeed : PulseProjectileSpeed;
                 var projectileLifetime = weapon.Pattern == WeaponPattern.Toxikus ? ToxikusProjectileLifetime : PulseProjectileLifetime;
@@ -698,11 +718,16 @@ public sealed class Player
         return GetWeaponDamage(weapon) * 0.525f;
     }
 
-    public float GetMeleeDamageMultiplier() => Str * 0.0025f + Dex * 0.01f;
-    public float GetRangedDamageMultiplier() => Guns * 0.01f;
+    public float GetMeleeDamageMultiplier() => Str * 0.0025f + Dex * 0.01f + _cradleFighter * 0.004f;
+    public float GetRangedDamageMultiplier() => Guns * 0.01f + _cradleGunsmith * 0.004f;
 
     public float GetMeleeFlatDamageBonus() => Str;
     public float GetRangedFlatDamageBonus() => Guns * 0.3f;
+
+    public float GetArcaneEffectMultiplier() => 1f + _cradleArcane * 0.01f;
+
+    public float GetToxikusPoisonDamage(ItemStack weapon)
+        => (30f + GetWeaponDamage(weapon) * 0.4f) * GetArcaneEffectMultiplier();
 
     private float GetLinearRifleChargeDuration()
         => ActiveWeapon?.Pattern == WeaponPattern.LinearRifle && ActiveWeapon.Rarity == ArmorRarity.Legendary
@@ -711,25 +736,26 @@ public sealed class Player
 
     public float GetMeleeCooldown(float baseCooldown)
     {
-        var attackSpeedBonus = Dex * 0.02f;
+        var attackSpeedBonus = Dex * 0.02f + _cradleMeleeSpeed * 0.016f;
         return baseCooldown / (1f + attackSpeedBonus);
     }
 
     public float GetStatusEffectChance(float baseChance)
     {
-        return baseChance;
+        return Math.Clamp(baseChance * GetArcaneEffectMultiplier(), 0f, 1f);
     }
 
     private float GetDashCooldownDuration()
     {
-        var recovery = Armor?.DashRecoveryPercent ?? 0f;
+        var recovery = (Armor?.DashRecoveryPercent ?? 0f) + _cradleDashRecovery * 0.01f;
         return MathF.Max(0.1f, BaseDashCooldownDuration * (1f - recovery));
     }
 
     private Vector2 ApplyMovementSpread(Vector2 dir, float multiplier = 1f)
     {
         if (!IsMoving) return dir;
-        var spread = (Random.Shared.NextSingle() * 2f - 1f) * MovingRangedSpreadAngle * multiplier;
+        var stability = Math.Clamp(1f - _cradleStability * 0.01f, 0.1f, 1f);
+        var spread = (Random.Shared.NextSingle() * 2f - 1f) * MovingRangedSpreadAngle * multiplier * stability;
         return Vector2.Normalize(VisibilityUtils.Rotate(dir, spread));
     }
 
@@ -924,13 +950,13 @@ public sealed class Player
     private void UpdateShieldRecharge(float dt)
     {
         var shieldMax = ShieldCapacity;
-        if (shieldMax <= 0f || _shield >= shieldMax || _timeSinceLastDamage < ShieldRechargeDelay) return;
-        _shield = MathF.Min(shieldMax, _shield + shieldMax * ShieldRechargeRatePerSecond * dt);
+        if (shieldMax <= 0f || _shield >= shieldMax || _timeSinceLastDamage < ShieldRechargeDelay / GetArcaneEffectMultiplier()) return;
+        _shield = MathF.Min(shieldMax, _shield + shieldMax * ShieldRechargeRatePerSecond * GetArcaneEffectMultiplier() * dt);
     }
 
     private void UpdateHealthRegen(float dt)
     {
-        var regenPerSecond = Armor?.RegenPercentPerSecond ?? 0f;
+        var regenPerSecond = (Armor?.RegenPercentPerSecond ?? 0f) * GetArcaneEffectMultiplier();
         if (regenPerSecond <= 0f || Health <= 0f || Health >= MaxHealth) return;
 
         _regenTickTimer += dt;
@@ -945,7 +971,7 @@ public sealed class Player
     private void ApplyHealing(float amount)
     {
         if (amount <= 0f || Health <= 0f) return;
-        var healingBonus = Armor?.HealingBonusPercent ?? 0f;
+        var healingBonus = (Armor?.HealingBonusPercent ?? 0f) + (GetArcaneEffectMultiplier() - 1f);
         Health = MathF.Min(MaxHealth, Health + amount * (1f + healingBonus));
     }
 }

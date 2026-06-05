@@ -2,7 +2,7 @@ using Raylib_cs;
 
 namespace Bungus.Game;
 
-public enum GameState { MainMenu, MapSelect, Storage, Armory, Character, Settings, Playing, Paused, Death }
+public enum GameState { MainMenu, MapSelect, Storage, Armory, Cradle, Settings, Playing, Paused, Death }
 public enum DeploymentListMode { Expeditions, Challenges }
 public enum ChallengeKind { None, Pit, PitNightmare }
 public enum WeaponClass { Melee, Ranged }
@@ -12,6 +12,7 @@ public enum ItemType { Weapon, Armor, Consumable, KeyItem, Ammo }
 public enum ConsumableType { Medkit, Stim, ProtectiveDome, StickyBullets, StationKey }
 public enum ArmorRarity { Common = 0, Rare = 1, Epic = 2, Legendary = 3, Red = 4, Damaged = 5 }
 public enum StatType { Strength, Dexterity, Speed, Gunsmith }
+public enum CradleTrack { Health, Speed, MeleeSpeed, DashRecovery, Stability, Gunsmith, Fighter, Arcane }
 public enum WeaponPattern { Standard, PulseRifle, EnergySpear, GrenadeLauncher, SniperRifle, Toxikus, Lancelot, TraceRifle, LinearRifle, RocketLauncher, Pulsar, RamBomber, AutoRifle, RocketPulseRifle }
 public enum ProjectileKind { Bullet, Grenade, TraceBeam, LinearShot, PulsarBolt, MicroCharge, RamBlast }
 public enum SwingVisualStyle { ArcSlash, SpearThrust }

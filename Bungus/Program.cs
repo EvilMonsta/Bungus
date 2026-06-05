@@ -28,10 +28,20 @@ public sealed partial class SciFiRogueGame : IDisposable
     private const int StorageSortButtonCount = 7;
     private static readonly string SaveFilePath = Path.Combine(AppContext.BaseDirectory, "save", "profile.json");
     private static readonly JsonSerializerOptions SaveJsonOptions = new() { WriteIndented = true };
+    private static readonly CradleTrack[] CradleTracks =
+    [
+        CradleTrack.Health,
+        CradleTrack.Speed,
+        CradleTrack.MeleeSpeed,
+        CradleTrack.DashRecovery,
+        CradleTrack.Stability,
+        CradleTrack.Gunsmith,
+        CradleTrack.Fighter,
+        CradleTrack.Arcane
+    ];
 
     private readonly Random _rng = new();
     private Camera2D _camera;
-
     private GameState _state = GameState.MainMenu;
     private Player _player = null!;
 
@@ -219,10 +229,17 @@ public sealed partial class SciFiRogueGame : IDisposable
             GeneratePlayerSpawnPoint(),
             GetCommonHealthBonus(),
             GetCommonDamageBonus(),
-            _meta.BaseStrength,
-            _meta.BaseDexterity,
-            _meta.BaseSpeed,
-            _meta.BaseGuns,
+            0,
+            0,
+            0,
+            0,
+            _meta.CradleSpeed,
+            _meta.CradleMeleeSpeed,
+            _meta.CradleDashRecovery,
+            _meta.CradleStability,
+            _meta.CradleGunsmith,
+            _meta.CradleFighter,
+            _meta.CradleArcane,
             TakeMetaLoadoutItem(SlotKind.RangedWeapon),
             TakeMetaLoadoutItem(SlotKind.HeavyWeapon),
             TakeMetaLoadoutItem(SlotKind.MeleeWeapon),
@@ -296,10 +313,17 @@ public sealed partial class SciFiRogueGame : IDisposable
                 new Vector2(_worldSize / 2f, _worldSize / 2f),
                 GetCommonHealthBonus(),
                 GetCommonDamageBonus(),
-                _meta.BaseStrength,
-                _meta.BaseDexterity,
-                _meta.BaseSpeed,
-                _meta.BaseGuns,
+                0,
+                0,
+                0,
+                0,
+                _meta.CradleSpeed,
+                _meta.CradleMeleeSpeed,
+                _meta.CradleDashRecovery,
+                _meta.CradleStability,
+                _meta.CradleGunsmith,
+                _meta.CradleFighter,
+                _meta.CradleArcane,
                 ItemStack.StartingPistol(),
                 null,
                 ItemStack.StartingMelee(),
@@ -365,10 +389,17 @@ public sealed partial class SciFiRogueGame : IDisposable
             position,
             GetCommonHealthBonus(),
             GetCommonDamageBonus(),
-            _meta.BaseStrength,
-            _meta.BaseDexterity,
-            _meta.BaseSpeed,
-            _meta.BaseGuns,
+            0,
+            0,
+            0,
+            0,
+            _meta.CradleSpeed,
+            _meta.CradleMeleeSpeed,
+            _meta.CradleDashRecovery,
+            _meta.CradleStability,
+            _meta.CradleGunsmith,
+            _meta.CradleFighter,
+            _meta.CradleArcane,
             TakeMetaLoadoutItem(SlotKind.RangedWeapon),
             TakeMetaLoadoutItem(SlotKind.HeavyWeapon),
             TakeMetaLoadoutItem(SlotKind.MeleeWeapon),
@@ -420,7 +451,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             case GameState.MapSelect: UpdateMapSelect(); break;
             case GameState.Storage: UpdateStorage(); break;
             case GameState.Armory: UpdateArmory(); break;
-            case GameState.Character: UpdateCharacter(); break;
+            case GameState.Cradle: UpdateCradle(); break;
             case GameState.Settings: UpdateSettings(); break;
             case GameState.Playing: UpdatePlaying(dt); break;
             case GameState.Paused: UpdatePause(); break;
@@ -459,7 +490,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (Clicked(MainMenuButtonRect(0))) { ClearUiInteraction(); _state = GameState.MapSelect; }
         if (Clicked(MainMenuButtonRect(1))) { ClearUiInteraction(); _state = GameState.Storage; }
         if (Clicked(MainMenuButtonRect(2))) { ClearUiInteraction(); _state = GameState.Armory; }
-        if (Clicked(MainMenuButtonRect(3))) { ClearUiInteraction(); _state = GameState.Character; }
+        if (Clicked(MainMenuButtonRect(3))) { ClearUiInteraction(); _state = GameState.Cradle; }
         if (Clicked(MainMenuButtonRect(4))) { ClearUiInteraction(); _state = GameState.Settings; }
         if (Clicked(MainMenuCodesButtonRect())) OpenCodesPopup();
         if (Clicked(MainMenuButtonRect(5))) _requestExit = true;
@@ -682,13 +713,31 @@ public sealed partial class SciFiRogueGame : IDisposable
         ShowNotice($"Bought {offer.Item.Name} for {price} CryptoTokens.");
     }
 
-    private void UpdateCharacter()
+    private void UpdateCradle()
     {
         if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(new Rectangle(70, 620, 220, 52)))
         {
             ClearUiInteraction();
             _state = GameState.MainMenu;
         }
+
+        foreach (var track in CradleTracks)
+        {
+            var plus = CradlePlusRect(track);
+            var minus = CradleMinusRect(track);
+            if (Clicked(plus)) AdjustCradleTrack(track, 1);
+            if (Clicked(minus)) AdjustCradleTrack(track, -1);
+        }
+    }
+
+    private void AdjustCradleTrack(CradleTrack track, int delta)
+    {
+        var current = _meta.GetCradleTrack(track);
+        if (delta > 0 && (current >= 15 || GetAvailableCradleCells() <= 0)) return;
+        if (delta < 0 && current <= 0) return;
+
+        _meta.SetCradleTrack(track, current + delta);
+        SavePersistentState();
     }
 
     private void UpdateSettings()
@@ -2380,49 +2429,49 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void ApplyPlayerHitEffects(Enemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
     {
-        if (_player.StickyBulletsActive) enemy.ApplyStickySlow();
+        if (_player.StickyBulletsActive) enemy.ApplyStickySlow(_player.GetArcaneEffectMultiplier());
         if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
     }
 
     private void ApplyPlayerHitEffects(HexEnemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
     {
-        if (_player.StickyBulletsActive) enemy.ApplyStickySlow();
+        if (_player.StickyBulletsActive) enemy.ApplyStickySlow(_player.GetArcaneEffectMultiplier());
         if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
     }
 
     private void ApplyPlayerHitEffects(TurretEnemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
     {
-        if (_player.StickyBulletsActive) enemy.ApplyStickySlow();
+        if (_player.StickyBulletsActive) enemy.ApplyStickySlow(_player.GetArcaneEffectMultiplier());
         if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
     }
 
     private void ApplyPlayerHitEffects(MiniBossEnemySquare enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
     {
-        if (_player.StickyBulletsActive) enemy.ApplyStickySlow();
+        if (_player.StickyBulletsActive) enemy.ApplyStickySlow(_player.GetArcaneEffectMultiplier());
         if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
     }
 
     private void ApplyPlayerHitEffects(BossEnemyDestroyer enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
     {
-        if (_player.StickyBulletsActive) enemy.ApplyStickySlow();
+        if (_player.StickyBulletsActive) enemy.ApplyStickySlow(_player.GetArcaneEffectMultiplier());
         if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
     }
 
     private void ApplyPlayerHitEffects(GeneratorGuardianEnemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
     {
-        if (_player.StickyBulletsActive) enemy.ApplyStickySlow();
+        if (_player.StickyBulletsActive) enemy.ApplyStickySlow(_player.GetArcaneEffectMultiplier());
         if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
     }
 
     private void ApplyPlayerHitEffects(ToxicTriangleEnemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
     {
-        if (_player.StickyBulletsActive) enemy.ApplyStickySlow();
+        if (_player.StickyBulletsActive) enemy.ApplyStickySlow(_player.GetArcaneEffectMultiplier());
         if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
     }
 
     private void ApplyPlayerHitEffects(StationBossEnemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f)
     {
-        if (_player.StickyBulletsActive) enemy.ApplyStickySlow();
+        if (_player.StickyBulletsActive) enemy.ApplyStickySlow(_player.GetArcaneEffectMultiplier());
         if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
     }
 
@@ -3560,15 +3609,30 @@ public sealed partial class SciFiRogueGame : IDisposable
         return Vector2.Distance(p, nearest);
     }
 
-    private float GetCommonHealthBonus() => _meta.Level * 3f;
+    private float GetCommonHealthBonus() => _meta.CradleHealth * 5f;
 
-    private float GetCommonDamageBonus() => MathF.Floor(_meta.Level / 2f);
+    private float GetCommonDamageBonus() => 0f;
+
+    private int GetAvailableCradleCells() => Math.Max(0, _meta.Level - _meta.SpentCradleCells());
+
+    private static int GetCradleTrackIndex(CradleTrack track)
+        => Array.IndexOf(CradleTracks, track);
+
+    private static Rectangle CradlePlusRect(CradleTrack track)
+    {
+        var row = GetCradleTrackIndex(track);
+        return new Rectangle(1320, 176 + row * 54, 32, 32);
+    }
+
+    private static Rectangle CradleMinusRect(CradleTrack track)
+    {
+        var row = GetCradleTrackIndex(track);
+        return new Rectangle(1360, 176 + row * 54, 32, 32);
+    }
 
     private static int GetMetaScoreRequired(int level)
     {
-        if (level <= 1) return 3000;
-        if (level == 2) return 5000;
-        return 5000 + (level - 2) * 1500;
+        return 500 + Math.Max(0, level - 1) * 1250;
     }
 
     private void SetDisplayMode(DisplayMode mode)
@@ -4103,6 +4167,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         _meta.Level = 1;
         _meta.Score = 0;
+        foreach (var track in CradleTracks) _meta.SetCradleTrack(track, 0);
         RegisterPromoCodeUse(code, false);
         SavePersistentState();
         return (true, "Success: account level reset to 1.");
@@ -4583,10 +4648,17 @@ public sealed partial class SciFiRogueGame : IDisposable
             Vector2.Zero,
             GetCommonHealthBonus(),
             GetCommonDamageBonus(),
-            _meta.BaseStrength,
-            _meta.BaseDexterity,
-            _meta.BaseSpeed,
-            _meta.BaseGuns,
+            0,
+            0,
+            0,
+            0,
+            _meta.CradleSpeed,
+            _meta.CradleMeleeSpeed,
+            _meta.CradleDashRecovery,
+            _meta.CradleStability,
+            _meta.CradleGunsmith,
+            _meta.CradleFighter,
+            _meta.CradleArcane,
             _meta.RangedWeapon,
             _meta.HeavyWeapon,
             _meta.MeleeWeapon,
@@ -4603,7 +4675,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (weapon.Pattern == WeaponPattern.Toxikus)
         {
             var basePoisonDamage = 30f + weapon.BaseDamage * 0.4f;
-            var poisonDamage = 30f + player.GetWeaponDamage(weapon) * 0.4f;
+            var poisonDamage = player.GetToxikusPoisonDamage(weapon);
             return $"{label} {totalDamage:0.0}(+{bonusDamage:0.0}) | Poison: {poisonDamage:0.0}(+{poisonDamage - basePoisonDamage:0.0}) | DPS: {dps:0.0}";
         }
 
@@ -4679,7 +4751,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             var perShot = player.GetPulseShotDamage(weapon);
             var shots = player.GetPulseBurstShotCount(weapon);
             var cooldown = weapon.Pattern == WeaponPattern.Toxikus ? 1f / 2.2f : 0.374f;
-            var poisonDps = weapon.Pattern == WeaponPattern.Toxikus ? 30f + player.GetWeaponDamage(weapon) * 0.4f : 0f;
+            var poisonDps = weapon.Pattern == WeaponPattern.Toxikus ? player.GetToxikusPoisonDamage(weapon) : 0f;
             var burstDps = perShot * shots / cooldown + poisonDps;
             return (perShot, perShot - basePerShot, burstDps, $"x{shots}");
         }

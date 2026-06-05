@@ -24,8 +24,8 @@ public sealed partial class SciFiRogueGame
             case GameState.Armory:
                 DrawArmory();
                 break;
-            case GameState.Character:
-                DrawCharacter();
+            case GameState.Cradle:
+                DrawCradle();
                 break;
             case GameState.Settings:
                 DrawSettings();
@@ -1638,13 +1638,13 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMainMenu()
     {
-        Raylib.DrawText("a0.3.4", 86, 150, 24, Palette.C(150, 185, 220));
+        Raylib.DrawText("a0.3.5", 86, 150, 24, Palette.C(150, 185, 220));
         DrawMetaProgressHeader();
 
         DrawButton(MainMenuButtonRect(0), "Play");
         DrawButton(MainMenuButtonRect(1), "Storage");
         DrawButton(MainMenuButtonRect(2), "Store");
-        DrawButton(MainMenuButtonRect(3), "Character");
+        DrawButton(MainMenuButtonRect(3), "Cradle");
         DrawButton(MainMenuButtonRect(4), "Settings");
         DrawButton(MainMenuButtonRect(5), "Exit");
         DrawButton(MainMenuCodesButtonRect(), "Codes");
@@ -2104,30 +2104,166 @@ public sealed partial class SciFiRogueGame
         Raylib.EndScissorMode();
     }
 
-    private void DrawCharacter()
+    private void DrawCradle()
     {
         var previewPlayer = CreateLandingPreviewPlayer();
-        var rangedDamage = BuildWeaponDamageText(previewPlayer, previewPlayer.RangedWeapon, WeaponClass.Ranged);
-        var heavyDamage = BuildWeaponDamageText(previewPlayer, previewPlayer.HeavyWeapon, WeaponClass.Ranged);
-        var meleeDamage = BuildWeaponDamageText(previewPlayer, previewPlayer.MeleeWeapon, WeaponClass.Melee);
 
-        DrawTitle("Character", 56, 60);
-        Raylib.DrawText("Common landing stats", 74, 126, 28, Color.LightGray);
+        DrawTitle("Cradle", 56, 60);
+        Raylib.DrawText("Account upgrades", 74, 126, 28, Color.LightGray);
 
-        var panel = new Rectangle(70, 170, 640, 320);
-        Raylib.DrawRectangleRec(panel, Palette.C(10, 18, 30, 220));
-        Raylib.DrawRectangleLinesEx(panel, 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText($"General level: {_meta.Level}", 96, 208, 28, Color.Gold);
-        Raylib.DrawText($"Next level: {_meta.Score}/{GetMetaScoreRequired(_meta.Level)}", 96, 250, 24, Color.White);
-        Raylib.DrawText($"Character stats: STR {_meta.BaseStrength} | DEX {_meta.BaseDexterity} | SPD {_meta.BaseSpeed} | GUN {_meta.BaseGuns}", 96, 292, 24, Color.White);
-        Raylib.DrawText($"Landing HP: {previewPlayer.MaxHealth:0}", 96, 334, 24, Palette.C(140, 220, 160));
-        Raylib.DrawText($"Move speed: x{previewPlayer.SpeedMultiplier:0.00}", 96, 368, 24, Palette.C(170, 220, 255));
-        Raylib.DrawText($"Primary damage: {rangedDamage}", 96, 402, 24, Palette.C(255, 210, 120));
-        Raylib.DrawText($"Heavy damage: {heavyDamage}", 96, 436, 24, Palette.C(255, 210, 120));
-        Raylib.DrawText($"Melee damage: {meleeDamage}", 96, 470, 24, Palette.C(255, 180, 120));
+        var statPanel = new Rectangle(70, 170, 430, 390);
+        Raylib.DrawRectangleRec(statPanel, Palette.C(10, 18, 30, 220));
+        Raylib.DrawRectangleLinesEx(statPanel, 2f, Palette.C(108, 170, 228));
+        Raylib.DrawText($"General level: {_meta.Level}", 96, 204, 26, Color.Gold);
+        Raylib.DrawText($"Next level: {_meta.Score}/{GetMetaScoreRequired(_meta.Level)}", 96, 240, 22, Color.White);
+        DrawCradleStatLine("HP", $"{previewPlayer.MaxHealth:0}", 96, 292, Palette.C(140, 220, 160));
+        DrawCradleStatLine("Speed", $"x{previewPlayer.SpeedMultiplier:0.00}", 96, 324, Palette.C(170, 220, 255));
+        DrawCradleStatLine("Ranged damage", $"+{_meta.CradleGunsmith * 0.4f:0.0}%", 96, 356, Palette.C(255, 180, 100));
+        DrawCradleStatLine("Melee damage", $"+{_meta.CradleFighter * 0.4f:0.0}%", 96, 388, Palette.C(255, 180, 100));
+        DrawCradleStatLine("Melee attack speed", $"+{_meta.CradleMeleeSpeed * 1.6f:0.0}%", 96, 420, Palette.C(150, 220, 255));
+        DrawCradleStatLine("Dash recovery", $"+{_meta.CradleDashRecovery:0}%", 96, 452, Palette.C(150, 240, 170));
+        DrawCradleStatLine("Stability", $"{_meta.CradleStability:0}%", 96, 484, Color.White);
+        DrawCradleStatLine("Arcane", $"+{_meta.CradleArcane:0}%", 96, 516, Palette.C(235, 85, 85));
+
+        var freeRect = new Rectangle(1322, 74, 170, 54);
+        Raylib.DrawRectangleRec(freeRect, Palette.C(12, 22, 36, 230));
+        Raylib.DrawRectangleLinesEx(freeRect, 2f, Palette.C(108, 170, 228));
+        Raylib.DrawText("Points", (int)freeRect.X + 14, (int)freeRect.Y + 8, 18, Color.LightGray);
+        var freeText = $"{GetAvailableCradleCells()}";
+        Raylib.DrawText(freeText, (int)(freeRect.X + freeRect.Width - Raylib.MeasureText(freeText, 30) - 16), (int)freeRect.Y + 14, 30, Color.Gold);
+
+        foreach (var track in CradleTracks) DrawCradleTrack(track);
+        DrawCradleTrackTooltip();
 
         DrawButton(new Rectangle(70, 620, 220, 52), "Back");
     }
+
+    private static void DrawCradleStatLine(string label, string value, int x, int y, Color color)
+    {
+        const int fontSize = 20;
+        Raylib.DrawText($"{label}: {value}", x, y, fontSize, color);
+    }
+
+    private void DrawCradleTrack(CradleTrack track)
+    {
+        var row = GetCradleTrackIndex(track);
+        var y = 176 + row * 54;
+        var label = GetCradleTrackLabel(track);
+        var active = _meta.GetCradleTrack(track);
+
+        Raylib.DrawText(label, 540, y + 5, 20, Color.LightGray);
+
+        const float cellWidth = 32f;
+        const float cellHeight = 14f;
+        const float gap = 5f;
+        var startX = 750f;
+        for (var i = 0; i < 15; i++)
+        {
+            var rect = new Rectangle(startX + i * (cellWidth + gap), y + 9, cellWidth, cellHeight);
+            var fill = i < active ? GetCradleTrackColor(track) : Palette.C(26, 34, 48, 255);
+            Raylib.DrawRectangleRec(rect, fill);
+            Raylib.DrawRectangleLinesEx(rect, 1f, Palette.C(80, 110, 150));
+        }
+
+        DrawCradleButton(CradlePlusRect(track), "+", active < 15 && GetAvailableCradleCells() > 0);
+        DrawCradleButton(CradleMinusRect(track), "-", active > 0);
+        Raylib.DrawText(GetCradleTrackBonusText(track, active), 1404, y + 5, 20, GetCradleTrackColor(track));
+    }
+
+    private static void DrawCradleButton(Rectangle rect, string label, bool enabled)
+    {
+        var fill = enabled ? Palette.C(42, 95, 180) : Palette.C(44, 50, 62);
+        var line = enabled ? Color.White : Color.Gray;
+        Raylib.DrawRectangleRec(rect, fill);
+        Raylib.DrawRectangleLinesEx(rect, 2f, line);
+        var fontSize = 24;
+        Raylib.DrawText(label, (int)(rect.X + rect.Width / 2f - Raylib.MeasureText(label, fontSize) / 2f), (int)rect.Y + 2, fontSize, line);
+    }
+
+    private static string GetCradleTrackLabel(CradleTrack track) => track switch
+    {
+        CradleTrack.Health => "Health",
+        CradleTrack.Speed => "Speed",
+        CradleTrack.MeleeSpeed => "Melee attack speed",
+        CradleTrack.DashRecovery => "Dash recovery",
+        CradleTrack.Stability => "Stability",
+        CradleTrack.Gunsmith => "Gunsmith",
+        CradleTrack.Fighter => "Fighter",
+        CradleTrack.Arcane => "Arcane",
+        _ => "Track"
+    };
+
+    private static string GetCradleTrackBonusText(CradleTrack track, int active) => track switch
+    {
+        CradleTrack.Health => $"+{active * 5} HP",
+        CradleTrack.Speed => $"+{active * 2.8f:0.0}%",
+        CradleTrack.MeleeSpeed => $"+{active * 1.6f:0.0}%",
+        CradleTrack.DashRecovery => $"+{active}%",
+        CradleTrack.Stability => $"+{active}%",
+        CradleTrack.Gunsmith => $"+{active * 0.4f:0.0}%",
+        CradleTrack.Fighter => $"+{active * 0.4f:0.0}%",
+        CradleTrack.Arcane => $"+{active}%",
+        _ => string.Empty
+    };
+
+    private void DrawCradleTrackTooltip()
+    {
+        var mouse = Raylib.GetMousePosition();
+        foreach (var track in CradleTracks)
+        {
+            var row = GetCradleTrackIndex(track);
+            var hitbox = new Rectangle(532, 172 + row * 54, 700, 40);
+            if (!Raylib.CheckCollisionPointRec(mouse, hitbox)) continue;
+
+            DrawCradleTooltip(mouse, GetCradleTrackLabel(track), GetCradleTrackDescription(track));
+            return;
+        }
+    }
+
+    private static void DrawCradleTooltip(Vector2 mouse, string title, string body)
+    {
+        const int width = 390;
+        const int padding = 14;
+        var bodyLines = WrapText(body, 18, width - padding * 2);
+        var height = 58 + bodyLines.Count * 24;
+        var x = Math.Min(mouse.X + 18, Raylib.GetScreenWidth() - width - 16);
+        var y = Math.Min(mouse.Y + 18, Raylib.GetScreenHeight() - height - 16);
+        var rect = new Rectangle(x, y, width, height);
+
+        Raylib.DrawRectangleRec(rect, Palette.C(8, 14, 24, 245));
+        Raylib.DrawRectangleLinesEx(rect, 2f, Palette.C(108, 170, 228));
+        Raylib.DrawText(title, (int)x + padding, (int)y + 12, 22, Color.White);
+        for (var i = 0; i < bodyLines.Count; i++)
+        {
+            Raylib.DrawText(bodyLines[i], (int)x + padding, (int)y + 44 + i * 24, 18, Color.LightGray);
+        }
+    }
+
+    private static string GetCradleTrackDescription(CradleTrack track) => track switch
+    {
+        CradleTrack.Health => "Increases maximum health by 5 for each active cell.",
+        CradleTrack.Speed => "Increases movement speed by 2.8% for each active cell.",
+        CradleTrack.MeleeSpeed => "Increases melee attack speed by 1.6% for each active cell, reducing time between melee attacks.",
+        CradleTrack.DashRecovery => "Reduces dash cooldown by 1% for each active cell.",
+        CradleTrack.Stability => "Reduces moving ranged spread by 1% for each active cell.",
+        CradleTrack.Gunsmith => "Increases ranged weapon damage by 0.4% for each active cell.",
+        CradleTrack.Fighter => "Increases melee weapon damage by 0.4% for each active cell.",
+        CradleTrack.Arcane => "Increases effect strength by 1% for each active cell: poison, sticky bullets, stim, regeneration and shield recovery.",
+        _ => string.Empty
+    };
+
+    private static Color GetCradleTrackColor(CradleTrack track) => track switch
+    {
+        CradleTrack.Health => Palette.C(210, 74, 74),
+        CradleTrack.Speed => Palette.C(88, 190, 255),
+        CradleTrack.MeleeSpeed => Palette.C(255, 170, 88),
+        CradleTrack.DashRecovery => Palette.C(92, 220, 120),
+        CradleTrack.Stability => Palette.C(210, 210, 235),
+        CradleTrack.Gunsmith => Palette.C(255, 215, 86),
+        CradleTrack.Fighter => Palette.C(255, 126, 92),
+        CradleTrack.Arcane => Palette.C(180, 112, 255),
+        _ => Color.White
+    };
 
     private static string BuildStatRow(string label, int value, int pending)
         => pending > 0 ? $"{label} {value} (+{pending})" : $"{label} {value}";
@@ -2463,7 +2599,7 @@ public sealed partial class SciFiRogueGame
         => new(Raylib.GetScreenWidth() - 290, Raylib.GetScreenHeight() - 110, 220, 48);
 
     private static Rectangle CodesPopupRect()
-        => new((Raylib.GetScreenWidth() - 470) / 2f, (Raylib.GetScreenHeight() - 240) / 2f, 470, 240);
+         => new((Raylib.GetScreenWidth() - 470) / 2f, (Raylib.GetScreenHeight() - 240) / 2f, 470, 240);
 
     private static Rectangle CodesPopupInputRect()
     {

@@ -2536,14 +2536,78 @@ public sealed partial class SciFiRogueGame
         for (var i = 0; i < 15; i++)
         {
             var rect = new Rectangle(startX + i * (cellWidth + gap), y + 9, cellWidth, cellHeight);
-            var fill = i < active ? GetCradleTrackColor(track) : Palette.C(26, 34, 48, 255);
-            Raylib.DrawRectangleRec(rect, fill);
+            Raylib.DrawRectangleRec(rect, Palette.C(26, 34, 48, 255));
             Raylib.DrawRectangleLinesEx(rect, 1f, Palette.C(80, 110, 150));
         }
+        DrawCradleTrackCurves(new Rectangle(startX, y + 9, 15 * cellWidth + 14 * gap, cellHeight), active, GetCradleTrackColor(track), row);
 
         DrawCradleButton(CradlePlusRect(track), "+", active < 15 && GetAvailableCradleCells() > 0);
         DrawCradleButton(CradleMinusRect(track), "-", active > 0);
         Raylib.DrawText(GetCradleTrackBonusText(track, active), 1404, y + 5, 20, GetCradleTrackColor(track));
+    }
+
+    private static void DrawCradleTrackCurves(Rectangle trackRect, int active, Color activeColor, int row)
+    {
+        const int curveCount = 5;
+        const int samples = 140;
+        const float cellWidth = 32f;
+        const float gap = 5f;
+
+        var time = (float)Raylib.GetTime();
+        var activeEnd = active <= 0
+            ? trackRect.X
+            : trackRect.X + active * cellWidth + (active - 1) * gap;
+        activeEnd = Math.Clamp(activeEnd, trackRect.X, trackRect.X + trackRect.Width);
+
+        for (var curve = 0; curve < curveCount; curve++)
+        {
+            var phase = row * 0.71f + curve * 1.37f;
+            var baseOffset = (curve - (curveCount - 1) * 0.5f) * 2.15f;
+            var frequency = 4.0f + curve * 0.42f;
+            var speed = 0.9f + curve * 0.16f + row * 0.035f;
+            var morph = 0.18f + 0.82f * (0.5f + 0.5f * MathF.Sin(time * (0.75f + curve * 0.09f) + phase));
+            var amplitude = (3.4f + curve * 0.28f) * morph;
+
+            var previous = CradleCurvePoint(trackRect, curve, baseOffset, amplitude, frequency, phase, speed, time, 0f);
+            for (var sample = 1; sample <= samples; sample++)
+            {
+                var t = sample / (float)samples;
+                var current = CradleCurvePoint(trackRect, curve, baseOffset, amplitude, frequency, phase, speed, time, t);
+                DrawCradleCurveSegment(previous, current, activeEnd, activeColor);
+                previous = current;
+            }
+        }
+    }
+
+    private static Vector2 CradleCurvePoint(Rectangle trackRect, int curve, float baseOffset, float amplitude, float frequency, float phase, float speed, float time, float t)
+    {
+        var angle = t * MathF.Tau * frequency + phase + time * speed;
+        var waveBlend = 0.5f + 0.5f * MathF.Sin(time * (0.55f + curve * 0.07f) + phase);
+        var wave = MathF.Sin(angle) * (1f - waveBlend) + MathF.Cos(angle) * waveBlend;
+        return new Vector2(trackRect.X + trackRect.Width * t, trackRect.Y + trackRect.Height * 0.5f + baseOffset + wave * amplitude);
+    }
+
+    private static void DrawCradleCurveSegment(Vector2 from, Vector2 to, float activeEnd, Color activeColor)
+    {
+        var inactiveColor = Palette.C(124, 134, 150, 165);
+        const float thickness = 1.15f;
+
+        if (from.X >= activeEnd)
+        {
+            Raylib.DrawLineEx(from, to, thickness, inactiveColor);
+            return;
+        }
+
+        if (to.X <= activeEnd)
+        {
+            Raylib.DrawLineEx(from, to, thickness, activeColor);
+            return;
+        }
+
+        var split = (activeEnd - from.X) / MathF.Max(0.001f, to.X - from.X);
+        var middle = Vector2.Lerp(from, to, split);
+        Raylib.DrawLineEx(from, middle, thickness, activeColor);
+        Raylib.DrawLineEx(middle, to, thickness, inactiveColor);
     }
 
     private static void DrawCradleButton(Rectangle rect, string label, bool enabled)

@@ -778,6 +778,7 @@ public sealed partial class SciFiRogueGame
         }
 
         var comparison = new ComparisonContext(_player, _player.Armor, _player.RangedWeapon, _player.HeavyWeapon, _player.MeleeWeapon);
+        var mouse = GetUiMousePosition();
         foreach (var slot in slots)
         {
             Raylib.DrawRectangleRec(slot.Rect, Palette.C(22, 28, 42, 255));
@@ -795,6 +796,7 @@ public sealed partial class SciFiRogueGame
                     Raylib.DrawRectangleRec(slot.Rect, Palette.C(0, 0, 0, 165));
                 }
             }
+            if (slot.Item is not null && Raylib.CheckCollisionPointRec(mouse, slot.Rect)) DrawHoverOrbitFrame(slot.Rect, slot.Item.Color);
         }
 
         if (_drag is not null)
@@ -2057,6 +2059,7 @@ public sealed partial class SciFiRogueGame
         var hover = Raylib.CheckCollisionPointRec(GetUiMousePosition(), card);
         Raylib.DrawRectangleRec(card, hover ? Palette.C(36, 30, 56) : Palette.C(18, 16, 34));
         Raylib.DrawRectangleLinesEx(card, 2f, nightmare ? Palette.C(210, 90, 120) : Palette.C(191, 120, 255));
+        if (hover) DrawHoverOrbitFrame(card, nightmare ? Palette.C(255, 104, 140) : Palette.C(210, 150, 255));
 
         var arena = new Rectangle(card.X + 28, card.Y + 28, card.Width - 56, 128);
         Raylib.DrawRectangleRec(arena, Palette.C(22, 24, 34));
@@ -2104,6 +2107,7 @@ public sealed partial class SciFiRogueGame
         var hover = Raylib.CheckCollisionPointRec(GetUiMousePosition(), card);
         Raylib.DrawRectangleRec(card, hover ? Palette.C(22, 40, 62) : Palette.C(14, 24, 40));
         Raylib.DrawRectangleLinesEx(card, 2f, Palette.C(116, 180, 235));
+        if (hover) DrawHoverOrbitFrame(card, map.IsDeadZone ? Palette.C(120, 255, 150) : Palette.C(170, 220, 255));
 
         var inner = new Rectangle(card.X + 8, card.Y + 8, card.Width - 16, card.Height - 16);
         DrawMapCardScene(map, inner);
@@ -2204,6 +2208,7 @@ public sealed partial class SciFiRogueGame
 
         var slots = BuildStorageSlots();
         var comparison = new ComparisonContext(previewPlayer, _meta.Armor, _meta.RangedWeapon, _meta.HeavyWeapon, _meta.MeleeWeapon);
+        var mouse = GetUiMousePosition();
         foreach (var slot in slots)
         {
             Raylib.DrawRectangleRec(slot.Rect, Palette.C(22, 28, 42, 255));
@@ -2220,6 +2225,7 @@ public sealed partial class SciFiRogueGame
                     Raylib.DrawRectangleRec(slot.Rect, Palette.C(0, 0, 0, 165));
                 }
             }
+            if (slot.Item is not null && Raylib.CheckCollisionPointRec(mouse, slot.Rect)) DrawHoverOrbitFrame(slot.Rect, slot.Item.Color);
         }
 
         if (_drag is not null)
@@ -2264,6 +2270,7 @@ public sealed partial class SciFiRogueGame
 
         var iconRect = new Rectangle(rect.X + 10, rect.Y + 10, rect.Width - 20, rect.Height - 20);
         DrawItemIcon(offer.Item, iconRect, comparison);
+        if (Raylib.CheckCollisionPointRec(GetUiMousePosition(), rect)) DrawHoverOrbitFrame(rect, border);
 
         DrawStorePrice(rect, $"{GetArmoryPrice(offer.Item)} SC", Palette.C(120, 230, 255));
         if (disabled) DrawStoreDisabledOverlay(rect);
@@ -2277,6 +2284,7 @@ public sealed partial class SciFiRogueGame
 
         var iconRect = new Rectangle(rect.X + 10, rect.Y + 10, rect.Width - 20, rect.Height - 20);
         DrawItemIcon(offer.Item, iconRect, comparison);
+        if (Raylib.CheckCollisionPointRec(GetUiMousePosition(), rect)) DrawHoverOrbitFrame(rect, border);
 
         var price = GetTokenStorePrice(offer);
         DrawStorePrice(rect, $"{price} CT", Palette.C(210, 150, 255));
@@ -2426,7 +2434,12 @@ public sealed partial class SciFiRogueGame
                 Raylib.DrawText(item.Name, (int)rect.X + 18, (int)rect.Y + 52, 18, item.Color);
                 var rarity = item.Rarity == ArmorRarity.Rare ? "Rare" : item.Rarity.ToString();
                 Raylib.DrawText(rarity, (int)rect.X + 18, (int)rect.Y + 76, 16, Color.LightGray);
-                if (Raylib.CheckCollisionPointRec(mouse, PitRewardWinningIconRect(i))) hoveredReward = item;
+                var winningIconRect = PitRewardWinningIconRect(i);
+                if (Raylib.CheckCollisionPointRec(mouse, winningIconRect))
+                {
+                    hoveredReward = item;
+                    DrawHoverOrbitFrame(winningIconRect, item.Color);
+                }
             }
 
             var claimEnabled = ready && !_pitRewardClaimed[i];
@@ -2818,6 +2831,51 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawRectangleLinesEx(rect, 2f, enabled ? Color.White : Color.DarkGray);
         const int fs = 24;
         Raylib.DrawText(text, (int)(rect.X + rect.Width / 2 - Raylib.MeasureText(text, fs) / 2f), (int)(rect.Y + rect.Height / 2 - fs / 2f), fs, enabled ? Color.White : Color.Gray);
+    }
+
+    private static void DrawHoverOrbitFrame(Rectangle rect, Color color)
+    {
+        var outer = new Rectangle(rect.X - 3f, rect.Y - 3f, rect.Width + 6f, rect.Height + 6f);
+        Raylib.DrawRectangleLinesEx(outer, 4f, WithAlpha(color, 0.18f));
+        Raylib.DrawRectangleLinesEx(rect, 1.5f, WithAlpha(color, 0.72f));
+
+        var perimeter = 2f * (rect.Width + rect.Height);
+        var offset = (float)(Raylib.GetTime() * 150f % perimeter);
+        var segmentLength = MathF.Min(perimeter * 0.18f, 150f);
+        for (var i = 0; i < 3; i++)
+        {
+            var start = (offset + i * perimeter / 3f) % perimeter;
+            DrawHoverOrbitSegment(rect, start, segmentLength, color);
+        }
+    }
+
+    private static void DrawHoverOrbitSegment(Rectangle rect, float start, float length, Color color)
+    {
+        const int steps = 18;
+        var previous = HoverFramePoint(rect, start);
+        for (var i = 1; i <= steps; i++)
+        {
+            var current = HoverFramePoint(rect, start + length * i / steps);
+            var alpha = 1f - i / (float)(steps + 1);
+            Raylib.DrawLineEx(previous, current, 3.0f, WithAlpha(color, 0.35f * alpha));
+            Raylib.DrawLineEx(previous, current, 1.4f, WithAlpha(Color.White, 0.85f * alpha));
+            previous = current;
+        }
+    }
+
+    private static Vector2 HoverFramePoint(Rectangle rect, float distance)
+    {
+        var perimeter = 2f * (rect.Width + rect.Height);
+        var d = distance % perimeter;
+        if (d < 0f) d += perimeter;
+
+        if (d <= rect.Width) return new Vector2(rect.X + d, rect.Y);
+        d -= rect.Width;
+        if (d <= rect.Height) return new Vector2(rect.X + rect.Width, rect.Y + d);
+        d -= rect.Height;
+        if (d <= rect.Width) return new Vector2(rect.X + rect.Width - d, rect.Y + rect.Height);
+        d -= rect.Width;
+        return new Vector2(rect.X, rect.Y + rect.Height - d);
     }
 
     private static void DrawStorageGrid(Vector2 origin, int cols, int rows)

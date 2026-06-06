@@ -1775,14 +1775,16 @@ public sealed partial class SciFiRogueGame
 
     private static void DrawMainMenuWireHills()
     {
-        var color = Palette.C(28, 220, 255);
-        var fill = Palette.C(50, 18, 74);
+        var cyan = Palette.C(28, 220, 255);
+        var violet = Palette.C(255, 40, 220);
+        var fill = Palette.C(25, 5, 37);
         const int segments = 96;
         const float angleStep = MathF.Tau / segments;
 
         for (var ring = 0; ring < 4; ring++)
         {
             var radius = 9f + ring * 1.45f;
+            var color = ring % 2 == 0 ? cyan : violet;
             for (var i = 0; i < segments; i++)
             {
                 var a0 = i * angleStep;
@@ -1818,6 +1820,7 @@ public sealed partial class SciFiRogueGame
         for (var ring = 0; ring < 4; ring++)
         {
             var radius = 9f + ring * 1.45f;
+            var color = ring % 2 == 0 ? cyan : violet;
             for (var i = 0; i < segments; i++)
             {
                 var a0 = i * angleStep;
@@ -1828,7 +1831,7 @@ public sealed partial class SciFiRogueGame
 
                 if (i % 8 == 0 && ring == 0)
                 {
-                    Raylib.DrawLine3D(new Vector3(p0.X, 0f, p0.Z), p0, Palette.C(28, 220, 255));
+                    Raylib.DrawLine3D(new Vector3(p0.X, 0f, p0.Z), p0, i % 16 == 0 ? violet : cyan);
                 }
             }
         }
@@ -1836,7 +1839,7 @@ public sealed partial class SciFiRogueGame
         for (var i = 0; i < segments; i += 4)
         {
             var angle = i * angleStep;
-            Raylib.DrawLine3D(MainMenuHillPoint(angle, 9f), MainMenuHillPoint(angle, 13.35f), Palette.C(28, 220, 255));
+            Raylib.DrawLine3D(MainMenuHillPoint(angle, 9f), MainMenuHillPoint(angle, 13.35f), i % 12 == 0 ? violet : cyan);
         }
     }
 
@@ -2102,23 +2105,55 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawRectangleRec(card, hover ? Palette.C(22, 40, 62) : Palette.C(14, 24, 40));
         Raylib.DrawRectangleLinesEx(card, 2f, Palette.C(116, 180, 235));
 
-        var sky = new Rectangle(card.X + 28, card.Y + 28, card.Width - 56, 128);
-        Raylib.DrawRectangleRec(sky, map.IsDeadZone ? Palette.C(28, 40, 44) : Palette.C(34, 58, 86));
-        Raylib.DrawCircleGradient((int)(sky.X + sky.Width - 90), (int)(sky.Y + 48), 42, map.IsDeadZone ? Palette.C(120, 255, 150, 90) : Palette.C(250, 214, 120), Palette.C(250, 214, 120, 30));
-        Raylib.DrawRectangle((int)card.X + 46, (int)card.Y + 228, 128, 48, Palette.C(60, 96, 126));
-        Raylib.DrawRectangle((int)card.X + 220, (int)card.Y + 204, 104, 72, map.IsDeadZone ? Palette.C(80, 90, 90) : Palette.C(112, 74, 58));
-        Raylib.DrawRectangle((int)card.X + 372, (int)card.Y + 188, 116, 88, map.IsDeadZone ? Palette.C(40, 110, 70) : Palette.C(138, 84, 64));
-        Raylib.DrawCircle((int)card.X + 138, (int)card.Y + 252, 15, Palette.C(80, 170, 255));
-        Raylib.DrawCircle((int)card.X + 432, (int)card.Y + 244, 22, map.IsDeadZone ? Palette.C(90, 230, 110) : Palette.C(220, 92, 82));
+        var inner = new Rectangle(card.X + 8, card.Y + 8, card.Width - 16, card.Height - 16);
+        DrawMapCardScene(map, inner);
 
-        Raylib.DrawText(map.Name, (int)card.X + 42, (int)card.Y + 174, 32, Color.White);
-        DrawDifficultySkulls(map.Difficulty, new Vector2(card.X + 42, card.Y + 308));
-        Raylib.DrawText("Click to deploy", (int)(card.X + card.Width - 172), (int)card.Y + 310, 20, Palette.C(170, 220, 255));
+        Raylib.DrawText(map.Name, (int)card.X + 34, (int)card.Y + 40, 36, Color.White);
+        DrawDifficultySkulls(map.Difficulty, new Vector2(card.X + 42, card.Y + 92));
+        Raylib.DrawText("Click to deploy", (int)(card.X + card.Width - 206), (int)(card.Y + card.Height - 72), 22, Palette.C(170, 220, 255));
+    }
+
+    private static void DrawMapCardScene(MapDefinition map, Rectangle rect)
+    {
+        var top = map.IsDeadZone ? Palette.C(8, 20, 22) : Palette.C(16, 28, 44);
+        var bottom = map.IsDeadZone ? Palette.C(22, 42, 36) : Palette.C(31, 34, 58);
+        var glow = map.IsDeadZone ? Palette.C(82, 235, 130, 72) : Palette.C(255, 150, 98, 70);
+        var ground = map.IsDeadZone ? Palette.C(10, 24, 18) : Palette.C(33, 10, 42);
+        var skyline = map.IsDeadZone ? Palette.C(4, 14, 16) : Palette.C(8, 7, 31);
+
+        Raylib.DrawRectangleGradientV((int)rect.X, (int)rect.Y, (int)rect.Width, (int)rect.Height, top, bottom);
+        Raylib.DrawCircleGradient((int)(rect.X + rect.Width * 0.52f), (int)(rect.Y + rect.Height * 0.42f), rect.Width * 0.42f, glow, Palette.C(glow.R, glow.G, glow.B, 0));
+
+        var horizon = rect.Y + rect.Height * 0.58f;
+        DrawMapCitySkyline(rect, horizon, skyline, map.IsDeadZone);
+        Raylib.DrawRectangle((int)rect.X, (int)horizon, (int)rect.Width, (int)(rect.Y + rect.Height - horizon), ground);
+    }
+
+    private static void DrawMapCitySkyline(Rectangle rect, float groundY, Color color, bool deadZone)
+    {
+        var buildings = deadZone
+            ? new (float X, float W, float H)[]
+            {
+                (0.06f, 0.08f, 0.10f), (0.18f, 0.05f, 0.18f), (0.26f, 0.11f, 0.13f),
+                (0.39f, 0.07f, 0.22f), (0.50f, 0.16f, 0.15f), (0.70f, 0.18f, 0.12f)
+            }
+            : new (float X, float W, float H)[]
+            {
+                (0.08f, 0.07f, 0.09f), (0.18f, 0.05f, 0.17f), (0.26f, 0.10f, 0.13f),
+                (0.36f, 0.07f, 0.24f), (0.44f, 0.20f, 0.17f), (0.67f, 0.25f, 0.12f)
+            };
+
+        foreach (var b in buildings)
+        {
+            var x = rect.X + rect.Width * b.X;
+            var w = rect.Width * b.W;
+            var h = rect.Height * b.H;
+            Raylib.DrawRectangle((int)x, (int)(groundY - h), (int)w, (int)h, color);
+        }
     }
 
     private static void DrawDifficultySkulls(int count, Vector2 origin)
     {
-        Raylib.DrawText("Difficulty", (int)origin.X, (int)origin.Y - 22, 18, Color.LightGray);
         for (var i = 0; i < count; i++)
         {
             var x = origin.X + i * 26f;

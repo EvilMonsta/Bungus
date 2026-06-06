@@ -13,6 +13,7 @@ public sealed partial class SciFiRogueGame
         switch (_state)
         {
             case GameState.MainMenu:
+                DrawMainMenuBackground();
                 BeginUiScale();
                 DrawMainMenu();
                 DrawNotice();
@@ -1710,6 +1711,286 @@ public sealed partial class SciFiRogueGame
         DrawButton(MainMenuCodesButtonRect(), "Codes");
 
         if (_codesPopupOpen) DrawCodesPopup();
+    }
+
+    private static void DrawMainMenuBackground()
+    {
+        DrawMainMenuSky();
+
+        var time = (float)Raylib.GetTime();
+        var orbit = time * (0.26f / 3f);
+        var camera = new Camera3D
+        {
+            Position = new Vector3(MathF.Cos(orbit) * 7.4f, 2.65f, MathF.Sin(orbit) * 7.4f),
+            Target = new Vector3(0f, 1.85f, 0f),
+            Up = Vector3.UnitY,
+            FovY = 48f,
+            Projection = CameraProjection.Perspective
+        };
+
+        Raylib.BeginMode3D(camera);
+        DrawMainMenuGroundGrid();
+        DrawMainMenuWireHills();
+        DrawMainMenuMonolith();
+        Raylib.EndMode3D();
+
+        DrawMainMenuVignette();
+    }
+
+    private static void DrawMainMenuSky()
+    {
+        var width = Raylib.GetScreenWidth();
+        var height = Raylib.GetScreenHeight();
+        Raylib.DrawRectangleGradientV(0, 0, width, height, Palette.C(8, 4, 28), Palette.C(38, 4, 50));
+
+        for (var i = 0; i < 90; i++)
+        {
+            var x = (int)((MathF.Sin(i * 37.7f) * 0.5f + 0.5f) * width);
+            var y = (int)((MathF.Sin(i * 19.3f + 3f) * 0.5f + 0.5f) * height * 0.52f);
+            if (x > width * 0.38f && x < width * 0.62f && y < height * 0.42f) continue;
+            var alpha = 80 + (int)((MathF.Sin(i * 11.1f) * 0.5f + 0.5f) * 130f);
+            Raylib.DrawPixel(x, y, Palette.C(230, 245, 255, alpha));
+        }
+    }
+
+    private static void DrawMainMenuGroundGrid()
+    {
+        var cyan = Palette.C(26, 230, 255, 190);
+        var magenta = Palette.C(255, 40, 220, 150);
+        const float extent = 18f;
+        const float step = 1f;
+
+        for (var x = -extent; x <= extent; x += step)
+        {
+            var color = MathF.Abs(x % 4f) < 0.01f ? magenta : cyan;
+            Raylib.DrawLine3D(new Vector3(x, 0f, -extent), new Vector3(x, 0f, extent), color);
+        }
+
+        for (var z = -extent; z <= extent; z += step)
+        {
+            var color = MathF.Abs(z % 4f) < 0.01f ? magenta : cyan;
+            Raylib.DrawLine3D(new Vector3(-extent, 0f, z), new Vector3(extent, 0f, z), color);
+        }
+    }
+
+    private static void DrawMainMenuWireHills()
+    {
+        var color = Palette.C(28, 220, 255);
+        var fill = Palette.C(50, 18, 74);
+        const int segments = 96;
+        const float angleStep = MathF.Tau / segments;
+
+        for (var ring = 0; ring < 4; ring++)
+        {
+            var radius = 9f + ring * 1.45f;
+            for (var i = 0; i < segments; i++)
+            {
+                var a0 = i * angleStep;
+                var a1 = (i + 1) * angleStep;
+                var p0 = MainMenuHillPoint(a0, radius);
+                var p1 = MainMenuHillPoint(a1, radius);
+                DrawSolidQuad3D(
+                    new Vector3(p0.X, 0f, p0.Z),
+                    new Vector3(p1.X, 0f, p1.Z),
+                    p1,
+                    p0,
+                    fill);
+            }
+        }
+
+        for (var ring = 0; ring < 3; ring++)
+        {
+            var innerRadius = 9f + ring * 1.45f;
+            var outerRadius = innerRadius + 1.45f;
+            for (var i = 0; i < segments; i++)
+            {
+                var a0 = i * angleStep;
+                var a1 = (i + 1) * angleStep;
+                DrawSolidQuad3D(
+                    MainMenuHillPoint(a0, innerRadius),
+                    MainMenuHillPoint(a1, innerRadius),
+                    MainMenuHillPoint(a1, outerRadius),
+                    MainMenuHillPoint(a0, outerRadius),
+                    fill);
+            }
+        }
+
+        for (var ring = 0; ring < 4; ring++)
+        {
+            var radius = 9f + ring * 1.45f;
+            for (var i = 0; i < segments; i++)
+            {
+                var a0 = i * angleStep;
+                var a1 = (i + 1) * angleStep;
+                var p0 = MainMenuHillPoint(a0, radius);
+                var p1 = MainMenuHillPoint(a1, radius);
+                Raylib.DrawLine3D(p0, p1, color);
+
+                if (i % 8 == 0 && ring == 0)
+                {
+                    Raylib.DrawLine3D(new Vector3(p0.X, 0f, p0.Z), p0, Palette.C(28, 220, 255));
+                }
+            }
+        }
+
+        for (var i = 0; i < segments; i += 4)
+        {
+            var angle = i * angleStep;
+            Raylib.DrawLine3D(MainMenuHillPoint(angle, 9f), MainMenuHillPoint(angle, 13.35f), Palette.C(28, 220, 255));
+        }
+    }
+
+    private static Vector3 MainMenuHillPoint(float angle, float radius)
+    {
+        var height = 0.35f
+            + (MathF.Sin(angle * 3.0f + radius) * 0.5f + 0.5f) * 0.75f
+            + (MathF.Sin(angle * 7.0f - radius * 0.7f) * 0.5f + 0.5f) * 0.45f;
+        return new Vector3(MathF.Cos(angle) * radius, height, MathF.Sin(angle) * radius);
+    }
+
+    private static void DrawMainMenuMonolith()
+    {
+        const float halfWidth = 0.68f;
+        const float halfDepth = 0.38f;
+        const float lowTop = 3.3f;
+        const float highTop = 4.0f;
+
+        var bfl = new Vector3(-halfWidth, 0f, -halfDepth);
+        var bfr = new Vector3(halfWidth, 0f, -halfDepth);
+        var bbr = new Vector3(halfWidth, 0f, halfDepth);
+        var bbl = new Vector3(-halfWidth, 0f, halfDepth);
+        var tfl = new Vector3(-halfWidth, highTop, -halfDepth);
+        var tfr = new Vector3(halfWidth, highTop, -halfDepth);
+        var tbr = new Vector3(halfWidth, lowTop, halfDepth);
+        var tbl = new Vector3(-halfWidth, lowTop, halfDepth);
+
+        var face = Palette.C(8, 12, 24);
+        var side = Palette.C(16, 12, 38);
+        DrawSolidQuad3D(bfl, bfr, tfr, tfl, face);
+        DrawSolidQuad3D(bfr, bbr, tbr, tfr, side);
+        DrawSolidQuad3D(bbr, bbl, tbl, tbr, face);
+        DrawSolidQuad3D(bbl, bfl, tfl, tbl, side);
+        DrawSolidQuad3D(tfl, tfr, tbr, tbl, Palette.C(50, 18, 74));
+
+        var edgeA = Palette.C(255, 58, 238);
+        var edgeB = Palette.C(25, 230, 255);
+        DrawMonolithEdge(bfl, bfr, edgeA);
+        DrawMonolithEdge(bfr, bbr, edgeB);
+        DrawMonolithEdge(bbr, bbl, edgeA);
+        DrawMonolithEdge(bbl, bfl, edgeB);
+        DrawMonolithEdge(tfl, tfr, edgeA);
+        DrawMonolithEdge(tfr, tbr, edgeB);
+        DrawMonolithEdge(tbr, tbl, edgeA);
+        DrawMonolithEdge(tbl, tfl, edgeB);
+        DrawMonolithEdge(bfl, tfl, edgeB);
+        DrawMonolithEdge(bfr, tfr, edgeA);
+        DrawMonolithEdge(bbr, tbr, edgeB);
+        DrawMonolithEdge(bbl, tbl, edgeA);
+        DrawMonolithLightStreams(bfl, bfr, tfr, tfl, bfr, bbr, tbr, tfr, bbr, bbl, tbl, tbr, bbl, bfl, tfl, tbl);
+    }
+
+    private static void DrawQuad3D(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color color)
+    {
+        Raylib.DrawTriangle3D(a, b, c, color);
+        Raylib.DrawTriangle3D(a, c, d, color);
+    }
+
+    private static void DrawSolidQuad3D(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color color)
+    {
+        DrawQuad3D(a, b, c, d, color);
+        DrawQuad3D(d, c, b, a, color);
+    }
+
+    private static void DrawMonolithEdge(Vector3 from, Vector3 to, Color color)
+    {
+        Raylib.DrawLine3D(from, to, color);
+        Raylib.DrawLine3D(from + new Vector3(0.015f, 0f, 0.015f), to + new Vector3(0.015f, 0f, 0.015f), WithAlpha(color, 0.45f));
+    }
+
+    private static void DrawMonolithLightStreams(params Vector3[] facePoints)
+    {
+        var time = (float)Raylib.GetTime();
+        for (var face = 0; face + 3 < facePoints.Length; face += 4)
+        {
+            DrawMonolithFaceLightStreams(facePoints[face], facePoints[face + 1], facePoints[face + 2], facePoints[face + 3], time, face / 4);
+        }
+    }
+
+    private static void DrawMonolithFaceLightStreams(Vector3 bottomLeft, Vector3 bottomRight, Vector3 topRight, Vector3 topLeft, float time, int faceIndex)
+    {
+        var right = Vector3.Normalize(bottomRight - bottomLeft);
+        var faceCenter = (bottomLeft + bottomRight + topRight + topLeft) * 0.25f;
+        var faceNormal = Vector3.Normalize(Vector3.Cross(right, Vector3.UnitY));
+        if (Vector3.Dot(faceNormal, faceCenter) < 0f) faceNormal = -faceNormal;
+
+        for (var lane = 0; lane < 7; lane++)
+        {
+            var seed = faceIndex * 17.37f + lane * 5.91f;
+            var u = 0.12f + MainMenuHash(seed) * 0.76f;
+            var bottom = Vector3.Lerp(bottomLeft, bottomRight, u);
+            var top = Vector3.Lerp(topLeft, topRight, u);
+            var up = Vector3.Normalize(top - bottom);
+            var end = 0.30f + MainMenuHash(seed + 1.7f) * 0.68f;
+            var speed = 0.22f + MainMenuHash(seed + 3.1f) * 0.34f;
+            var progress = (time * speed + MainMenuHash(seed + 5.4f)) % 1f;
+            var fade = progress < 0.70f ? 1f : 1f - (progress - 0.70f) / 0.30f;
+            var size = 0.055f + MainMenuHash(seed + 8.2f) * 0.045f;
+            var streamProgress = progress * end;
+            var core = Vector3.Lerp(bottom, top, streamProgress) + faceNormal * 0.028f;
+
+            var trailLength = MathF.Min(streamProgress, 0.16f + MainMenuHash(seed + 11.4f) * 0.12f);
+            if (trailLength > 0.01f)
+            {
+                DrawSurfaceTrail(bottom, top, right, up, faceNormal, streamProgress, trailLength, size * 0.72f, fade);
+            }
+
+            DrawSurfaceSquare(core + faceNormal * 0.004f, right, up, size, WithAlpha(Color.White, fade));
+        }
+    }
+
+    private static float MainMenuHash(float value)
+    {
+        var hash = MathF.Sin(value * 12.9898f + 78.233f) * 43758.5453f;
+        hash -= MathF.Floor(hash);
+        return hash;
+    }
+
+    private static void DrawSurfaceSquare(Vector3 center, Vector3 right, Vector3 up, float size, Color color)
+        => DrawSurfaceRect(center, right, up, size, size, color);
+
+    private static void DrawSurfaceTrail(Vector3 bottom, Vector3 top, Vector3 right, Vector3 up, Vector3 faceNormal, float streamProgress, float trailLength, float width, float fade)
+    {
+        const int segments = 70;
+        var height = Vector3.Distance(bottom, top);
+        for (var i = 0; i < segments; i++)
+        {
+            var near = streamProgress - trailLength * (i / (float)segments);
+            var far = streamProgress - trailLength * ((i + 1) / (float)segments);
+            if (near <= 0f) break;
+
+            far = MathF.Max(0f, far);
+            var centerProgress = (near + far) * 0.5f;
+            var segmentLength = MathF.Max(0.001f, near - far);
+            var alpha = fade * 0.74f * (1f - i / (float)segments);
+            var center = Vector3.Lerp(bottom, top, centerProgress) + faceNormal * 0.03f;
+            DrawSurfaceRect(center, right, up, width, segmentLength * height, WithAlpha(Palette.C(25, 230, 255), alpha));
+        }
+    }
+
+    private static void DrawSurfaceRect(Vector3 center, Vector3 right, Vector3 up, float width, float height, Color color)
+    {
+        var halfRight = right * (width * 0.5f);
+        var halfUp = up * (height * 0.5f);
+        DrawSolidQuad3D(center - halfRight - halfUp, center + halfRight - halfUp, center + halfRight + halfUp, center - halfRight + halfUp, color);
+    }
+
+    private static void DrawMainMenuVignette()
+    {
+        var width = Raylib.GetScreenWidth();
+        var height = Raylib.GetScreenHeight();
+        Raylib.DrawRectangleGradientV(0, 0, width, height / 3, Palette.C(0, 0, 0, 80), Palette.C(0, 0, 0, 0));
+        Raylib.DrawRectangleGradientV(0, height - height / 3, width, height / 3, Palette.C(0, 0, 0, 0), Palette.C(0, 0, 0, 125));
+        Raylib.DrawRectangle(0, 0, width, height, Palette.C(0, 0, 0, 35));
     }
 
     private void DrawCodesPopup()

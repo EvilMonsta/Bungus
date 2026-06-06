@@ -159,6 +159,25 @@ public sealed partial class SciFiRogueGame
             Raylib.DrawRectangle((int)bar.X, (int)bar.Y, (int)(bar.Width * ratio), (int)bar.Height, Palette.C(120, 205, 255));
         }
 
+        foreach (var zone in _freezeZones)
+        {
+            if (!zone.Alive) continue;
+            var alpha = zone.Freezing ? 0.26f : 0.26f * zone.Alpha;
+            Raylib.DrawCircleV(zone.Position, FreezeZone.Radius, WithAlpha(Palette.C(120, 225, 255), alpha));
+            Raylib.DrawCircleLines((int)zone.Position.X, (int)zone.Position.Y, FreezeZone.Radius, WithAlpha(Palette.C(170, 240, 255), zone.Freezing ? 0.78f : 0.78f * zone.Alpha));
+        }
+
+        foreach (var turret in _midaMiniTurrets)
+        {
+            if (!turret.Alive) continue;
+            Raylib.DrawCircleV(turret.Position, 13f, Palette.C(32, 34, 38));
+            Raylib.DrawCircleV(turret.Position, 7f, Palette.C(255, 220, 120));
+            Raylib.DrawCircleLines((int)turret.Position.X, (int)turret.Position.Y, 15f, Palette.C(255, 80, 70));
+            var bar = new Rectangle(turret.Position.X - 34f, turret.Position.Y - 28f, 68f, 5f);
+            Raylib.DrawRectangleRec(bar, Palette.C(20, 20, 20, 220));
+            Raylib.DrawRectangle((int)bar.X, (int)bar.Y, (int)(bar.Width * turret.LifeRatio), (int)bar.Height, Palette.C(255, 210, 100));
+        }
+
         foreach (var chest in _chests)
         {
             var rect = new Rectangle(chest.Position.X - 14, chest.Position.Y - 10, 28, 20);
@@ -247,9 +266,11 @@ public sealed partial class SciFiRogueGame
         _destroyerBoss?.Draw();
         _stationBoss?.Draw();
         foreach (var boss in _pitStationBosses) boss.Draw();
+        DrawFrozenTargetCrystals();
         foreach (var t in _turrets) t.DrawAimLine();
         DrawPlayerSniperAimLine();
         foreach (var beam in _beamEffects) beam.Draw();
+        foreach (var lightning in _lightningEffects) lightning.Draw();
 
         foreach (var p in _projectiles)
         {
@@ -625,6 +646,12 @@ public sealed partial class SciFiRogueGame
             y += 46f;
         }
 
+        if (_player.TeslaBulletsActive)
+        {
+            DrawStatusEffectIcon(new Vector2(x, y), Palette.C(120, 230, 255), "T", _player.TeslaBulletsEffectProgress);
+            y += 46f;
+        }
+
         if (_player.StimActive)
         {
             DrawStatusEffectIcon(new Vector2(x, y), Palette.C(80, 210, 100), "S", _player.StimEffectProgress);
@@ -641,6 +668,37 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText(label, (int)(center.X - textWidth * 0.5f), (int)(center.Y - fontSize * 0.5f), fontSize, Color.White);
 
         DrawCircularProgressFrame(center, 19f, progress, color);
+    }
+
+    private void DrawFrozenTargetCrystals()
+    {
+        foreach (var pair in _frozenTargets)
+        {
+            if (pair.Value <= 0f) continue;
+            var center = GetTargetPosition(pair.Key);
+            if (center is null) continue;
+
+            var seed = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(pair.Key);
+            for (var i = 0; i < 5; i++)
+            {
+                var angle = ((seed + i * 73) % 360) * MathF.PI / 180f;
+                var distance = 5f + Math.Abs((seed >> (i % 8)) % 18);
+                var position = center.Value + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * distance;
+                var color = Palette.C(130, 230, 255, 76);
+                if (i % 2 == 0)
+                {
+                    DrawDiamond(position, 5f, color);
+                }
+                else
+                {
+                    Raylib.DrawTriangle(
+                        position + new Vector2(0f, -6f),
+                        position + new Vector2(-5f, 5f),
+                        position + new Vector2(6f, 4f),
+                        color);
+                }
+            }
+        }
     }
 
     private static void DrawCircularProgressFrame(Vector2 center, float radius, float progress, Color color)
@@ -1046,6 +1104,10 @@ public sealed partial class SciFiRogueGame
                 ConsumableType.Stim => "stim.png",
                 ConsumableType.ProtectiveDome => "protective_dome.png",
                 ConsumableType.StickyBullets => "sticky_bullets.png",
+                ConsumableType.TeslaBullets => "tesla_bullets.png",
+                ConsumableType.FreezeGrenade => "freeze_grenade.png",
+                ConsumableType.HeGrenade => "he_grenade.png",
+                ConsumableType.MidaMiniTurret => "mida_mini_turret.png",
                 _ => null
             };
             return name is null ? null : Path.Combine("Assets", "Icons", "Consumables", name);
@@ -1767,7 +1829,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMainMenu()
     {
-        Raylib.DrawText("a0.3.6", 86, 150, 24, Palette.C(150, 185, 220));
+        Raylib.DrawText("a0.3.7", 86, 150, 24, Palette.C(150, 185, 220));
         DrawMetaProgressHeader();
 
         DrawButton(MainMenuButtonRect(0), "Play");
@@ -1777,8 +1839,10 @@ public sealed partial class SciFiRogueGame
         DrawButton(MainMenuButtonRect(4), "Settings");
         DrawButton(MainMenuButtonRect(5), "Exit");
         DrawButton(MainMenuCodesButtonRect(), "Codes");
+        DrawButton(MainMenuAboutButtonRect(), "About");
 
         if (_codesPopupOpen) DrawCodesPopup();
+        if (_aboutPopupOpen) DrawAboutPopup();
     }
 
     private static void DrawMainMenuBackground()
@@ -2094,6 +2158,50 @@ public sealed partial class SciFiRogueGame
         {
             var statusColor = _codeStatusSuccess ? Palette.C(120, 220, 140) : Palette.C(255, 120, 120);
             Raylib.DrawText(_codeStatusText, (int)popup.X + 30, (int)popup.Y + 146, 20, statusColor);
+        }
+    }
+
+    private void DrawAboutPopup()
+    {
+        Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(0, 0, 0, 165));
+
+        var popup = AboutPopupRect();
+        var close = AboutPopupCloseRect();
+
+        Raylib.DrawRectangleRec(popup, Palette.C(10, 18, 30, 242));
+        Raylib.DrawRectangleLinesEx(popup, 2f, Palette.C(108, 170, 228));
+        Raylib.DrawText("About", (int)popup.X + 24, (int)popup.Y + 22, 30, Color.White);
+
+        Raylib.DrawRectangleRec(close, Palette.C(36, 56, 90));
+        Raylib.DrawRectangleLinesEx(close, 2f, Color.White);
+        Raylib.DrawText("X", (int)close.X + 9, (int)close.Y + 4, 22, Color.White);
+
+        var lines = new[]
+        {
+            "Developer:",
+            "Rambros",
+            "",
+            "Tester:",
+            "Yukii(yukendoze)",
+            "",
+            "Contributors:",
+            "Inferlas, Maks1mka, Jinko, BlackyCGS",
+            "",
+            "Special thanks to my nerve cells",
+            "for letting this become more than just an idea.",
+            "",
+            "Bungus will keep getting better."
+        };
+
+        const int fontSize = 22;
+        const int lineStep = 30;
+        var totalHeight = lines.Length * lineStep;
+        var y = popup.Y + popup.Height / 2f - totalHeight / 2f + 8f;
+        foreach (var line in lines)
+        {
+            var width = Raylib.MeasureText(line, fontSize);
+            Raylib.DrawText(line, (int)(popup.X + popup.Width / 2f - width / 2f), (int)y, fontSize, string.IsNullOrEmpty(line) ? Color.White : Color.LightGray);
+            y += lineStep;
         }
     }
 
@@ -3024,12 +3132,13 @@ public sealed partial class SciFiRogueGame
         => index switch
         {
             0 => "-",
-            1 => "P",
-            2 => "H",
-            3 => "M",
-            4 => "C",
-            5 => "K",
-            6 => "A",
+            1 => "A",
+            2 => "P",
+            3 => "H",
+            4 => "M",
+            5 => "C",
+            6 => "K",
+            7 => "G",
             _ => "?"
         };
 
@@ -3107,6 +3216,18 @@ public sealed partial class SciFiRogueGame
 
     private Rectangle MainMenuButtonRect(int index)
         => new(70, GetUiScreenHeight() - 404 + index * 60, 220, 48);
+
+    private Rectangle MainMenuCodesButtonRect()
+    {
+        var settings = MainMenuButtonRect(4);
+        return new Rectangle(GetUiScreenWidth() - 290, settings.Y, 220, 48);
+    }
+
+    private Rectangle MainMenuAboutButtonRect()
+    {
+        var exit = MainMenuButtonRect(5);
+        return new Rectangle(GetUiScreenWidth() - 290, exit.Y, 220, 48);
+    }
 
     private static Rectangle MapCardRect(int index)
         => new(70 + index * 585, 160, 555, 380);
@@ -3197,11 +3318,11 @@ public sealed partial class SciFiRogueGame
     private static Rectangle ArmoryBackButtonRect()
         => new(70, 900, 220, 52);
 
-    private static Rectangle MainMenuCodesButtonRect()
-        => new(GetUiScreenWidth() - 290, GetUiScreenHeight() - 110, 220, 48);
-
     private static Rectangle CodesPopupRect()
          => new((GetUiScreenWidth() - 470) / 2f, (GetUiScreenHeight() - 240) / 2f, 470, 240);
+
+    private static Rectangle AboutPopupRect()
+         => new((GetUiScreenWidth() - 640) / 2f, (GetUiScreenHeight() - 500) / 2f, 640, 500);
 
     private static Rectangle CodesPopupInputRect()
     {
@@ -3218,6 +3339,12 @@ public sealed partial class SciFiRogueGame
     private static Rectangle CodesPopupCloseRect()
     {
         var popup = CodesPopupRect();
+        return new Rectangle(popup.X + popup.Width - 46, popup.Y + 14, 32, 32);
+    }
+
+    private static Rectangle AboutPopupCloseRect()
+    {
+        var popup = AboutPopupRect();
         return new Rectangle(popup.X + popup.Width - 46, popup.Y + 14, 32, 32);
     }
 

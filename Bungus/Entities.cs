@@ -27,6 +27,7 @@ public sealed class Player
     private const float ShieldRechargeRatePerSecond = 0.0333f;
     private const float RegenTickInterval = 1f;
     private const float StickyBulletsDuration = 15f;
+    private const float TeslaBulletsDuration = 15f;
     private const float MovingRangedSpreadAngle = MathF.PI / 90f;
     private const float SniperDamageMultiplier = 8.325f;
     private const float EmpoweredSniperDamageMultiplier = 20.8125f;
@@ -108,6 +109,7 @@ public sealed class Player
     private float _shield;
     private float _lastShieldMax = -1f;
     private float _stickyBulletsTimer;
+    private float _teslaBulletsTimer;
     private float _poisonDurationMax;
 
     public Vector2 Position { get; private set; }
@@ -119,10 +121,12 @@ public sealed class Player
     public float Shield => _shield;
     public float ShieldCapacity => Armor?.ShieldMax ?? 0f;
     public bool StickyBulletsActive => _stickyBulletsTimer > 0f;
+    public bool TeslaBulletsActive => _teslaBulletsTimer > 0f;
     public bool StimActive => _stim > 0f;
     public bool Poisoned => _poison > 0f;
     public float StimEffectProgress => Math.Clamp(_stim / 6f, 0f, 1f);
     public float StickyBulletsEffectProgress => Math.Clamp(_stickyBulletsTimer / StickyBulletsDuration, 0f, 1f);
+    public float TeslaBulletsEffectProgress => Math.Clamp(_teslaBulletsTimer / TeslaBulletsDuration, 0f, 1f);
     public float PoisonEffectProgress => Math.Clamp(_poison / MathF.Max(_poisonDurationMax, 0.001f), 0f, 1f);
     public bool IsMoving { get; private set; }
     public bool IsSniperEquipped => ActiveWeaponClass == WeaponClass.Ranged && ActiveWeapon?.Pattern == WeaponPattern.SniperRifle;
@@ -202,6 +206,7 @@ public sealed class Player
         _dodgeCd -= dt;
         _stim -= dt;
         _stickyBulletsTimer = MathF.Max(0f, _stickyBulletsTimer - dt);
+        _teslaBulletsTimer = MathF.Max(0f, _teslaBulletsTimer - dt);
         _timeSinceLastDamage += dt;
         UpdateLinearRifleCharge(dt);
 
@@ -862,6 +867,12 @@ public sealed class Player
             return slot.ConsumableKind;
         }
 
+        if (slot.ConsumableKind == ConsumableType.TeslaBullets)
+        {
+            _teslaBulletsTimer = TeslaBulletsDuration;
+            return slot.ConsumableKind;
+        }
+
         return slot.ConsumableKind;
     }
 
@@ -1023,6 +1034,7 @@ public sealed class Enemy
 
     private float _deathAnim = 0.45f;
     private float _slowTimer;
+    private float _chillTimer;
     private float _poisonTimer;
     private float _poisonDamagePerSecond;
 
@@ -1179,6 +1191,7 @@ public sealed class Enemy
     {
         _attackCd -= dt;
         _slowTimer = MathF.Max(0f, _slowTimer - dt);
+        _chillTimer = MathF.Max(0f, _chillTimer - dt);
         TickPoison(dt);
 
         if (!Alive) return;
@@ -1291,6 +1304,11 @@ public sealed class Enemy
         _slowTimer = MathF.Max(_slowTimer, duration);
     }
 
+    public void ApplyFreezeChill(float duration = 10f)
+    {
+        _chillTimer = MathF.Max(_chillTimer, duration);
+    }
+
     public void ApplyPoison(float damagePerSecond, float duration)
     {
         if (!Alive || damagePerSecond <= 0f || duration <= 0f) return;
@@ -1305,7 +1323,7 @@ public sealed class Enemy
         Health = MathF.Max(0f, Health - _poisonDamagePerSecond * dt);
     }
 
-    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.7f : 1f;
+    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.7f : _chillTimer > 0f ? 0.75f : 1f;
 
     public void TryShootBurst(Vector2 playerPos, List<Projectile> projectiles)
     {
@@ -1430,6 +1448,7 @@ public sealed class HexEnemy
     private float _burstShotCd;
     private readonly bool _burstMode;
     private float _slowTimer;
+    private float _chillTimer;
     private float _poisonTimer;
     private float _poisonDamagePerSecond;
 
@@ -1447,6 +1466,7 @@ public sealed class HexEnemy
     {
         if (!Alive) return;
         _slowTimer = MathF.Max(0f, _slowTimer - dt);
+        _chillTimer = MathF.Max(0f, _chillTimer - dt);
         TickPoison(dt);
         if (!Alive) return;
 
@@ -1530,7 +1550,12 @@ public sealed class HexEnemy
         _slowTimer = MathF.Max(_slowTimer, duration);
     }
 
-    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.7f : 1f;
+    public void ApplyFreezeChill(float duration = 10f)
+    {
+        _chillTimer = MathF.Max(_chillTimer, duration);
+    }
+
+    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.7f : _chillTimer > 0f ? 0.75f : 1f;
 
     public void DrawSight()
     {
@@ -1573,6 +1598,7 @@ public sealed class GeneratorGuardianEnemy
     private float _sideDashCd;
     private float _playerDashCd;
     private float _slowTimer;
+    private float _chillTimer;
     private float _poisonTimer;
     private float _poisonDamagePerSecond;
     private float _spearVisualTimer;
@@ -1598,6 +1624,7 @@ public sealed class GeneratorGuardianEnemy
     public void Update(float dt, Vector2 playerPos, Player player, List<Obstacle> obstacles, int worldSize, List<DashAfterImage> afterImages, bool infiniteAggro = false)
     {
         _slowTimer = MathF.Max(0f, _slowTimer - dt);
+        _chillTimer = MathF.Max(0f, _chillTimer - dt);
         _spearVisualTimer = MathF.Max(0f, _spearVisualTimer - dt);
         TickPoison(dt);
         if (!Alive) return;
@@ -1714,6 +1741,7 @@ public sealed class GeneratorGuardianEnemy
     }
 
     public void ApplyStickySlow(float duration = 1f) => _slowTimer = MathF.Max(_slowTimer, duration);
+    public void ApplyFreezeChill(float duration = 10f) => _chillTimer = MathF.Max(_chillTimer, duration);
 
     public void ApplyPoison(float damagePerSecond, float duration)
     {
@@ -1729,7 +1757,7 @@ public sealed class GeneratorGuardianEnemy
         Health = MathF.Max(0f, Health - _poisonDamagePerSecond * dt);
     }
 
-    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.7f : 1f;
+    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.7f : _chillTimer > 0f ? 0.75f : 1f;
     private static float NextSideDashCooldown() => 2f + Random.Shared.NextSingle() * 2f;
     private static float NextPlayerDashCooldown() => 1f + Random.Shared.NextSingle() * 2f;
 
@@ -1815,6 +1843,7 @@ public sealed class ToxicTriangleEnemy
     private int _burstLeft;
     private float _burstShotCd;
     private float _slowTimer;
+    private float _chillTimer;
     private float _poisonTimer;
     private float _poisonDamagePerSecond;
     private Vector2 _facing = new(1f, 0f);
@@ -1832,6 +1861,7 @@ public sealed class ToxicTriangleEnemy
     public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, List<Obstacle> obstacles, int worldSize, bool infiniteAggro = false)
     {
         _slowTimer = MathF.Max(0f, _slowTimer - dt);
+        _chillTimer = MathF.Max(0f, _chillTimer - dt);
         TickPoison(dt);
         if (!Alive) return;
 
@@ -2006,6 +2036,7 @@ public sealed class ToxicTriangleEnemy
     }
 
     public void ApplyStickySlow(float duration = 1f) => _slowTimer = MathF.Max(_slowTimer, duration);
+    public void ApplyFreezeChill(float duration = 10f) => _chillTimer = MathF.Max(_chillTimer, duration);
 
     public void ApplyPoison(float damagePerSecond, float duration)
     {
@@ -2021,7 +2052,7 @@ public sealed class ToxicTriangleEnemy
         Health = MathF.Max(0f, Health - _poisonDamagePerSecond * dt);
     }
 
-    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.7f : 1f;
+    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.7f : _chillTimer > 0f ? 0.75f : 1f;
     private static float GetAlertViewDistance() => ViewDistance * AlertViewMultiplier;
 
     public void DrawSight()
@@ -2235,6 +2266,7 @@ public sealed class TurretEnemy
     }
 
     public void ApplyStickySlow(float duration = 1f) { }
+    public void ApplyFreezeChill(float duration = 10f) { }
 
     public void DrawSight()
     {
@@ -2312,6 +2344,7 @@ public sealed class MiniBossEnemySquare
     private float _investigateReturnStartHealth;
     private Vector2 _facing = new(1f, 0f);
     private float _slowTimer;
+    private float _chillTimer;
     private float _poisonTimer;
     private float _poisonDamagePerSecond;
 
@@ -2338,6 +2371,7 @@ public sealed class MiniBossEnemySquare
         if (!Alive) return;
 
         _slowTimer = MathF.Max(0f, _slowTimer - dt);
+        _chillTimer = MathF.Max(0f, _chillTimer - dt);
         TickPoison(dt);
         if (!Alive) return;
         _ramCd -= dt;
@@ -2553,7 +2587,12 @@ public sealed class MiniBossEnemySquare
         _slowTimer = MathF.Max(_slowTimer, duration);
     }
 
-    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.85f : 1f;
+    public void ApplyFreezeChill(float duration = 10f)
+    {
+        _chillTimer = MathF.Max(_chillTimer, duration);
+    }
+
+    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.85f : _chillTimer > 0f ? 0.75f : 1f;
     private float GetFastSpeedMultiplier() => IsFast ? 2.175f : 1f;
     private float GetShootCooldownMultiplier() => IsFast ? 1.2f : 1f;
     private float GetSlamCooldownMultiplier() => IsFast ? 0.7f : 1f;
@@ -2643,6 +2682,7 @@ public sealed class StationBossEnemy
     private readonly List<DashTrailPoint> _dashTrail = [];
     private float _dashTrailSpawnTimer;
     private float _slowTimer;
+    private float _chillTimer;
     private float _poisonTimer;
     private float _poisonDamagePerSecond;
 
@@ -2666,6 +2706,7 @@ public sealed class StationBossEnemy
     public void Update(float dt, Vector2 playerPos, List<Projectile> projectiles, Player player, List<Obstacle> obstacles, int worldSize)
     {
         _slowTimer = MathF.Max(0f, _slowTimer - dt);
+        _chillTimer = MathF.Max(0f, _chillTimer - dt);
         TickPoison(dt);
         if (!Alive || !Active) return;
         UpdateDashTrail(dt);
@@ -2866,6 +2907,7 @@ public sealed class StationBossEnemy
     }
 
     public void ApplyStickySlow(float duration = 1f) => _slowTimer = MathF.Max(_slowTimer, duration);
+    public void ApplyFreezeChill(float duration = 10f) => _chillTimer = MathF.Max(_chillTimer, duration);
 
     public void ApplyPoison(float damagePerSecond, float duration)
     {
@@ -2881,7 +2923,7 @@ public sealed class StationBossEnemy
         Damage(_poisonDamagePerSecond * dt);
     }
 
-    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.95f : 1f;
+    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.95f : _chillTimer > 0f ? 0.75f : 1f;
 
     private static float DistanceToSegment(Vector2 p, Vector2 a, Vector2 b)
     {
@@ -2992,6 +3034,7 @@ public sealed class BossEnemyDestroyer
     private float _investigateReturnStartHealth;
     private bool _phaseTwoShieldReset;
     private float _slowTimer;
+    private float _chillTimer;
     private float _poisonTimer;
     private float _poisonDamagePerSecond;
 
@@ -3019,6 +3062,7 @@ public sealed class BossEnemyDestroyer
         if (!Alive) return;
 
         _slowTimer = MathF.Max(0f, _slowTimer - dt);
+        _chillTimer = MathF.Max(0f, _chillTimer - dt);
         TickPoison(dt);
         if (!Alive) return;
         _forwardDashCd -= dt;
@@ -3176,7 +3220,7 @@ public sealed class BossEnemyDestroyer
         return new Projectile(Position + dir * 40f, dir, BulletSpeed, lifetime, Palette.C(255, 140, 110), true, BulletDamage);
     }
 
-    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.95f : 1f;
+    private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.95f : _chillTimer > 0f ? 0.75f : 1f;
 
     private static float GetAlertViewDistance() => ViewDistance * AlertViewMultiplier;
 
@@ -3268,6 +3312,11 @@ public sealed class BossEnemyDestroyer
     public void ApplyStickySlow(float duration = 1f)
     {
         _slowTimer = MathF.Max(_slowTimer, duration);
+    }
+
+    public void ApplyFreezeChill(float duration = 10f)
+    {
+        _chillTimer = MathF.Max(_chillTimer, duration);
     }
 
     public void ApplyPoison(float damagePerSecond, float duration)
@@ -3533,3 +3582,5 @@ public sealed class BossEnemyDestroyer
         return Vector2.Distance(point, from + delta * t);
     }
 }
+
+

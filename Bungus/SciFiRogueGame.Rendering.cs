@@ -1748,7 +1748,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMainMenu()
     {
-        Raylib.DrawText("a0.3.5", 86, 150, 24, Palette.C(150, 185, 220));
+        Raylib.DrawText("a0.3.6", 86, 150, 24, Palette.C(150, 185, 220));
         DrawMetaProgressHeader();
 
         DrawButton(MainMenuButtonRect(0), "Play");
@@ -2678,9 +2678,11 @@ public sealed partial class SciFiRogueGame
 
     private static void DrawCradleButton(Rectangle rect, string label, bool enabled)
     {
+        var hover = enabled && Raylib.CheckCollisionPointRec(GetUiMousePosition(), rect);
         var fill = enabled ? Palette.C(42, 95, 180) : Palette.C(44, 50, 62);
         var line = enabled ? Color.White : Color.Gray;
         Raylib.DrawRectangleRec(rect, fill);
+        DrawButtonPulseFill(rect, Palette.C(120, 210, 255), hover);
         Raylib.DrawRectangleLinesEx(rect, 2f, line);
         var fontSize = 24;
         Raylib.DrawText(
@@ -2879,11 +2881,35 @@ public sealed partial class SciFiRogueGame
 
     private static void DrawButton(Rectangle rect, string text, bool enabled = true)
     {
-        var hover = Raylib.CheckCollisionPointRec(GetUiMousePosition(), rect);
+        var hover = enabled && Raylib.CheckCollisionPointRec(GetUiMousePosition(), rect);
         Raylib.DrawRectangleRec(rect, !enabled ? Palette.C(34, 38, 48) : hover ? Palette.C(68, 112, 186) : Palette.C(36, 56, 90));
+        DrawButtonPulseFill(rect, Palette.C(120, 210, 255), hover);
         Raylib.DrawRectangleLinesEx(rect, 2f, enabled ? Color.White : Color.DarkGray);
         const int fs = 24;
         Raylib.DrawText(text, (int)(rect.X + rect.Width / 2 - Raylib.MeasureText(text, fs) / 2f), (int)(rect.Y + rect.Height / 2 - fs / 2f), fs, enabled ? Color.White : Color.Gray);
+    }
+
+    private static void DrawButtonPulseFill(Rectangle rect, Color color, bool active)
+    {
+        if (!active) return;
+
+        const float cycle = 1f;
+        const float duration = 0.7f;
+        var phase = (float)(Raylib.GetTime() % cycle);
+        if (phase > duration) return;
+
+        var progress = phase / duration;
+        var inset = (MathF.Min(rect.Width, rect.Height) * 0.5f - 1f) * progress;
+        if (inset <= 0f) return;
+
+        var alpha = 0.24f * (1f - progress);
+        var pulse = WithAlpha(color, alpha);
+        var inner = new Rectangle(rect.X + inset, rect.Y + inset, rect.Width - inset * 2f, rect.Height - inset * 2f);
+
+        Raylib.DrawRectangleRec(new Rectangle(rect.X, rect.Y, rect.Width, inset), pulse);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X, rect.Y + rect.Height - inset, rect.Width, inset), pulse);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X, inner.Y, inset, MathF.Max(0f, inner.Height)), pulse);
+        Raylib.DrawRectangleRec(new Rectangle(rect.X + rect.Width - inset, inner.Y, inset, MathF.Max(0f, inner.Height)), pulse);
     }
 
     private static void DrawHoverOrbitFrame(Rectangle rect, Color color)
@@ -2962,6 +2988,7 @@ public sealed partial class SciFiRogueGame
         var border = active ? Palette.C(180, 230, 255) : Color.White;
 
         Raylib.DrawRectangleRec(rect, fill);
+        DrawButtonPulseFill(rect, border, hover);
         Raylib.DrawRectangleLinesEx(rect, active ? 3f : 2f, border);
 
         const int fontSize = 20;

@@ -4062,6 +4062,14 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
+        if (code == "WELCOME")
+        {
+            var result = ApplyWelcomeCode();
+            SetCodeStatus(result.Success, result.Message);
+            if (result.Success) _codeInput = string.Empty;
+            return;
+        }
+
         SetCodeStatus(false, "No such code.");
     }
 
@@ -4291,6 +4299,19 @@ public sealed partial class SciFiRogueGame : IDisposable
         RegisterPromoCodeUse(code, false);
         SavePersistentState();
         return (true, "Success");
+    }
+
+    private (bool Success, string Message) ApplyWelcomeCode()
+    {
+        const string code = "WELCOME";
+        if (!CanUsePromoCode(code, 1, false, out var error))
+        {
+            return (false, error);
+        }
+
+        RegisterPromoCodeUse(code, false);
+        AddMetaScore(5250);
+        return (true, "Success: +5250 XP.");
     }
 
     private bool CanUsePromoCode(string code, int? maxUses, bool sessionOnly, out string error)

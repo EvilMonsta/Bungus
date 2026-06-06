@@ -798,11 +798,14 @@ public sealed partial class SciFiRogueGame
             }
             if (slot.Item is not null && Raylib.CheckCollisionPointRec(mouse, slot.Rect)) DrawHoverOrbitFrame(slot.Rect, slot.Item.Color);
         }
+        DrawArmorModifierDiamondsForSlots(slots);
 
         if (_drag is not null)
         {
             var m = GetUiMousePosition();
-            DrawItemIcon(_drag.Item, new Rectangle(m.X + 8, m.Y + 8, UiSlotSize, UiSlotSize), comparison, _drag.Kind);
+            var dragRect = new Rectangle(m.X + 8, m.Y + 8, UiSlotSize, UiSlotSize);
+            DrawItemIcon(_drag.Item, dragRect, comparison, _drag.Kind);
+            DrawArmorModifierDiamonds(_drag.Item, dragRect);
         }
 
         if (_hovered is not null) DrawTooltip(_hovered, GetUiMousePosition(), comparison);
@@ -1083,6 +1086,11 @@ public sealed partial class SciFiRogueGame
             var tip = new Vector2(rect.X + rect.Width - 8f, rect.Y + 4f);
             var left = new Vector2(rect.X + rect.Width - 14f, rect.Y + 12f);
             var right = new Vector2(rect.X + rect.Width - 2f, rect.Y + 12f);
+            Raylib.DrawTriangle(
+                new Vector2(tip.X, tip.Y - 2f),
+                new Vector2(left.X - 2f, left.Y + 2f),
+                new Vector2(right.X + 2f, right.Y + 2f),
+                Palette.C(28, 116, 54));
             Raylib.DrawTriangle(tip, left, right, Palette.C(80, 230, 110));
             return;
         }
@@ -1096,7 +1104,46 @@ public sealed partial class SciFiRogueGame
             return;
         }
 
+        Raylib.DrawRectangle((int)(rect.X + rect.Width - 16f), (int)(rect.Y + 5f), 16, 7, Palette.C(124, 92, 18));
         Raylib.DrawRectangle((int)(rect.X + rect.Width - 14f), (int)(rect.Y + 7f), 12, 3, Palette.C(255, 220, 90));
+    }
+
+    private static void DrawArmorModifierDiamonds(ItemStack item, Rectangle rect, float outerRadius = 7f, float innerRadius = 4.8f, float spacing = 12f)
+    {
+        var count = GetArmorModifierCount(item);
+        if (count <= 0) return;
+
+        var x = rect.X + outerRadius + 6f;
+        var y = rect.Y + outerRadius + 5f;
+        for (var i = 0; i < count; i++)
+        {
+            var center = new Vector2(x, y + i * spacing);
+            DrawDiamond(center, outerRadius, Palette.C(30, 120, 58));
+            DrawDiamond(center, innerRadius, Palette.C(255, 220, 90));
+        }
+    }
+
+    private static void DrawArmorModifierDiamondsForSlots(IEnumerable<UiSlot> slots)
+    {
+        foreach (var slot in slots)
+        {
+            if (slot.Item is null) continue;
+            DrawArmorModifierDiamonds(slot.Item, slot.Rect);
+        }
+    }
+
+    private static void DrawDiamond(Vector2 center, float radius, Color color)
+    {
+        Raylib.DrawTriangle(
+            new Vector2(center.X, center.Y - radius),
+            new Vector2(center.X, center.Y + radius),
+            new Vector2(center.X + radius, center.Y),
+            color);
+        Raylib.DrawTriangle(
+            new Vector2(center.X, center.Y - radius),
+            new Vector2(center.X - radius, center.Y),
+            new Vector2(center.X, center.Y + radius),
+            color);
     }
 
     private ComparisonMarker GetComparisonMarker(ItemStack item, ComparisonContext? comparison, SlotKind? sourceKind)
@@ -2227,11 +2274,14 @@ public sealed partial class SciFiRogueGame
             }
             if (slot.Item is not null && Raylib.CheckCollisionPointRec(mouse, slot.Rect)) DrawHoverOrbitFrame(slot.Rect, slot.Item.Color);
         }
+        DrawArmorModifierDiamondsForSlots(slots);
 
         if (_drag is not null)
         {
             var m = GetUiMousePosition();
-            DrawItemIcon(_drag.Item, new Rectangle(m.X + 8, m.Y + 8, UiSlotSize, UiSlotSize), comparison, _drag.Kind);
+            var dragRect = new Rectangle(m.X + 8, m.Y + 8, UiSlotSize, UiSlotSize);
+            DrawItemIcon(_drag.Item, dragRect, comparison, _drag.Kind);
+            DrawArmorModifierDiamonds(_drag.Item, dragRect);
         }
 
         if (_hovered is not null) DrawTooltip(_hovered, GetUiMousePosition(), comparison);
@@ -2270,6 +2320,7 @@ public sealed partial class SciFiRogueGame
 
         var iconRect = new Rectangle(rect.X + 10, rect.Y + 10, rect.Width - 20, rect.Height - 20);
         DrawItemIcon(offer.Item, iconRect, comparison);
+        DrawArmorModifierDiamonds(offer.Item, iconRect);
         if (Raylib.CheckCollisionPointRec(GetUiMousePosition(), rect)) DrawHoverOrbitFrame(rect, border);
 
         DrawStorePrice(rect, $"{GetArmoryPrice(offer.Item)} SC", Palette.C(120, 230, 255));
@@ -2284,6 +2335,7 @@ public sealed partial class SciFiRogueGame
 
         var iconRect = new Rectangle(rect.X + 10, rect.Y + 10, rect.Width - 20, rect.Height - 20);
         DrawItemIcon(offer.Item, iconRect, comparison);
+        DrawArmorModifierDiamonds(offer.Item, iconRect);
         if (Raylib.CheckCollisionPointRec(GetUiMousePosition(), rect)) DrawHoverOrbitFrame(rect, border);
 
         var price = GetTokenStorePrice(offer);
@@ -2485,6 +2537,7 @@ public sealed partial class SciFiRogueGame
             Raylib.DrawRectangleRec(new Rectangle(x - 5, y - 5, iconSize + 10, iconSize + 10), Palette.C(14, 20, 34, (int)(220 * alpha)));
             var iconRect = new Rectangle(x, y, iconSize, iconSize);
             DrawItemIcon(item, iconRect, comparison);
+            DrawArmorModifierDiamonds(item, iconRect, 5f, 3.3f, 8f);
             if (stopped && slot == 0)
             {
                 Raylib.DrawRectangleLinesEx(new Rectangle(x - 4, y - 4, iconSize + 8, iconSize + 8), 3f, Color.White);

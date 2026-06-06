@@ -1025,7 +1025,16 @@ public sealed partial class SciFiRogueGame
 
     private static string? GetItemIconPath(ItemStack item)
     {
-        if (item.Type == ItemType.Armor) return Path.Combine("Assets", "Icons", "Armor", "armor.png");
+        if (item.Type == ItemType.Armor)
+        {
+            var armorIcon = item.ArmorKind switch
+            {
+                ArmorKind.Light => "light_armor.png",
+                ArmorKind.Heavy => "heavy_armor.png",
+                _ => "armor.png"
+            };
+            return Path.Combine("Assets", "Icons", "Armor", armorIcon);
+        }
         if (item.IsStationKey) return Path.Combine("Assets", "Icons", "KeyItems", "station_key.png");
         if (item.IsHeavyAmmo) return Path.Combine("Assets", "Icons", "Consumables", "heavy_ammo.png");
 
@@ -1441,6 +1450,16 @@ public sealed partial class SciFiRogueGame
         if (item.Type == ItemType.Armor)
         {
             lines.Add(($"Armor {item.Defense:0} | Resilience {item.ResiliencePercent * 100f:0}% | {item.Rarity}", item.Color));
+            if (MathF.Abs(item.MovementSpreadPercent) > 0.001f)
+            {
+                var sign = item.MovementSpreadPercent > 0f ? "+" : "-";
+                lines.Add(($"Moving spread {sign}{MathF.Abs(item.MovementSpreadPercent) * 100f:0}%", item.MovementSpreadPercent > 0f ? Palette.C(255, 150, 120) : Palette.C(150, 220, 255)));
+            }
+            if (MathF.Abs(item.DashDistancePercent) > 0.001f)
+            {
+                var sign = item.DashDistancePercent > 0f ? "+" : "-";
+                lines.Add(($"Dash distance {sign}{MathF.Abs(item.DashDistancePercent) * 100f:0}%", item.DashDistancePercent > 0f ? Palette.C(150, 220, 255) : Palette.C(255, 150, 120)));
+            }
             if (item.SpeedBonusPercent > 0f) lines.Add(($"Speed +{item.SpeedBonusPercent * 100f:0}%", Palette.C(170, 220, 255)));
             if (item.ExplosionResistancePercent > 0f) lines.Add(($"Explosion resist +{item.ExplosionResistancePercent * 100f:0}%", Palette.C(255, 170, 120)));
             if (item.HealingBonusPercent > 0f) lines.Add(($"Healing +{item.HealingBonusPercent * 100f:0}%", Palette.C(135, 230, 150)));

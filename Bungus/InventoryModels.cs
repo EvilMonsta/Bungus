@@ -152,6 +152,7 @@ public sealed class ItemStackSaveData
     public WeaponPattern Pattern { get; set; }
     public ConsumableType? ConsumableKind { get; set; }
     public bool IsStarter { get; set; }
+    public ArmorKind ArmorKind { get; set; }
     public float Defense { get; set; }
     public float ResiliencePercent { get; set; }
     public float SpeedBonusPercent { get; set; }
@@ -160,6 +161,8 @@ public sealed class ItemStackSaveData
     public float DashRecoveryPercent { get; set; }
     public float ShieldMax { get; set; }
     public float RegenPercentPerSecond { get; set; }
+    public float MovementSpreadPercent { get; set; }
+    public float DashDistancePercent { get; set; }
     public float WeaponDamage { get; set; }
     public float PowerBonus { get; set; }
     public float AmmoPercent { get; set; }
@@ -326,6 +329,7 @@ public sealed class ItemStack
     public bool IsHeavyWeapon => Type == ItemType.Weapon && WeaponKind == WeaponClass.Ranged && Pattern is WeaponPattern.GrenadeLauncher or WeaponPattern.LinearRifle or WeaponPattern.RocketLauncher or WeaponPattern.SniperRifle or WeaponPattern.TraceRifle or WeaponPattern.RamBomber or WeaponPattern.RocketPulseRifle;
     public bool IsHeavyAmmo => Type == ItemType.Ammo;
 
+    public ArmorKind ArmorKind { get; }
     public float Defense { get; }
     public float ResiliencePercent { get; }
     public float SpeedBonusPercent { get; }
@@ -334,6 +338,8 @@ public sealed class ItemStack
     public float DashRecoveryPercent { get; }
     public float ShieldMax { get; }
     public float RegenPercentPerSecond { get; }
+    public float MovementSpreadPercent { get; }
+    public float DashDistancePercent { get; }
     public float BaseDamage { get; }
     public float AmmoPercent { get; }
 
@@ -356,7 +362,10 @@ public sealed class ItemStack
         float regenPercentPerSecond,
         float baseDamage,
         bool isStarter,
-        float ammoPercent = 0f)
+        float ammoPercent = 0f,
+        ArmorKind armorKind = ArmorKind.Standard,
+        float movementSpreadPercent = 0f,
+        float dashDistancePercent = 0f)
     {
         Type = type;
         Name = name;
@@ -375,6 +384,9 @@ public sealed class ItemStack
         DashRecoveryPercent = dashRecoveryPercent;
         ShieldMax = shieldMax;
         RegenPercentPerSecond = regenPercentPerSecond;
+        ArmorKind = type == ItemType.Armor ? armorKind : ArmorKind.Standard;
+        MovementSpreadPercent = type == ItemType.Armor ? movementSpreadPercent : 0f;
+        DashDistancePercent = type == ItemType.Armor ? dashDistancePercent : 0f;
         BaseDamage = baseDamage;
         AmmoPercent = MathF.Round(Math.Clamp(ammoPercent, 0f, 100f), 1);
     }
@@ -397,6 +409,7 @@ public sealed class ItemStack
             Pattern = item.Pattern,
             ConsumableKind = item.ConsumableKind,
             IsStarter = item.IsStarter,
+            ArmorKind = item.ArmorKind,
             Defense = item.Defense,
             ResiliencePercent = item.ResiliencePercent,
             SpeedBonusPercent = item.SpeedBonusPercent,
@@ -405,6 +418,8 @@ public sealed class ItemStack
             DashRecoveryPercent = item.DashRecoveryPercent,
             ShieldMax = item.ShieldMax,
             RegenPercentPerSecond = item.RegenPercentPerSecond,
+            MovementSpreadPercent = item.MovementSpreadPercent,
+            DashDistancePercent = item.DashDistancePercent,
             WeaponDamage = item.BaseDamage,
             PowerBonus = item.BaseDamage,
             AmmoPercent = item.AmmoPercent
@@ -426,9 +441,10 @@ public sealed class ItemStack
             baseDamage = Math.Clamp(baseDamage, 27f, 31f);
         }
 
+        var armorKind = data.Type == ItemType.Armor && Enum.IsDefined(data.ArmorKind) ? data.ArmorKind : ArmorKind.Standard;
         return new ItemStack(
             data.Type,
-            data.Name,
+            data.Type == ItemType.Armor ? GetArmorName(armorKind) : data.Name,
             data.Description,
             rarity,
             color,
@@ -445,7 +461,10 @@ public sealed class ItemStack
             data.RegenPercentPerSecond,
             baseDamage,
             data.IsStarter,
-            data.AmmoPercent);
+            data.AmmoPercent,
+            armorKind,
+            data.MovementSpreadPercent,
+            data.DashDistancePercent);
     }
 
     public static bool TryAddHeavyAmmoToSlots(List<ItemStack?> slots, float percent, out float remainingPercent)
@@ -522,25 +541,92 @@ public sealed class ItemStack
 
     public static ItemStack Armor(ArmorRarity rarity, Random rng)
     {
-        var defense = rarity switch
+        var armorKind = RollArmorKind(rarity, rng);
+        var movementSpreadPercent = 0f;
+        var dashDistancePercent = 0f;
+
+        var defense = armorKind switch
         {
-            ArmorRarity.Damaged => 1f,
-            ArmorRarity.Common => rng.Next(3, 5),
-            ArmorRarity.Rare => rng.Next(5, 7),
-            ArmorRarity.Epic => rng.Next(7, 9),
-            ArmorRarity.Legendary => rng.Next(10, 13),
-            _ => 15f
+            ArmorKind.Light => rarity switch
+            {
+                ArmorRarity.Common => rng.Next(1, 3),
+                ArmorRarity.Rare => rng.Next(3, 5),
+                ArmorRarity.Epic => rng.Next(5, 7),
+                ArmorRarity.Legendary => rng.Next(8, 11),
+                _ => 1f
+            },
+            ArmorKind.Heavy => rarity switch
+            {
+                ArmorRarity.Common => rng.Next(5, 7),
+                ArmorRarity.Rare => rng.Next(7, 9),
+                ArmorRarity.Epic => rng.Next(9, 11),
+                ArmorRarity.Legendary => rng.Next(12, 16),
+                _ => 15f
+            },
+            _ => rarity switch
+            {
+                ArmorRarity.Damaged => 1f,
+                ArmorRarity.Common => rng.Next(3, 5),
+                ArmorRarity.Rare => rng.Next(5, 7),
+                ArmorRarity.Epic => rng.Next(7, 9),
+                ArmorRarity.Legendary => rng.Next(10, 13),
+                _ => 15f
+            }
         };
 
-        var resiliencePercent = rarity switch
+        var resiliencePercent = armorKind switch
         {
-            ArmorRarity.Common => RollPercentRange(rng, 2, 4),
-            ArmorRarity.Rare => RollPercentRange(rng, 3, 5),
-            ArmorRarity.Epic => RollPercentRange(rng, 5, 12),
-            ArmorRarity.Legendary => RollPercentRange(rng, 12, 20),
-            ArmorRarity.Red => RollPercentRange(rng, 15, 25),
-            _ => 0f
+            ArmorKind.Light => rarity switch
+            {
+                ArmorRarity.Common => RollPercentRange(rng, 2, 3),
+                ArmorRarity.Rare => RollPercentRange(rng, 2, 4),
+                ArmorRarity.Epic => RollPercentRange(rng, 5, 9),
+                ArmorRarity.Legendary => RollPercentRange(rng, 10, 14),
+                _ => 0f
+            },
+            ArmorKind.Heavy => rarity switch
+            {
+                ArmorRarity.Common => RollPercentRange(rng, 4, 5),
+                ArmorRarity.Rare => RollPercentRange(rng, 6, 7),
+                ArmorRarity.Epic => RollPercentRange(rng, 7, 15),
+                ArmorRarity.Legendary => RollPercentRange(rng, 15, 25),
+                _ => 0f
+            },
+            _ => rarity switch
+            {
+                ArmorRarity.Common => RollPercentRange(rng, 2, 4),
+                ArmorRarity.Rare => RollPercentRange(rng, 3, 5),
+                ArmorRarity.Epic => RollPercentRange(rng, 5, 12),
+                ArmorRarity.Legendary => RollPercentRange(rng, 12, 20),
+                ArmorRarity.Red => RollPercentRange(rng, 15, 25),
+                _ => 0f
+            }
         };
+
+        if (armorKind == ArmorKind.Light)
+        {
+            movementSpreadPercent = rarity switch
+            {
+                ArmorRarity.Common => -RollPercentRange(rng, 5, 7),
+                ArmorRarity.Rare => -RollPercentRange(rng, 6, 10),
+                ArmorRarity.Epic => -RollPercentRange(rng, 8, 15),
+                ArmorRarity.Legendary => -RollPercentRange(rng, 12, 20),
+                _ => 0f
+            };
+            dashDistancePercent = rarity switch
+            {
+                ArmorRarity.Common => RollPercentRange(rng, 10, 15),
+                ArmorRarity.Rare => RollPercentRange(rng, 13, 18),
+                ArmorRarity.Epic => RollPercentRange(rng, 17, 23),
+                ArmorRarity.Legendary => RollPercentRange(rng, 20, 25),
+                _ => 0f
+            };
+        }
+        else if (armorKind == ArmorKind.Heavy)
+        {
+            movementSpreadPercent = RollPercentRange(rng, 5, 10);
+            dashDistancePercent = -0.25f;
+        }
 
         var speedBonusPercent = 0f;
         var explosionResistancePercent = 0f;
@@ -549,15 +635,7 @@ public sealed class ItemStack
         var shieldMax = 0f;
         var regenPercentPerSecond = 0f;
 
-        var name = rarity switch
-        {
-            ArmorRarity.Damaged => "Damaged Scrap Vest",
-            ArmorRarity.Common => "Scrap Vest",
-            ArmorRarity.Rare => "Titan Weave",
-            ArmorRarity.Epic => "Aegis Fiber",
-            ArmorRarity.Legendary => "Nova Bulwark",
-            _ => "Crimson Bastion"
-        };
+        var name = GetArmorName(armorKind);
 
         var modifierPool = new List<int> { 0, 1, 2, 3, 4, 5 };
         var modifierCount = rarity switch
@@ -652,8 +730,30 @@ public sealed class ItemStack
             shieldMax,
             regenPercentPerSecond,
             0f,
-            rarity == ArmorRarity.Damaged);
+            rarity == ArmorRarity.Damaged,
+            armorKind: armorKind,
+            movementSpreadPercent: movementSpreadPercent,
+            dashDistancePercent: dashDistancePercent);
     }
+
+    private static ArmorKind RollArmorKind(ArmorRarity rarity, Random rng)
+    {
+        if (rarity is ArmorRarity.Damaged or ArmorRarity.Red) return ArmorKind.Standard;
+        return rng.Next(3) switch
+        {
+            1 => ArmorKind.Light,
+            2 => ArmorKind.Heavy,
+            _ => ArmorKind.Standard
+        };
+    }
+
+    private static string GetArmorName(ArmorKind armorKind)
+        => armorKind switch
+        {
+            ArmorKind.Light => "Phantom Weave",
+            ArmorKind.Heavy => "Siege Plate",
+            _ => "Field Armor"
+        };
 
     public static ItemStack Weapon(WeaponClass kind, ArmorRarity rarity, Random rng)
     {
@@ -836,7 +936,7 @@ public sealed class ItemStack
     {
         return new ItemStack(
             ItemType.Armor,
-            "Damaged Scrap Vest",
+            "Field Armor",
             "Armor. Drag into armor slot.",
             ArmorRarity.Damaged,
             Palette.Rarity(ArmorRarity.Damaged),

@@ -231,7 +231,8 @@ public sealed class Player
         if (Raylib.IsKeyPressed(KeyboardKey.Space) && _dodgeCd <= 0f)
         {
             var dir = d == Vector2.Zero ? new Vector2(1f, 0f) : Vector2.Normalize(d);
-            var dist = BaseDashDistance * SpeedMultiplier;
+            var dashDistanceMultiplier = MathF.Max(0.1f, 1f + (Armor?.DashDistancePercent ?? 0f));
+            var dist = BaseDashDistance * SpeedMultiplier * dashDistanceMultiplier;
             Position = MovementUtils.MoveWithCollisions(Position, dir * dist, 16f, obstacles, worldSize);
             DashAfterImage.Spawn(afterImages, Position, dir, dist, Palette.C(120, 200, 255), false);
             _dashEchoDir = dir;
@@ -755,7 +756,8 @@ public sealed class Player
     {
         if (!IsMoving) return dir;
         var stability = Math.Clamp(1f - _cradleStability * 0.01f, 0.1f, 1f);
-        var spread = (Random.Shared.NextSingle() * 2f - 1f) * MovingRangedSpreadAngle * multiplier * stability;
+        var armorSpread = MathF.Max(0.1f, 1f + (Armor?.MovementSpreadPercent ?? 0f));
+        var spread = (Random.Shared.NextSingle() * 2f - 1f) * MovingRangedSpreadAngle * multiplier * stability * armorSpread;
         return Vector2.Normalize(VisibilityUtils.Rotate(dir, spread));
     }
 

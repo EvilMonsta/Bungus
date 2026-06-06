@@ -11,6 +11,7 @@ public enum WeaponSlot { Melee, PrimaryRanged, HeavyRanged }
 public enum ItemType { Weapon, Armor, Consumable, KeyItem, Ammo }
 public enum ConsumableType { Medkit, Stim, ProtectiveDome, StickyBullets, StationKey }
 public enum ArmorRarity { Common = 0, Rare = 1, Epic = 2, Legendary = 3, Red = 4, Damaged = 5 }
+public enum ArmorKind { Standard = 0, Light = 1, Heavy = 2 }
 public enum StatType { Strength, Dexterity, Speed, Gunsmith }
 public enum CradleTrack { Health, Speed, MeleeSpeed, DashRecovery, Stability, Gunsmith, Fighter, Arcane }
 public enum WeaponPattern { Standard, PulseRifle, EnergySpear, GrenadeLauncher, SniperRifle, Toxikus, Lancelot, TraceRifle, LinearRifle, RocketLauncher, Pulsar, RamBomber, AutoRifle, RocketPulseRifle }

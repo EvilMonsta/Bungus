@@ -1038,9 +1038,9 @@ public sealed class Enemy
     private float _poisonTimer;
     private float _poisonDamagePerSecond;
 
-    private const float BaseView = 435f;
-    private const float StrongView = 540f;
-    private const float AlertViewMultiplier = 1.25f;
+    private const float BaseView = 500f;
+    private const float StrongView = 500f;
+    private const float AlertDistance = 850f;
     private const float FovHalf = MathF.PI / 3f; // 120 total
 
     private Enemy(Vector2 pos)
@@ -1369,7 +1369,7 @@ public sealed class Enemy
 
     public float GetViewDistance() => IsStrong ? StrongView : BaseView;
 
-    private float GetAlertViewDistance() => GetViewDistance() * AlertViewMultiplier;
+    private static float GetAlertViewDistance() => AlertDistance;
 
     public void Damage(float amount)
     {
@@ -1424,7 +1424,7 @@ public sealed class Enemy
 
         var left = VisibilityUtils.Rotate(_facing, -FovHalf);
         var right = VisibilityUtils.Rotate(_facing, FovHalf);
-        var sightLineLength = GetViewDistance() * 0.75f;
+        var sightLineLength = 100f;
         VisibilityUtils.DrawDashedLine(Position, Position + left * sightLineLength, 22, c);
         VisibilityUtils.DrawDashedLine(Position, Position + right * sightLineLength, 22, c);
     }
@@ -1848,8 +1848,8 @@ public sealed class ToxicTriangleEnemy
     private float _poisonDamagePerSecond;
     private Vector2 _facing = new(1f, 0f);
 
-    private const float ViewDistance = 375f;
-    private const float AlertViewMultiplier = 1.25f;
+    private const float ViewDistance = 350f;
+    private const float AlertDistance = 600f;
     private const float FovHalf = MathF.PI / 3f;
 
     public ToxicTriangleEnemy(Vector2 position, int zoneId)
@@ -2053,7 +2053,7 @@ public sealed class ToxicTriangleEnemy
     }
 
     private float GetMovementSpeedMultiplier() => _slowTimer > 0f ? 0.7f : _chillTimer > 0f ? 0.75f : 1f;
-    private static float GetAlertViewDistance() => ViewDistance * AlertViewMultiplier;
+    private static float GetAlertViewDistance() => AlertDistance;
 
     public void DrawSight()
     {
@@ -2061,7 +2061,7 @@ public sealed class ToxicTriangleEnemy
         var c = Palette.C(60, 180, 70, 28);
         var left = VisibilityUtils.Rotate(_facing, -FovHalf);
         var right = VisibilityUtils.Rotate(_facing, FovHalf);
-        var sightLineLength = ViewDistance * 0.75f;
+        var sightLineLength = 100f;
         VisibilityUtils.DrawDashedLine(Position, Position + left * sightLineLength, 22, c);
         VisibilityUtils.DrawDashedLine(Position, Position + right * sightLineLength, 22, c);
     }
@@ -2203,7 +2203,7 @@ public sealed class TurretEnemy
     {
         var to = point - Position;
         var dist = to.Length();
-        if (dist < 110f || (!allowLongRange && dist > ViewDistance)) return false;
+        if (dist < 0.01f || (!allowLongRange && dist > ViewDistance)) return false;
 
         if (!VisibilityUtils.HasLineOfSight(Position, point, obstacles)) return false;
 
@@ -2238,7 +2238,7 @@ public sealed class TurretEnemy
 
     public bool ReactToShot(Vector2 shotSource, Vector2 playerPos, List<Obstacle> obstacles)
     {
-        if (!CanSee(shotSource, obstacles, true)) return false;
+        if (!CanSee(playerPos, obstacles, true)) return false;
 
         ForceAggro(playerPos);
         if (Vector2.Distance(Position, shotSource) > ViewDistance) _longRangeAlertTimer = 5f;
@@ -2275,7 +2275,7 @@ public sealed class TurretEnemy
 
         var left = VisibilityUtils.Rotate(_facing, -FovHalf);
         var right = VisibilityUtils.Rotate(_facing, FovHalf);
-        var sightLineLength = ViewDistance * 0.75f;
+        var sightLineLength = 100f;
         VisibilityUtils.DrawDashedLine(Position, Position + left * sightLineLength, 24, Palette.C(250, 80, 80, 24));
         VisibilityUtils.DrawDashedLine(Position, Position + right * sightLineLength, 24, Palette.C(250, 80, 80, 24));
     }
@@ -2348,8 +2348,8 @@ public sealed class MiniBossEnemySquare
     private float _poisonTimer;
     private float _poisonDamagePerSecond;
 
-    private const float ViewDistance = 650f;
-    private const float AlertViewMultiplier = 1.25f;
+    private const float ViewDistance = 600f;
+    private const float AlertDistance = 850f;
     private const float FovHalf = MathF.PI / 3f;
     private const float FastHealthMultiplier = 0.7f;
 
@@ -2598,14 +2598,14 @@ public sealed class MiniBossEnemySquare
     private float GetSlamCooldownMultiplier() => IsFast ? 0.7f : 1f;
     private float GetSlamRadius() => IsFast ? 144f : 120f;
 
-    private static float GetAlertViewDistance() => ViewDistance * AlertViewMultiplier;
+    private static float GetAlertViewDistance() => AlertDistance;
 
     public void DrawSight()
     {
         if (!Alive) return;
 
         var c = Palette.C(255, 130, 110, 24);
-        var sightLineLength = ViewDistance * 0.75f;
+        var sightLineLength = 100f;
         VisibilityUtils.DrawDashedLine(Position, Position + VisibilityUtils.Rotate(_facing, -FovHalf) * sightLineLength, 24, c);
         VisibilityUtils.DrawDashedLine(Position, Position + VisibilityUtils.Rotate(_facing, FovHalf) * sightLineLength, 24, c);
     }

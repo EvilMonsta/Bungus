@@ -32,6 +32,9 @@ public sealed partial class SciFiRogueGame
             _displayMode = Enum.IsDefined(data.DisplayMode) ? data.DisplayMode : DisplayMode.Windowed;
             _antialiasingMode = Enum.IsDefined(data.AntialiasingMode) ? data.AntialiasingMode : AntialiasingMode.Msaa4x;
             _textureFilteringMode = Enum.IsDefined(data.TextureFilteringMode) ? data.TextureFilteringMode : TextureFilteringMode.Bilinear;
+            _vsyncEnabled = data.VSyncEnabled;
+            _targetFps = NormalizeTargetFps(data.TargetFps);
+            Raylib.SetTargetFPS(_targetFps);
             _selectedMapName = string.IsNullOrWhiteSpace(data.SelectedMapName) ? "Baselands" : data.SelectedMapName;
             _isFunnyNextRun = data.IsFunnyNextRun;
             _promoCodeUses.Clear();
@@ -50,6 +53,9 @@ public sealed partial class SciFiRogueGame
             _displayMode = DisplayMode.Windowed;
             _antialiasingMode = AntialiasingMode.Msaa4x;
             _textureFilteringMode = TextureFilteringMode.Bilinear;
+            _vsyncEnabled = false;
+            _targetFps = 60;
+            Raylib.SetTargetFPS(_targetFps);
             _selectedMapName = "Baselands";
             _isFunnyNextRun = false;
             _promoCodeUses.Clear();
@@ -73,6 +79,8 @@ public sealed partial class SciFiRogueGame
                 DisplayMode = _displayMode,
                 AntialiasingMode = _antialiasingMode,
                 TextureFilteringMode = _textureFilteringMode,
+                VSyncEnabled = _vsyncEnabled,
+                TargetFps = _targetFps,
                 SelectedMapName = _selectedMapName,
                 IsFunnyNextRun = _isFunnyNextRun,
                 PromoCodeUses = new Dictionary<string, int>(_promoCodeUses, StringComparer.OrdinalIgnoreCase),
@@ -140,6 +148,39 @@ public sealed partial class SciFiRogueGame
             return AntialiasingMode.Msaa4x;
         }
     }
+
+    private static bool LoadStartupVSyncEnabled()
+    {
+        try
+        {
+            if (!File.Exists(SaveFilePath)) return false;
+
+            var data = DeserializePersistentStateFile(File.ReadAllText(SaveFilePath), out _);
+            return data?.VSyncEnabled == true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static int LoadStartupTargetFps()
+    {
+        try
+        {
+            if (!File.Exists(SaveFilePath)) return 60;
+
+            var data = DeserializePersistentStateFile(File.ReadAllText(SaveFilePath), out _);
+            return data is null ? 60 : NormalizeTargetFps(data.TargetFps);
+        }
+        catch
+        {
+            return 60;
+        }
+    }
+
+    private static int NormalizeTargetFps(int fps)
+        => fps is 30 or 60 or 120 ? fps : 60;
 
     private static ProtectedSaveFile ProtectSavePayload(string json)
     {

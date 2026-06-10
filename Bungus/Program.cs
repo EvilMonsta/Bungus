@@ -105,6 +105,8 @@ public sealed partial class SciFiRogueGame : IDisposable
     private DisplayMode _displayMode;
     private AntialiasingMode _antialiasingMode = AntialiasingMode.Msaa4x;
     private TextureFilteringMode _textureFilteringMode = TextureFilteringMode.Bilinear;
+    private bool _vsyncEnabled;
+    private int _targetFps = 60;
     private static DisplayMode s_activeDisplayMode = DisplayMode.Windowed;
     private float _nextHexSpawnTimer;
     private readonly MetaProfile _meta = new();
@@ -196,9 +198,13 @@ public sealed partial class SciFiRogueGame : IDisposable
     public SciFiRogueGame()
     {
         _antialiasingMode = LoadStartupAntialiasingMode();
-        if (_antialiasingMode == AntialiasingMode.Msaa4x) Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint);
+        _vsyncEnabled = LoadStartupVSyncEnabled();
+        if (_antialiasingMode == AntialiasingMode.Msaa4x && _vsyncEnabled) Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint | ConfigFlags.VSyncHint);
+        else if (_antialiasingMode == AntialiasingMode.Msaa4x) Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint);
+        else if (_vsyncEnabled) Raylib.SetConfigFlags(ConfigFlags.VSyncHint);
         Raylib.InitWindow(W, H, "Bungus");
-        Raylib.SetTargetFPS(60);
+        _targetFps = LoadStartupTargetFps();
+        Raylib.SetTargetFPS(_targetFps);
         Raylib.SetExitKey(KeyboardKey.Null);
 
         _camera = new Camera2D { Zoom = 1.08f, Rotation = 0f };
@@ -804,10 +810,15 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         if (Clicked(CenterRect(0, 204, 360, 50))) SetDisplayMode(DisplayMode.Windowed);
         if (Clicked(CenterRect(0, 260, 360, 50))) SetDisplayMode(DisplayMode.Fullscreen);
-        if (Clicked(CenterRect(-100, 370, 180, 44))) SetAntialiasingMode(AntialiasingMode.Off);
-        if (Clicked(CenterRect(100, 370, 180, 44))) SetAntialiasingMode(AntialiasingMode.Msaa4x);
-        if (Clicked(CenterRect(-100, 500, 180, 44))) SetTextureFilteringMode(TextureFilteringMode.Point);
-        if (Clicked(CenterRect(100, 500, 180, 44))) SetTextureFilteringMode(TextureFilteringMode.Bilinear);
+        if (Clicked(CenterRect(-320, 370, 180, 44))) SetAntialiasingMode(AntialiasingMode.Off);
+        if (Clicked(CenterRect(-120, 370, 180, 44))) SetAntialiasingMode(AntialiasingMode.Msaa4x);
+        if (Clicked(CenterRect(120, 370, 180, 44))) SetVSyncEnabled(false);
+        if (Clicked(CenterRect(320, 370, 180, 44))) SetVSyncEnabled(true);
+        if (Clicked(CenterRect(-320, 500, 180, 44))) SetTextureFilteringMode(TextureFilteringMode.Point);
+        if (Clicked(CenterRect(-120, 500, 180, 44))) SetTextureFilteringMode(TextureFilteringMode.Bilinear);
+        if (Clicked(CenterRect(90, 500, 96, 44))) SetTargetFps(30);
+        if (Clicked(CenterRect(202, 500, 96, 44))) SetTargetFps(60);
+        if (Clicked(CenterRect(314, 500, 96, 44))) SetTargetFps(120);
 
         for (var i = 0; i < _themes.Count; i++)
         {
@@ -830,12 +841,31 @@ public sealed partial class SciFiRogueGame : IDisposable
         ShowNotice("Restart the game to apply antialiasing.");
     }
 
+    private void SetVSyncEnabled(bool enabled)
+    {
+        if (_vsyncEnabled == enabled) return;
+
+        _vsyncEnabled = enabled;
+        SavePersistentState();
+        ShowNotice("Restart the game to apply VSync.");
+    }
+
     private void SetTextureFilteringMode(TextureFilteringMode mode)
     {
         if (_textureFilteringMode == mode) return;
 
         _textureFilteringMode = mode;
         ApplyTextureFiltering();
+        SavePersistentState();
+    }
+
+    private void SetTargetFps(int fps)
+    {
+        fps = NormalizeTargetFps(fps);
+        if (_targetFps == fps) return;
+
+        _targetFps = fps;
+        Raylib.SetTargetFPS(_targetFps);
         SavePersistentState();
     }
 

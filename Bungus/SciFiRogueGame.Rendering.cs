@@ -1870,6 +1870,15 @@ public sealed partial class SciFiRogueGame
         if (_aboutPopupOpen) DrawAboutPopup();
     }
 
+    private Color MenuPanelFill(float alpha = 0.86f)
+        => WithAlpha(Mix(Opaque(Theme.Background), Opaque(Theme.BuildingLine), 0.12f), alpha);
+
+    private Color MenuPanelAltFill(float alpha = 0.88f)
+        => WithAlpha(Mix(Opaque(Theme.Background), Opaque(Theme.Boss), 0.18f), alpha);
+
+    private Color MenuPanelLine(float alpha = 0.78f)
+        => WithAlpha(Mix(Opaque(Theme.BuildingLine), Color.White, 0.18f), alpha);
+
     private void DrawMainMenuBackground()
     {
         DrawMainMenuSky();
@@ -2377,15 +2386,14 @@ public sealed partial class SciFiRogueGame
     private void DrawStorage()
     {
         var previewPlayer = CreateLandingPreviewPlayer();
-        Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(8, 12, 20));
         DrawTitle("Storage", 48, 56);
         Raylib.DrawText("Equip items here before deployment. Extracted loot returns to this stash.", 70, 106, 24, Color.LightGray);
         Raylib.DrawText($"Capacity {GetStoredItemCount()}/{MetaProfile.StorageCapacity}", 70, 138, 22, Color.White);
         DrawSynthCoinsCounter(24, 138, 22);
         Raylib.DrawText("Hold X over an item to sell it. Mouse wheel scrolls stash.", 1000, 800, 20, Color.LightGray);
 
-        Raylib.DrawRectangle(40, 190, 300, 600, Palette.C(10, 18, 30, 220));
-        Raylib.DrawRectangleLinesEx(new Rectangle(40, 190, 300, 600), 2f, Palette.C(108, 170, 228));
+        Raylib.DrawRectangle(40, 190, 300, 600, MenuPanelFill());
+        Raylib.DrawRectangleLinesEx(new Rectangle(40, 190, 300, 600), 2f, MenuPanelLine());
         Raylib.DrawText("Loadout", 72, 164, 24, Color.White);
         Raylib.DrawText("Armor", 72, 240, 18, Color.LightGray);
         Raylib.DrawText("Primary", 72, 340, 18, Color.LightGray);
@@ -2394,14 +2402,14 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText("Consumables", 72, 640, 18, Color.LightGray);
 
         var runBackpackPanel = new Rectangle(400, 190, 460, 550);
-        Raylib.DrawRectangleRec(runBackpackPanel, Palette.C(10, 18, 30, 220));
-        Raylib.DrawRectangleLinesEx(runBackpackPanel, 2f, Palette.C(108, 170, 228));
+        Raylib.DrawRectangleRec(runBackpackPanel, MenuPanelFill());
+        Raylib.DrawRectangleLinesEx(runBackpackPanel, 2f, MenuPanelLine());
         Raylib.DrawText("Run Backpack", 410, 164, 24, Color.White);
         DrawStorageGrid(new Vector2(410, 200), 5, 6);
 
         var stashPanel = StashPanelRect();
-        Raylib.DrawRectangleRec(stashPanel, Palette.C(10, 18, 30, 220));
-        Raylib.DrawRectangleLinesEx(stashPanel, 2f, Palette.C(108, 170, 228));
+        Raylib.DrawRectangleRec(stashPanel, MenuPanelFill());
+        Raylib.DrawRectangleLinesEx(stashPanel, 2f, MenuPanelLine());
         Raylib.DrawText("Stash", 900, 164, 24, Color.White);
         var firstVisible = _storageScrollRow * StashGridColumns + 1;
         var lastVisible = Math.Min(_meta.StorageSlots.Count, (_storageScrollRow + StashVisibleRows) * StashGridColumns);
@@ -2450,7 +2458,6 @@ public sealed partial class SciFiRogueGame
     {
         var previewPlayer = CreateLandingPreviewPlayer();
         var comparison = new ComparisonContext(previewPlayer, _meta.Armor, _meta.RangedWeapon, _meta.HeavyWeapon, _meta.MeleeWeapon);
-        Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(8, 12, 20));
         DrawTitle("Armory", 48, 56);
         Raylib.DrawText("Buy equipment. Stock refreshes after each run.", 70, 106, 24, Color.LightGray);
         DrawSynthCoinsCounter(70, 138, 24);
@@ -2475,7 +2482,7 @@ public sealed partial class SciFiRogueGame
     {
         var disabled = offer.Purchased && !offer.Item.IsHeavyAmmo;
         var border = offer.Item.IsHeavyAmmo ? Palette.C(120, 210, 255) : offer.Item.Rarity == ArmorRarity.Epic ? Palette.C(191, 120, 255) : Color.SkyBlue;
-        DrawStoreCardBackground(rect, disabled, border, Palette.C(10, 18, 30, 230));
+        DrawStoreCardBackground(rect, disabled, border, MenuPanelFill(0.90f));
 
         var iconRect = new Rectangle(rect.X + 10, rect.Y + 10, rect.Width - 20, rect.Height - 20);
         DrawItemIcon(offer.Item, iconRect, comparison);
@@ -2490,7 +2497,7 @@ public sealed partial class SciFiRogueGame
     {
         var disabled = offer.Purchased;
         var border = Palette.C(210, 150, 255);
-        DrawStoreCardBackground(rect, disabled, border, Palette.C(24, 14, 36, 235));
+        DrawStoreCardBackground(rect, disabled, border, MenuPanelAltFill(0.92f));
 
         var iconRect = new Rectangle(rect.X + 10, rect.Y + 10, rect.Width - 20, rect.Height - 20);
         DrawItemIcon(offer.Item, iconRect, comparison);
@@ -2713,8 +2720,8 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText("Account upgrades", 74, 126, 28, Color.LightGray);
 
         var statPanel = new Rectangle(70, 170, 430, 390);
-        Raylib.DrawRectangleRec(statPanel, Palette.C(10, 18, 30, 220));
-        Raylib.DrawRectangleLinesEx(statPanel, 2f, Palette.C(108, 170, 228));
+        Raylib.DrawRectangleRec(statPanel, MenuPanelFill());
+        Raylib.DrawRectangleLinesEx(statPanel, 2f, MenuPanelLine());
         Raylib.DrawText($"General level: {_meta.Level}", 96, 204, 26, Color.Gold);
         Raylib.DrawText($"Next level: {_meta.Score}/{GetMetaScoreRequired(_meta.Level)}", 96, 240, 22, Color.White);
         DrawCradleStatLine("HP", $"{previewPlayer.MaxHealth:0}", 96, 292, Palette.C(140, 220, 160));
@@ -2727,8 +2734,8 @@ public sealed partial class SciFiRogueGame
         DrawCradleStatLine("Arcane", $"+{_meta.CradleArcane:0}%", 96, 516, Palette.C(235, 85, 85));
 
         var freeRect = new Rectangle(1322, 74, 170, 54);
-        Raylib.DrawRectangleRec(freeRect, Palette.C(12, 22, 36, 230));
-        Raylib.DrawRectangleLinesEx(freeRect, 2f, Palette.C(108, 170, 228));
+        Raylib.DrawRectangleRec(freeRect, MenuPanelFill(0.90f));
+        Raylib.DrawRectangleLinesEx(freeRect, 2f, MenuPanelLine());
         Raylib.DrawText("Points", (int)freeRect.X + 14, (int)freeRect.Y + 8, 18, Color.LightGray);
         var freeText = $"{GetAvailableCradleCells()}";
         Raylib.DrawText(freeText, (int)(freeRect.X + freeRect.Width - Raylib.MeasureText(freeText, 30) - 16), (int)freeRect.Y + 14, 30, Color.Gold);
@@ -2989,14 +2996,23 @@ public sealed partial class SciFiRogueGame
         DrawButton(CenterRect(0, 204, 360, 50), _displayMode == DisplayMode.Windowed ? "> Windowed <" : "Windowed");
         DrawButton(CenterRect(0, 260, 360, 50), _displayMode == DisplayMode.Fullscreen ? "> Fullscreen <" : "Fullscreen");
 
-        Raylib.DrawText("Antialiasing", (GetUiScreenWidth() - Raylib.MeasureText("Antialiasing", 28)) / 2, 330, 28, Color.LightGray);
-        DrawButton(CenterRect(-100, 370, 180, 44), _antialiasingMode == AntialiasingMode.Off ? "> Off <" : "Off");
-        DrawButton(CenterRect(100, 370, 180, 44), _antialiasingMode == AntialiasingMode.Msaa4x ? "> MSAA x4 <" : "MSAA x4");
+        DrawSettingsLabel("Antialiasing", -220, 330);
+        DrawButton(CenterRect(-320, 370, 180, 44), _antialiasingMode == AntialiasingMode.Off ? "> Off <" : "Off");
+        DrawButton(CenterRect(-120, 370, 180, 44), _antialiasingMode == AntialiasingMode.Msaa4x ? "> MSAA x4 <" : "MSAA x4");
+
+        DrawSettingsLabel("VSync", 220, 330);
+        DrawButton(CenterRect(120, 370, 180, 44), !_vsyncEnabled ? "> Off <" : "Off");
+        DrawButton(CenterRect(320, 370, 180, 44), _vsyncEnabled ? "> On <" : "On");
         Raylib.DrawText("Applied after restart", (GetUiScreenWidth() - Raylib.MeasureText("Applied after restart", 18)) / 2, 420, 18, Palette.C(150, 185, 220));
 
-        Raylib.DrawText("Texture filter", (GetUiScreenWidth() - Raylib.MeasureText("Texture filter", 28)) / 2, 460, 28, Color.LightGray);
-        DrawButton(CenterRect(-100, 500, 180, 44), _textureFilteringMode == TextureFilteringMode.Point ? "> Point <" : "Point");
-        DrawButton(CenterRect(100, 500, 180, 44), _textureFilteringMode == TextureFilteringMode.Bilinear ? "> Bilinear <" : "Bilinear");
+        DrawSettingsLabel("Texture filter", -220, 460);
+        DrawButton(CenterRect(-320, 500, 180, 44), _textureFilteringMode == TextureFilteringMode.Point ? "> Point <" : "Point");
+        DrawButton(CenterRect(-120, 500, 180, 44), _textureFilteringMode == TextureFilteringMode.Bilinear ? "> Bilinear <" : "Bilinear");
+
+        DrawSettingsLabel("FPS", 220, 460);
+        DrawButton(CenterRect(90, 500, 96, 44), _targetFps == 30 ? "> 30 <" : "30");
+        DrawButton(CenterRect(202, 500, 96, 44), _targetFps == 60 ? "> 60 <" : "60");
+        DrawButton(CenterRect(314, 500, 96, 44), _targetFps == 120 ? "> 120 <" : "120");
 
         Raylib.DrawText("Choose theme", (GetUiScreenWidth() - Raylib.MeasureText("Choose theme", 28)) / 2, 580, 28, Color.LightGray);
         for (var i = 0; i < _themes.Count; i++)
@@ -3006,6 +3022,12 @@ public sealed partial class SciFiRogueGame
         }
 
         DrawButton(CenterRect(0, 900, 280, 52), "Back");
+    }
+
+    private static void DrawSettingsLabel(string text, int xOffset, int y)
+    {
+        var x = GetUiScreenWidth() / 2 + xOffset - Raylib.MeasureText(text, 28) / 2;
+        Raylib.DrawText(text, x, y, 28, Color.LightGray);
     }
 
     private void DrawPause()

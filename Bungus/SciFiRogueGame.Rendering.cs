@@ -453,6 +453,18 @@ public sealed partial class SciFiRogueGame
         return new Color(color.R, color.G, color.B, (byte)(255 * clamped));
     }
 
+    private static Color Mix(Color a, Color b, float amount)
+    {
+        var t = Math.Clamp(amount, 0f, 1f);
+        return new Color(
+            (int)(a.R + (b.R - a.R) * t),
+            (int)(a.G + (b.G - a.G) * t),
+            (int)(a.B + (b.B - a.B) * t),
+            (int)(a.A + (b.A - a.A) * t));
+    }
+
+    private static Color Opaque(Color color) => new((int)color.R, color.G, color.B, 255);
+
     private void DrawHud()
     {
         if (!_challengeMode)
@@ -1846,7 +1858,7 @@ public sealed partial class SciFiRogueGame
         if (_aboutPopupOpen) DrawAboutPopup();
     }
 
-    private static void DrawMainMenuBackground()
+    private void DrawMainMenuBackground()
     {
         DrawMainMenuSky();
 
@@ -1870,11 +1882,14 @@ public sealed partial class SciFiRogueGame
         DrawMainMenuVignette();
     }
 
-    private static void DrawMainMenuSky()
+    private void DrawMainMenuSky()
     {
         var width = Raylib.GetScreenWidth();
         var height = Raylib.GetScreenHeight();
-        Raylib.DrawRectangleGradientV(0, 0, width, height, Palette.C(8, 4, 28), Palette.C(38, 4, 50));
+        var classicNeon = Theme.Name == "Neon Night";
+        var top = classicNeon ? Palette.C(8, 4, 28) : Mix(Opaque(Theme.Background), Color.Black, 0.35f);
+        var bottom = classicNeon ? Palette.C(38, 4, 50) : Mix(Opaque(Theme.Background), Opaque(Theme.Boss), 0.42f);
+        Raylib.DrawRectangleGradientV(0, 0, width, height, top, bottom);
 
         for (var i = 0; i < 90; i++)
         {
@@ -1882,14 +1897,16 @@ public sealed partial class SciFiRogueGame
             var y = (int)((MathF.Sin(i * 19.3f + 3f) * 0.5f + 0.5f) * height * 0.52f);
             if (x > width * 0.38f && x < width * 0.62f && y < height * 0.42f) continue;
             var alpha = 80 + (int)((MathF.Sin(i * 11.1f) * 0.5f + 0.5f) * 130f);
-            Raylib.DrawPixel(x, y, Palette.C(230, 245, 255, alpha));
+            var star = classicNeon ? Palette.C(230, 245, 255, alpha) : WithAlpha(Mix(Color.White, Opaque(Theme.Player), 0.45f), alpha / 255f);
+            Raylib.DrawPixel(x, y, star);
         }
     }
 
-    private static void DrawMainMenuGroundGrid()
+    private void DrawMainMenuGroundGrid()
     {
-        var cyan = Palette.C(26, 230, 255, 190);
-        var magenta = Palette.C(255, 40, 220, 150);
+        var classicNeon = Theme.Name == "Neon Night";
+        var cyan = classicNeon ? Palette.C(26, 230, 255, 190) : WithAlpha(Theme.BuildingLine, 0.82f);
+        var magenta = classicNeon ? Palette.C(255, 40, 220, 150) : WithAlpha(Theme.Player, 0.72f);
         const float extent = 18f;
         const float step = 1f;
 
@@ -1906,11 +1923,12 @@ public sealed partial class SciFiRogueGame
         }
     }
 
-    private static void DrawMainMenuWireHills()
+    private void DrawMainMenuWireHills()
     {
-        var cyan = Palette.C(28, 220, 255);
-        var violet = Palette.C(255, 40, 220);
-        var fill = Palette.C(25, 5, 37);
+        var classicNeon = Theme.Name == "Neon Night";
+        var cyan = classicNeon ? Palette.C(28, 220, 255) : Opaque(Theme.BuildingLine);
+        var violet = classicNeon ? Palette.C(255, 40, 220) : Opaque(Theme.Player);
+        var fill = classicNeon ? Palette.C(25, 5, 37) : Opaque(Mix(Theme.Background, Theme.Boss, 0.18f));
         const int segments = 96;
         const float angleStep = MathF.Tau / segments;
 
@@ -1984,7 +2002,7 @@ public sealed partial class SciFiRogueGame
         return new Vector3(MathF.Cos(angle) * radius, height, MathF.Sin(angle) * radius);
     }
 
-    private static void DrawMainMenuMonolith()
+    private void DrawMainMenuMonolith()
     {
         const float halfWidth = 0.68f;
         const float halfDepth = 0.38f;
@@ -2000,16 +2018,17 @@ public sealed partial class SciFiRogueGame
         var tbr = new Vector3(halfWidth, lowTop, halfDepth);
         var tbl = new Vector3(-halfWidth, lowTop, halfDepth);
 
-        var face = Palette.C(8, 12, 24);
-        var side = Palette.C(16, 12, 38);
+        var classicNeon = Theme.Name == "Neon Night";
+        var face = classicNeon ? Palette.C(8, 12, 24) : Opaque(Mix(Theme.Background, Color.Black, 0.28f));
+        var side = classicNeon ? Palette.C(16, 12, 38) : Opaque(Mix(Theme.Background, Theme.Boss, 0.22f));
         DrawSolidQuad3D(bfl, bfr, tfr, tfl, face);
         DrawSolidQuad3D(bfr, bbr, tbr, tfr, side);
         DrawSolidQuad3D(bbr, bbl, tbl, tbr, face);
         DrawSolidQuad3D(bbl, bfl, tfl, tbl, side);
-        DrawSolidQuad3D(tfl, tfr, tbr, tbl, Palette.C(50, 18, 74));
+        DrawSolidQuad3D(tfl, tfr, tbr, tbl, classicNeon ? Palette.C(50, 18, 74) : Opaque(Mix(Theme.Boss, Theme.Player, 0.28f)));
 
-        var edgeA = Palette.C(255, 58, 238);
-        var edgeB = Palette.C(25, 230, 255);
+        var edgeA = classicNeon ? Palette.C(255, 58, 238) : Opaque(Theme.Player);
+        var edgeB = classicNeon ? Palette.C(25, 230, 255) : Opaque(Theme.BuildingLine);
         DrawMonolithEdge(bfl, bfr, edgeA);
         DrawMonolithEdge(bfr, bbr, edgeB);
         DrawMonolithEdge(bbr, bbl, edgeA);
@@ -2022,7 +2041,7 @@ public sealed partial class SciFiRogueGame
         DrawMonolithEdge(bfr, tfr, edgeA);
         DrawMonolithEdge(bbr, tbr, edgeB);
         DrawMonolithEdge(bbl, tbl, edgeA);
-        DrawMonolithLightStreams(bfl, bfr, tfr, tfl, bfr, bbr, tbr, tfr, bbr, bbl, tbl, tbr, bbl, bfl, tfl, tbl);
+        DrawMonolithLightStreams(classicNeon ? Palette.C(25, 230, 255) : Opaque(Theme.BuildingLine), bfl, bfr, tfr, tfl, bfr, bbr, tbr, tfr, bbr, bbl, tbl, tbr, bbl, bfl, tfl, tbl);
     }
 
     private static void DrawQuad3D(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color color)
@@ -2043,16 +2062,16 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawLine3D(from + new Vector3(0.015f, 0f, 0.015f), to + new Vector3(0.015f, 0f, 0.015f), WithAlpha(color, 0.45f));
     }
 
-    private static void DrawMonolithLightStreams(params Vector3[] facePoints)
+    private static void DrawMonolithLightStreams(Color trailColor, params Vector3[] facePoints)
     {
         var time = (float)Raylib.GetTime();
         for (var face = 0; face + 3 < facePoints.Length; face += 4)
         {
-            DrawMonolithFaceLightStreams(facePoints[face], facePoints[face + 1], facePoints[face + 2], facePoints[face + 3], time, face / 4);
+            DrawMonolithFaceLightStreams(facePoints[face], facePoints[face + 1], facePoints[face + 2], facePoints[face + 3], time, face / 4, trailColor);
         }
     }
 
-    private static void DrawMonolithFaceLightStreams(Vector3 bottomLeft, Vector3 bottomRight, Vector3 topRight, Vector3 topLeft, float time, int faceIndex)
+    private static void DrawMonolithFaceLightStreams(Vector3 bottomLeft, Vector3 bottomRight, Vector3 topRight, Vector3 topLeft, float time, int faceIndex, Color trailColor)
     {
         var right = Vector3.Normalize(bottomRight - bottomLeft);
         var faceCenter = (bottomLeft + bottomRight + topRight + topLeft) * 0.25f;
@@ -2077,7 +2096,7 @@ public sealed partial class SciFiRogueGame
             var trailLength = MathF.Min(streamProgress, 0.16f + MainMenuHash(seed + 11.4f) * 0.12f);
             if (trailLength > 0.01f)
             {
-                DrawSurfaceTrail(bottom, top, right, up, faceNormal, streamProgress, trailLength, size * 0.72f, fade);
+                DrawSurfaceTrail(bottom, top, right, up, faceNormal, streamProgress, trailLength, size * 0.72f, fade, trailColor);
             }
 
             DrawSurfaceSquare(core + faceNormal * 0.004f, right, up, size, WithAlpha(Color.White, fade));
@@ -2094,7 +2113,7 @@ public sealed partial class SciFiRogueGame
     private static void DrawSurfaceSquare(Vector3 center, Vector3 right, Vector3 up, float size, Color color)
         => DrawSurfaceRect(center, right, up, size, size, color);
 
-    private static void DrawSurfaceTrail(Vector3 bottom, Vector3 top, Vector3 right, Vector3 up, Vector3 faceNormal, float streamProgress, float trailLength, float width, float fade)
+    private static void DrawSurfaceTrail(Vector3 bottom, Vector3 top, Vector3 right, Vector3 up, Vector3 faceNormal, float streamProgress, float trailLength, float width, float fade, Color trailColor)
     {
         const int segments = 70;
         var height = Vector3.Distance(bottom, top);
@@ -2109,7 +2128,7 @@ public sealed partial class SciFiRogueGame
             var segmentLength = MathF.Max(0.001f, near - far);
             var alpha = fade * 0.74f * (1f - i / (float)segments);
             var center = Vector3.Lerp(bottom, top, centerProgress) + faceNormal * 0.03f;
-            DrawSurfaceRect(center, right, up, width, segmentLength * height, WithAlpha(Palette.C(25, 230, 255), alpha));
+            DrawSurfaceRect(center, right, up, width, segmentLength * height, WithAlpha(trailColor, alpha));
         }
     }
 

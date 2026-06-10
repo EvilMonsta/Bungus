@@ -1064,6 +1064,7 @@ public sealed partial class SciFiRogueGame
             return false;
         }
 
+        Raylib.SetTextureFilter(texture, TextureFilter.Bilinear);
         _iconTextures[relativePath] = texture;
         return true;
     }

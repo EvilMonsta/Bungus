@@ -1076,9 +1076,21 @@ public sealed partial class SciFiRogueGame
             return false;
         }
 
-        Raylib.SetTextureFilter(texture, TextureFilter.Bilinear);
+        Raylib.SetTextureFilter(texture, GetRaylibTextureFilter());
         _iconTextures[relativePath] = texture;
         return true;
+    }
+
+    private TextureFilter GetRaylibTextureFilter()
+        => _textureFilteringMode == TextureFilteringMode.Bilinear ? TextureFilter.Bilinear : TextureFilter.Point;
+
+    private void ApplyTextureFiltering()
+    {
+        var filter = GetRaylibTextureFilter();
+        foreach (var texture in _iconTextures.Values)
+        {
+            Raylib.SetTextureFilter(texture, filter);
+        }
     }
 
     private static string? ResolveIconPath(string relativePath)
@@ -2973,18 +2985,27 @@ public sealed partial class SciFiRogueGame
     private void DrawSettings()
     {
         DrawTitle("Settings", 100, 66);
-        Raylib.DrawText("Video", (GetUiScreenWidth() - Raylib.MeasureText("Video", 28)) / 2, 180, 28, Color.LightGray);
-        DrawButton(CenterRect(0, 226, 360, 56), _displayMode == DisplayMode.Windowed ? "> Windowed <" : "Windowed");
-        DrawButton(CenterRect(0, 290, 360, 56), _displayMode == DisplayMode.Fullscreen ? "> Fullscreen <" : "Fullscreen");
+        Raylib.DrawText("Video", (GetUiScreenWidth() - Raylib.MeasureText("Video", 28)) / 2, 160, 28, Color.LightGray);
+        DrawButton(CenterRect(0, 204, 360, 50), _displayMode == DisplayMode.Windowed ? "> Windowed <" : "Windowed");
+        DrawButton(CenterRect(0, 260, 360, 50), _displayMode == DisplayMode.Fullscreen ? "> Fullscreen <" : "Fullscreen");
 
-        Raylib.DrawText("Choose theme", (GetUiScreenWidth() - Raylib.MeasureText("Choose theme", 28)) / 2, 360, 28, Color.LightGray);
+        Raylib.DrawText("Antialiasing", (GetUiScreenWidth() - Raylib.MeasureText("Antialiasing", 28)) / 2, 330, 28, Color.LightGray);
+        DrawButton(CenterRect(-100, 370, 180, 44), _antialiasingMode == AntialiasingMode.Off ? "> Off <" : "Off");
+        DrawButton(CenterRect(100, 370, 180, 44), _antialiasingMode == AntialiasingMode.Msaa4x ? "> MSAA x4 <" : "MSAA x4");
+        Raylib.DrawText("Applied after restart", (GetUiScreenWidth() - Raylib.MeasureText("Applied after restart", 18)) / 2, 420, 18, Palette.C(150, 185, 220));
+
+        Raylib.DrawText("Texture filter", (GetUiScreenWidth() - Raylib.MeasureText("Texture filter", 28)) / 2, 460, 28, Color.LightGray);
+        DrawButton(CenterRect(-100, 500, 180, 44), _textureFilteringMode == TextureFilteringMode.Point ? "> Point <" : "Point");
+        DrawButton(CenterRect(100, 500, 180, 44), _textureFilteringMode == TextureFilteringMode.Bilinear ? "> Bilinear <" : "Bilinear");
+
+        Raylib.DrawText("Choose theme", (GetUiScreenWidth() - Raylib.MeasureText("Choose theme", 28)) / 2, 580, 28, Color.LightGray);
         for (var i = 0; i < _themes.Count; i++)
         {
             var name = i == _themeIndex ? $"> {_themes[i].Name} <" : _themes[i].Name;
-            DrawButton(CenterRect(0, 400 + i * 56, 390, 48), name);
+            DrawButton(CenterRect(0, 620 + i * 50, 390, 44), name);
         }
 
-        DrawButton(CenterRect(0, 720, 280, 56), "Back");
+        DrawButton(CenterRect(0, 900, 280, 52), "Back");
     }
 
     private void DrawPause()

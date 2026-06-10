@@ -103,6 +103,8 @@ public sealed partial class SciFiRogueGame : IDisposable
     private readonly List<VisualTheme> _themes;
     private int _themeIndex;
     private DisplayMode _displayMode;
+    private AntialiasingMode _antialiasingMode = AntialiasingMode.Msaa4x;
+    private TextureFilteringMode _textureFilteringMode = TextureFilteringMode.Bilinear;
     private static DisplayMode s_activeDisplayMode = DisplayMode.Windowed;
     private float _nextHexSpawnTimer;
     private readonly MetaProfile _meta = new();
@@ -193,7 +195,8 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     public SciFiRogueGame()
     {
-        Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint);
+        _antialiasingMode = LoadStartupAntialiasingMode();
+        if (_antialiasingMode == AntialiasingMode.Msaa4x) Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint);
         Raylib.InitWindow(W, H, "Bungus");
         Raylib.SetTargetFPS(60);
         Raylib.SetExitKey(KeyboardKey.Null);
@@ -799,19 +802,41 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateSettings()
     {
-        if (Clicked(CenterRect(0, 226, 360, 56))) SetDisplayMode(DisplayMode.Windowed);
-        if (Clicked(CenterRect(0, 290, 360, 56))) SetDisplayMode(DisplayMode.Fullscreen);
+        if (Clicked(CenterRect(0, 204, 360, 50))) SetDisplayMode(DisplayMode.Windowed);
+        if (Clicked(CenterRect(0, 260, 360, 50))) SetDisplayMode(DisplayMode.Fullscreen);
+        if (Clicked(CenterRect(-100, 370, 180, 44))) SetAntialiasingMode(AntialiasingMode.Off);
+        if (Clicked(CenterRect(100, 370, 180, 44))) SetAntialiasingMode(AntialiasingMode.Msaa4x);
+        if (Clicked(CenterRect(-100, 500, 180, 44))) SetTextureFilteringMode(TextureFilteringMode.Point);
+        if (Clicked(CenterRect(100, 500, 180, 44))) SetTextureFilteringMode(TextureFilteringMode.Bilinear);
 
         for (var i = 0; i < _themes.Count; i++)
         {
-            if (Clicked(CenterRect(0, 400 + i * 56, 390, 48)))
+            if (Clicked(CenterRect(0, 620 + i * 50, 390, 44)))
             {
                 _themeIndex = i;
                 SavePersistentState();
             }
         }
 
-        if (Clicked(CenterRect(0, 720, 280, 56)) || Raylib.IsKeyPressed(KeyboardKey.Escape)) _state = GameState.MainMenu;
+        if (Clicked(CenterRect(0, 900, 280, 52)) || Raylib.IsKeyPressed(KeyboardKey.Escape)) _state = GameState.MainMenu;
+    }
+
+    private void SetAntialiasingMode(AntialiasingMode mode)
+    {
+        if (_antialiasingMode == mode) return;
+
+        _antialiasingMode = mode;
+        SavePersistentState();
+        ShowNotice("Restart the game to apply antialiasing.");
+    }
+
+    private void SetTextureFilteringMode(TextureFilteringMode mode)
+    {
+        if (_textureFilteringMode == mode) return;
+
+        _textureFilteringMode = mode;
+        ApplyTextureFiltering();
+        SavePersistentState();
     }
 
     private void UpdatePause()

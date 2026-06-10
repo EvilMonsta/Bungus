@@ -92,6 +92,8 @@ public sealed class PersistentStateData
 {
     public int ThemeIndex { get; set; }
     public DisplayMode DisplayMode { get; set; } = DisplayMode.Windowed;
+    public AntialiasingMode AntialiasingMode { get; set; } = AntialiasingMode.Msaa4x;
+    public TextureFilteringMode TextureFilteringMode { get; set; } = TextureFilteringMode.Bilinear;
     public string SelectedMapName { get; set; } = "Baselands";
     public bool IsFunnyNextRun { get; set; }
     public Dictionary<string, int> PromoCodeUses { get; set; } = [];

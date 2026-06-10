@@ -30,6 +30,8 @@ public sealed partial class SciFiRogueGame
 
             _themeIndex = Math.Clamp(data.ThemeIndex, 0, Math.Max(0, _themes.Count - 1));
             _displayMode = Enum.IsDefined(data.DisplayMode) ? data.DisplayMode : DisplayMode.Windowed;
+            _antialiasingMode = Enum.IsDefined(data.AntialiasingMode) ? data.AntialiasingMode : AntialiasingMode.Msaa4x;
+            _textureFilteringMode = Enum.IsDefined(data.TextureFilteringMode) ? data.TextureFilteringMode : TextureFilteringMode.Bilinear;
             _selectedMapName = string.IsNullOrWhiteSpace(data.SelectedMapName) ? "Baselands" : data.SelectedMapName;
             _isFunnyNextRun = data.IsFunnyNextRun;
             _promoCodeUses.Clear();
@@ -46,6 +48,8 @@ public sealed partial class SciFiRogueGame
         {
             _themeIndex = 0;
             _displayMode = DisplayMode.Windowed;
+            _antialiasingMode = AntialiasingMode.Msaa4x;
+            _textureFilteringMode = TextureFilteringMode.Bilinear;
             _selectedMapName = "Baselands";
             _isFunnyNextRun = false;
             _promoCodeUses.Clear();
@@ -67,6 +71,8 @@ public sealed partial class SciFiRogueGame
             {
                 ThemeIndex = _themeIndex,
                 DisplayMode = _displayMode,
+                AntialiasingMode = _antialiasingMode,
+                TextureFilteringMode = _textureFilteringMode,
                 SelectedMapName = _selectedMapName,
                 IsFunnyNextRun = _isFunnyNextRun,
                 PromoCodeUses = new Dictionary<string, int>(_promoCodeUses, StringComparer.OrdinalIgnoreCase),
@@ -116,6 +122,22 @@ public sealed partial class SciFiRogueGame
         catch
         {
             return null;
+        }
+    }
+
+    private static AntialiasingMode LoadStartupAntialiasingMode()
+    {
+        try
+        {
+            if (!File.Exists(SaveFilePath)) return AntialiasingMode.Msaa4x;
+
+            var data = DeserializePersistentStateFile(File.ReadAllText(SaveFilePath), out _);
+            if (data is null || !Enum.IsDefined(data.AntialiasingMode)) return AntialiasingMode.Msaa4x;
+            return data.AntialiasingMode;
+        }
+        catch
+        {
+            return AntialiasingMode.Msaa4x;
         }
     }
 

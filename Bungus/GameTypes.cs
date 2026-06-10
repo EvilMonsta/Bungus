@@ -19,6 +19,8 @@ public enum ProjectileKind { Bullet, Grenade, TraceBeam, LinearShot, PulsarBolt,
 public enum SwingVisualStyle { ArcSlash, SpearThrust }
 public enum MotionTrailShape { Circle, Triangle, Square, Hex }
 public enum DisplayMode { Windowed, Fullscreen }
+public enum AntialiasingMode { Off, Msaa4x }
+public enum TextureFilteringMode { Point, Bilinear }
 public enum LootZoneKind { City, Outpost, Generator, Hangar, Station }
 
 public static class Palette

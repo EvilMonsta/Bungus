@@ -348,6 +348,8 @@ public sealed class ProtectiveDome(Vector2 position)
 
 public static class MovementUtils
 {
+    private static readonly ConditionalWeakTable<List<Obstacle>, ObstacleSpatialIndex> ObstacleIndexes = new();
+
     public static Vector2 MoveWithCollisions(Vector2 position, Vector2 delta, float radius, List<Obstacle> obstacles, int worldSize)
     {
         var steps = Math.Max(1, (int)MathF.Ceiling(delta.Length() / MathF.Max(4f, radius * 0.5f)));
@@ -418,16 +420,47 @@ public static class MovementUtils
 
     public static bool CircleHitsObstacle(Vector2 center, float radius, List<Obstacle> obstacles)
     {
+        if (obstacles.Count < 24)
+        {
+            return CircleHitsObstacleLinear(center, radius, obstacles);
+        }
+
+        if (!ObstacleIndexes.TryGetValue(obstacles, out var index) || index.SourceCount != obstacles.Count)
+        {
+            ObstacleIndexes.Remove(obstacles);
+            index = new ObstacleSpatialIndex(obstacles);
+            ObstacleIndexes.Add(obstacles, index);
+        }
+
+        return index.CircleHitsObstacle(center, radius);
+    }
+
+    public static void WarmObstacleIndex(List<Obstacle> obstacles)
+    {
+        if (obstacles.Count < 24) return;
+        if (ObstacleIndexes.TryGetValue(obstacles, out var index) && index.SourceCount == obstacles.Count) return;
+
+        ObstacleIndexes.Remove(obstacles);
+        ObstacleIndexes.Add(obstacles, new ObstacleSpatialIndex(obstacles));
+    }
+
+    private static bool CircleHitsObstacleLinear(Vector2 center, float radius, List<Obstacle> obstacles)
+    {
         foreach (var o in obstacles)
         {
-            var nx = Math.Clamp(center.X, o.Rect.X, o.Rect.X + o.Rect.Width);
-            var ny = Math.Clamp(center.Y, o.Rect.Y, o.Rect.Y + o.Rect.Height);
-            var dx = center.X - nx;
-            var dy = center.Y - ny;
-            if (dx * dx + dy * dy < radius * radius) return true;
+            if (CircleHitsRect(center, radius, o.Rect)) return true;
         }
 
         return false;
+    }
+
+    private static bool CircleHitsRect(Vector2 center, float radius, Rectangle rect)
+    {
+        var nx = Math.Clamp(center.X, rect.X, rect.X + rect.Width);
+        var ny = Math.Clamp(center.Y, rect.Y, rect.Y + rect.Height);
+        var dx = center.X - nx;
+        var dy = center.Y - ny;
+        return dx * dx + dy * dy < radius * radius;
     }
 
     public static bool CircleHitsObstacle(Vector2 center, float radius, List<Obstacle> obstacles, List<ProtectiveDome> domes)
@@ -442,6 +475,95 @@ public static class MovementUtils
         }
 
         return false;
+    }
+}
+
+internal sealed class ObstacleSpatialIndex
+{
+    private const float CellSize = 256f;
+    private readonly List<Obstacle> _obstacles;
+    private readonly Dictionary<(int X, int Y), List<int>> _cells = [];
+    private readonly int[] _seen;
+    private int _queryStamp;
+
+    public ObstacleSpatialIndex(List<Obstacle> obstacles)
+    {
+        _obstacles = obstacles;
+        SourceCount = obstacles.Count;
+        _seen = new int[obstacles.Count];
+
+        for (var i = 0; i < obstacles.Count; i++)
+        {
+            var rect = obstacles[i].Rect;
+            var minX = ToCell(rect.X);
+            var maxX = ToCell(rect.X + rect.Width);
+            var minY = ToCell(rect.Y);
+            var maxY = ToCell(rect.Y + rect.Height);
+
+            for (var y = minY; y <= maxY; y++)
+            {
+                for (var x = minX; x <= maxX; x++)
+                {
+                    var key = (x, y);
+                    if (!_cells.TryGetValue(key, out var list))
+                    {
+                        list = [];
+                        _cells[key] = list;
+                    }
+
+                    list.Add(i);
+                }
+            }
+        }
+    }
+
+    public int SourceCount { get; }
+
+    public bool CircleHitsObstacle(Vector2 center, float radius)
+    {
+        unchecked
+        {
+            _queryStamp++;
+            if (_queryStamp == 0)
+            {
+                Array.Clear(_seen);
+                _queryStamp = 1;
+            }
+        }
+
+        var minX = ToCell(center.X - radius);
+        var maxX = ToCell(center.X + radius);
+        var minY = ToCell(center.Y - radius);
+        var maxY = ToCell(center.Y + radius);
+
+        for (var y = minY; y <= maxY; y++)
+        {
+            for (var x = minX; x <= maxX; x++)
+            {
+                if (!_cells.TryGetValue((x, y), out var list)) continue;
+
+                foreach (var index in list)
+                {
+                    if (_seen[index] == _queryStamp) continue;
+                    _seen[index] = _queryStamp;
+
+                    if (CircleHitsRect(center, radius, _obstacles[index].Rect)) return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static int ToCell(float value) => (int)MathF.Floor(value / CellSize);
+
+    private static bool CircleHitsRect(Vector2 center, float radius, Rectangle rect)
+    {
+        var nx = Math.Clamp(center.X, rect.X, rect.X + rect.Width);
+        var ny = Math.Clamp(center.Y, rect.Y, rect.Y + rect.Height);
+        var dx = center.X - nx;
+        var dy = center.Y - ny;
+        return dx * dx + dy * dy < radius * radius;
     }
 }
 

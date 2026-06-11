@@ -279,6 +279,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _stationBossDoorSealed = false;
         _stationBossDoorSealTimer = -1f;
         GenerateDeadZoneSetPieces();
+        MovementUtils.WarmObstacleIndex(_obstacles);
         _player = Player.Create(
             GeneratePlayerSpawnPoint(),
             GetCommonHealthBonus(),
@@ -314,6 +315,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _generatorGuards = GenerateGeneratorGuards();
         _toxicEnemies = GenerateToxicEnemies();
         _stationBoss = GenerateStationBoss();
+        PreloadGameplayTextures();
         _pitStationBosses.Clear();
         _nextHexSpawnTimer = NextHexSpawnDelay();
         _extractPortals.Clear();
@@ -405,6 +407,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _generatorGuards = [];
         _toxicEnemies = [];
         _stationBoss = null;
+        PreloadGameplayTextures();
         _pitStationBosses.Clear();
         _extractPortals.Clear();
         _runScore = 0;
@@ -2077,11 +2080,20 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private List<Obstacle> BuildEnemyCollisionObstacles()
     {
-        var result = new List<Obstacle>(_obstacles.Count + _protectiveDomes.Count);
+        var activeDomeCount = 0;
+        foreach (var dome in _protectiveDomes)
+        {
+            if (dome.Alive) activeDomeCount++;
+        }
+
+        if (activeDomeCount == 0) return _obstacles;
+
+        var result = new List<Obstacle>(_obstacles.Count + activeDomeCount);
         result.AddRange(_obstacles);
 
-        foreach (var dome in _protectiveDomes.Where(d => d.Alive))
+        foreach (var dome in _protectiveDomes)
         {
+            if (!dome.Alive) continue;
             result.Add(new Obstacle(new Rectangle(
                 dome.Position.X - ProtectiveDome.Radius,
                 dome.Position.Y - ProtectiveDome.Radius,

@@ -1065,6 +1065,8 @@ public sealed class Enemy
             IsEnhanced = enhanced,
             _patrolA = a,
             _patrolB = b,
+            _navigationGoal = b,
+            _navigationRefreshTimer = Random.Shared.NextSingle() * 0.5f,
             MaxHealth = maxHealth,
             Health = maxHealth
         };
@@ -1286,23 +1288,34 @@ public sealed class Enemy
     private void MoveTowardNavigated(Vector2 desiredTarget, float speed, float dt, List<Obstacle> obstacles, int worldSize)
     {
         const float radius = 14f;
+        const float goalRefreshDistance = 96f;
 
         _navigationRefreshTimer -= dt;
         _navigationForcePathTimer = MathF.Max(0f, _navigationForcePathTimer - dt);
         var waypoint = desiredTarget;
+        var goalChanged = Vector2.DistanceSquared(_navigationGoal, desiredTarget) > goalRefreshDistance * goalRefreshDistance;
+        var shouldEvaluateNavigation = _navigationPath.Count > 0
+            || _navigationRefreshTimer <= 0f
+            || goalChanged
+            || _navigationForcePathTimer > 0f;
 
-        if (_navigationForcePathTimer <= 0f && PathfindingUtils.HasClearPath(Position, desiredTarget, radius, obstacles, worldSize))
+        if (!shouldEvaluateNavigation)
+        {
+            waypoint = desiredTarget;
+        }
+        else if (_navigationForcePathTimer <= 0f && PathfindingUtils.HasClearPath(Position, desiredTarget, radius, obstacles, worldSize))
         {
             _navigationPath.Clear();
             _navigationPathIndex = 0;
             _navigationGoal = desiredTarget;
+            _navigationRefreshTimer = 0.35f;
         }
         else
         {
             var shouldRefresh = _navigationPath.Count == 0
                 || _navigationPathIndex >= _navigationPath.Count
                 || _navigationRefreshTimer <= 0f
-                || Vector2.DistanceSquared(_navigationGoal, desiredTarget) > 96f * 96f;
+                || goalChanged;
 
             if (shouldRefresh)
             {
@@ -2656,22 +2669,32 @@ public sealed class MiniBossEnemySquare
     private void MoveTowardNavigated(Vector2 desiredTarget, float speed, float dt, List<Obstacle> obstacles, int worldSize)
     {
         const float radius = 28f;
+        const float goalRefreshDistance = 120f;
 
         _navigationRefreshTimer -= dt;
         var waypoint = desiredTarget;
+        var goalChanged = Vector2.DistanceSquared(_navigationGoal, desiredTarget) > goalRefreshDistance * goalRefreshDistance;
+        var shouldEvaluateNavigation = _navigationPath.Count > 0
+            || _navigationRefreshTimer <= 0f
+            || goalChanged;
 
-        if (PathfindingUtils.HasClearPath(Position, desiredTarget, radius, obstacles, worldSize))
+        if (!shouldEvaluateNavigation)
+        {
+            waypoint = desiredTarget;
+        }
+        else if (PathfindingUtils.HasClearPath(Position, desiredTarget, radius, obstacles, worldSize))
         {
             _navigationPath.Clear();
             _navigationPathIndex = 0;
             _navigationGoal = desiredTarget;
+            _navigationRefreshTimer = 0.4f;
         }
         else
         {
             var shouldRefresh = _navigationPath.Count == 0
                 || _navigationPathIndex >= _navigationPath.Count
                 || _navigationRefreshTimer <= 0f
-                || Vector2.DistanceSquared(_navigationGoal, desiredTarget) > 120f * 120f;
+                || goalChanged;
 
             if (shouldRefresh)
             {
@@ -3475,19 +3498,28 @@ public sealed class BossEnemyDestroyer
     {
         _navigationRefreshTimer -= dt;
         var waypoint = desiredTarget;
+        var goalChanged = Vector2.DistanceSquared(_navigationGoal, desiredTarget) > 140f * 140f;
+        var shouldEvaluateNavigation = _navigationPath.Count > 0
+            || _navigationRefreshTimer <= 0f
+            || goalChanged;
 
-        if (PathfindingUtils.HasClearPath(Position, desiredTarget, CollisionRadius, obstacles, worldSize))
+        if (!shouldEvaluateNavigation)
+        {
+            waypoint = desiredTarget;
+        }
+        else if (PathfindingUtils.HasClearPath(Position, desiredTarget, CollisionRadius, obstacles, worldSize))
         {
             _navigationPath.Clear();
             _navigationPathIndex = 0;
             _navigationGoal = desiredTarget;
+            _navigationRefreshTimer = 0.45f;
         }
         else
         {
             var shouldRefresh = _navigationPath.Count == 0
                 || _navigationPathIndex >= _navigationPath.Count
                 || _navigationRefreshTimer <= 0f
-                || Vector2.DistanceSquared(_navigationGoal, desiredTarget) > 140f * 140f;
+                || goalChanged;
 
             if (shouldRefresh)
             {

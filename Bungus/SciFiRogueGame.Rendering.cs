@@ -1093,6 +1093,14 @@ public sealed partial class SciFiRogueGame
         return true;
     }
 
+    private void PreloadGameplayTextures()
+    {
+        TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "base_enemy.png"), out _);
+        TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "base_enemy_enhanced.png"), out _);
+        TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "triangle.png"), out _);
+        TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "triangle_enhanced.png"), out _);
+    }
+
     private TextureFilter GetRaylibTextureFilter()
         => _textureFilteringMode == TextureFilteringMode.Bilinear ? TextureFilter.Bilinear : TextureFilter.Point;
 

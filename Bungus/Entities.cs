@@ -1038,9 +1038,9 @@ public sealed class Enemy
     private float _poisonTimer;
     private float _poisonDamagePerSecond;
 
-    private const float BaseView = 500f;
+    private const float BaseView = 450f;
     private const float StrongView = 500f;
-    private const float AlertDistance = 850f;
+    private const float AlertDistance = 750f;
     private const float FovHalf = MathF.PI / 3f; // 120 total
 
     private Enemy(Vector2 pos)
@@ -1083,6 +1083,7 @@ public sealed class Enemy
     public void UpdateVisionSweep(float dt)
     {
         if (!Alive) { _deathAnim -= dt; return; }
+        if (_patrolTurning) return;
 
         _sweepPhase += dt * 0.70f * _sweepDir;
         if (_sweepPhase > 1f) { _sweepPhase = 1f; _sweepDir = -1f; }
@@ -1377,15 +1378,25 @@ public sealed class Enemy
         Health = MathF.Max(0f, Health - amount);
     }
 
-    public void Draw(VisualTheme theme, Texture2D? baseEnemyTexture = null, Texture2D? triangleEnemyTexture = null)
+    public void Draw(
+        VisualTheme theme,
+        Texture2D? baseEnemyTexture = null,
+        Texture2D? enhancedBaseEnemyTexture = null,
+        Texture2D? triangleEnemyTexture = null,
+        Texture2D? enhancedTriangleEnemyTexture = null)
     {
         if (Alive)
         {
             if (IsStrong)
             {
-                if (triangleEnemyTexture is { Id: not 0 } texture)
+                var activeTexture = IsEnhanced && enhancedTriangleEnemyTexture is { Id: not 0 }
+                    ? enhancedTriangleEnemyTexture
+                    : triangleEnemyTexture;
+                var drewTexture = activeTexture is { Id: not 0 };
+                if (drewTexture)
                 {
-                    var size = 40f;
+                    var texture = activeTexture!.Value;
+                    var size = 52f;
                     var source = new Rectangle(0f, 0f, texture.Width, texture.Height);
                     var dest = new Rectangle(Position.X, Position.Y, size, size);
                     var origin = new Vector2(size * 0.5f, size * 0.5f);
@@ -1400,7 +1411,7 @@ public sealed class Enemy
                     Raylib.DrawTriangle(tip, left, right, theme.EnemyStrong);
                     Raylib.DrawTriangleLines(tip, left, right, Color.Maroon);
                 }
-                if (IsEnhanced)
+                if (IsEnhanced && !drewTexture)
                 {
                     var innerTip = Position + _facing * 8f;
                     var innerLeft = Position + VisibilityUtils.Rotate(_facing, MathF.PI * 0.78f) * 7f;
@@ -1411,9 +1422,14 @@ public sealed class Enemy
             }
             else
             {
-                if (baseEnemyTexture is { Id: not 0 } texture)
+                var activeTexture = IsEnhanced && enhancedBaseEnemyTexture is { Id: not 0 }
+                    ? enhancedBaseEnemyTexture
+                    : baseEnemyTexture;
+                var drewTexture = activeTexture is { Id: not 0 };
+                if (drewTexture)
                 {
-                    var size = 34f;
+                    var texture = activeTexture!.Value;
+                    var size = 44f;
                     var source = new Rectangle(0f, 0f, texture.Width, texture.Height);
                     var dest = new Rectangle(Position.X, Position.Y, size, size);
                     var origin = new Vector2(size * 0.5f, size * 0.5f);
@@ -1424,8 +1440,8 @@ public sealed class Enemy
                 {
                     Raylib.DrawCircleV(Position, 14f, theme.Enemy);
                 }
-                if (IsEnhanced) Raylib.DrawCircleV(Position, 7f, Color.White);
-                Raylib.DrawCircleLines((int)Position.X, (int)Position.Y, 16f, Color.Maroon);
+                if (IsEnhanced && !drewTexture) Raylib.DrawCircleV(Position, 7f, Color.White);
+                if (!drewTexture) Raylib.DrawCircleLines((int)Position.X, (int)Position.Y, 16f, Color.Maroon);
             }
 
             var hp = Health / MaxHealth;

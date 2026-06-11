@@ -258,8 +258,18 @@ public sealed partial class SciFiRogueGame
         _stationBoss?.DrawSight();
         foreach (var boss in _pitStationBosses) boss.DrawSight();
         var hasBaseEnemyTexture = TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "base_enemy.png"), out var baseEnemyTexture);
+        var hasEnhancedBaseEnemyTexture = TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "base_enemy_enhanced.png"), out var enhancedBaseEnemyTexture);
         var hasTriangleEnemyTexture = TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "triangle.png"), out var triangleEnemyTexture);
-        foreach (var e in _enemies) e.Draw(Theme, hasBaseEnemyTexture ? baseEnemyTexture : null, hasTriangleEnemyTexture ? triangleEnemyTexture : null);
+        var hasEnhancedTriangleEnemyTexture = TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "triangle_enhanced.png"), out var enhancedTriangleEnemyTexture);
+        foreach (var e in _enemies)
+        {
+            e.Draw(
+                Theme,
+                hasBaseEnemyTexture ? baseEnemyTexture : null,
+                hasEnhancedBaseEnemyTexture ? enhancedBaseEnemyTexture : null,
+                hasTriangleEnemyTexture ? triangleEnemyTexture : null,
+                hasEnhancedTriangleEnemyTexture ? enhancedTriangleEnemyTexture : null);
+        }
         foreach (var h in _hexEnemies) h.Draw();
         foreach (var t in _turrets) t.Draw();
         foreach (var b in _miniBosses) b.Draw(Theme);

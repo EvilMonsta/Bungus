@@ -1031,6 +1031,10 @@ public sealed class Enemy
     private bool _patrolTurning;
     private int _burstShotsLeft;
     private float _burstShotCd;
+    private List<Vector2> _navigationPath = [];
+    private int _navigationPathIndex;
+    private Vector2 _navigationGoal;
+    private float _navigationRefreshTimer;
 
     private float _deathAnim = 0.45f;
     private float _slowTimer;
@@ -1202,10 +1206,7 @@ public sealed class Enemy
             var to = _target - Position;
             if (to.LengthSquared() > 16f)
             {
-                var dir = Vector2.Normalize(to);
-                _facing = dir;
-                _baseFacing = dir;
-                Position = MovementUtils.MoveWithCollisions(Position, dir * (IsStrong ? 118.75f : 147.5f) * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier * dt, 14f, obstacles, worldSize);
+                MoveTowardNavigated(_target, (IsStrong ? 118.75f : 147.5f) * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier, dt, obstacles, worldSize);
             }
 
             _burstCd -= dt;
@@ -1248,10 +1249,7 @@ public sealed class Enemy
             }
             else
             {
-                var dir = Vector2.Normalize(to);
-                _facing = dir;
-                _baseFacing = dir;
-                Position = MovementUtils.MoveWithCollisions(Position, dir * 107.5f * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier * dt, 14f, obstacles, worldSize);
+                MoveTowardNavigated(target, 107.5f * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier, dt, obstacles, worldSize);
             }
         }
     }
@@ -1280,10 +1278,72 @@ public sealed class Enemy
             return;
         }
 
-        var dir = Vector2.Normalize(to);
-        _baseFacing = dir;
-        Position = MovementUtils.MoveWithCollisions(Position, dir * (IsStrong ? 102.5f : 120f) * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier * dt, 14f, obstacles, worldSize);
+        MoveTowardNavigated(target, (IsStrong ? 102.5f : 120f) * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier, dt, obstacles, worldSize);
         if (_returningFromInvestigation) HealDuringInvestigationReturn();
+    }
+
+    private void MoveTowardNavigated(Vector2 desiredTarget, float speed, float dt, List<Obstacle> obstacles, int worldSize)
+    {
+        const float radius = 14f;
+
+        _navigationRefreshTimer -= dt;
+        var waypoint = desiredTarget;
+
+        if (PathfindingUtils.HasClearPath(Position, desiredTarget, radius, obstacles, worldSize))
+        {
+            _navigationPath.Clear();
+            _navigationPathIndex = 0;
+            _navigationGoal = desiredTarget;
+        }
+        else
+        {
+            var shouldRefresh = _navigationPath.Count == 0
+                || _navigationPathIndex >= _navigationPath.Count
+                || _navigationRefreshTimer <= 0f
+                || Vector2.DistanceSquared(_navigationGoal, desiredTarget) > 96f * 96f;
+
+            if (shouldRefresh)
+            {
+                if (PathfindingUtils.TryFindPath(Position, desiredTarget, radius, obstacles, worldSize, out var path))
+                {
+                    _navigationPath = path;
+                    _navigationPathIndex = 0;
+                    _navigationGoal = desiredTarget;
+                    _navigationRefreshTimer = 0.45f;
+                }
+                else
+                {
+                    _navigationPath.Clear();
+                    _navigationPathIndex = 0;
+                    _navigationRefreshTimer = 0.25f;
+                }
+            }
+
+            if (_navigationPathIndex < _navigationPath.Count)
+            {
+                while (_navigationPathIndex < _navigationPath.Count - 1
+                       && Vector2.DistanceSquared(Position, _navigationPath[_navigationPathIndex]) < 18f * 18f)
+                {
+                    _navigationPathIndex++;
+                }
+
+                waypoint = _navigationPath[_navigationPathIndex];
+            }
+        }
+
+        var to = waypoint - Position;
+        if (to.LengthSquared() <= 0.01f) return;
+
+        var dir = Vector2.Normalize(to);
+        _facing = dir;
+        _baseFacing = dir;
+
+        var previous = Position;
+        Position = MovementUtils.MoveWithCollisions(Position, dir * speed * dt, radius, obstacles, worldSize);
+        if (Vector2.DistanceSquared(previous, Position) < 0.0025f)
+        {
+            _navigationRefreshTimer = 0f;
+        }
     }
 
     private void StartInvestigationReturn()

@@ -99,6 +99,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private Vector2? _mapMarker;
     private int _storageScrollRow;
     private int _storageSortMode = -1;
+    private readonly HashSet<(SlotKind Kind, int Index)> _selectedStorageSlots = [];
     private bool _requestExit;
     private readonly List<VisualTheme> _themes;
     private int _themeIndex;
@@ -553,7 +554,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         if (Clicked(MainMenuButtonRect(0))) { ClearUiInteraction(); _state = GameState.MapSelect; }
-        if (Clicked(MainMenuButtonRect(1))) { ClearUiInteraction(); _state = GameState.Storage; }
+        if (Clicked(MainMenuButtonRect(1))) { ClearUiInteraction(); ClearStorageSelection(); _state = GameState.Storage; }
         if (Clicked(MainMenuButtonRect(2))) { ClearUiInteraction(); _state = GameState.Armory; }
         if (Clicked(MainMenuButtonRect(3))) { ClearUiInteraction(); _state = GameState.Cradle; }
         if (Clicked(MainMenuButtonRect(4))) { ClearUiInteraction(); _state = GameState.Settings; }
@@ -628,9 +629,16 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateStorage()
     {
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape) && _selectedStorageSlots.Count > 0)
+        {
+            ClearStorageSelection();
+            return;
+        }
+
         if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(StorageBackButtonRect()))
         {
             ClearUiInteraction();
+            ClearStorageSelection();
             _state = GameState.MainMenu;
             return;
         }
@@ -3343,6 +3351,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         var slots = BuildStorageSlots();
+        PruneStorageSelection();
 
         foreach (var slot in slots)
         {
@@ -3356,6 +3365,8 @@ public sealed partial class SciFiRogueGame : IDisposable
             var from = slots.FirstOrDefault(s => Raylib.CheckCollisionPointRec(mouse, s.Rect));
             if (from is not null)
             {
+                if (IsShiftDown() && TryToggleStorageSelection(from)) return;
+
                 var now = Raylib.GetTime();
                 var isDoubleClick = from.Item is not null &&
                                     from.Kind == _lastClickKind &&
@@ -3380,13 +3391,61 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (Raylib.IsMouseButtonReleased(MouseButton.Left) && _drag is not null)
         {
             var to = slots.FirstOrDefault(s => Raylib.CheckCollisionPointRec(mouse, s.Rect));
-            if (to is not null) ApplyStorageDrop(_drag, to);
+            if (to is not null)
+            {
+                ApplyStorageDrop(_drag, to);
+                ClearStorageSelection();
+            }
             _drag = null;
         }
     }
 
+    private static bool IsShiftDown()
+        => Raylib.IsKeyDown(KeyboardKey.LeftShift) || Raylib.IsKeyDown(KeyboardKey.RightShift);
+
+    private bool TryToggleStorageSelection(UiSlot slot)
+    {
+        if (!CanSelectStorageSlot(slot)) return false;
+
+        var key = GetStorageSelectionKey(slot);
+        if (!_selectedStorageSlots.Add(key)) _selectedStorageSlots.Remove(key);
+        ResetInventoryUseHold();
+        return true;
+    }
+
+    private static (SlotKind Kind, int Index) GetStorageSelectionKey(UiSlot slot) => (slot.Kind, slot.Index);
+
+    private static bool CanSelectStorageSlot(UiSlot slot)
+        => slot.Item is not null && (slot.Kind == SlotKind.Storage || slot.Kind == SlotKind.RunBackpack || IsMetaLoadoutSlot(slot.Kind));
+
+    private void ClearStorageSelection()
+    {
+        _selectedStorageSlots.Clear();
+        ResetInventoryUseHold();
+    }
+
+    private void PruneStorageSelection()
+    {
+        _selectedStorageSlots.RemoveWhere(key => GetSelectedStorageItem(key) is null);
+    }
+
+    private ItemStack? GetSelectedStorageItem((SlotKind Kind, int Index) key)
+    {
+        if (key.Kind == SlotKind.Storage) return key.Index >= 0 && key.Index < _meta.StorageSlots.Count ? _meta.StorageSlots[key.Index] : null;
+        if (key.Kind == SlotKind.RunBackpack) return key.Index >= 0 && key.Index < _meta.RunBackpackSlots.Count ? _meta.RunBackpackSlots[key.Index] : null;
+        return IsMetaLoadoutSlot(key.Kind) ? GetMetaLoadoutItem(key.Kind) : null;
+    }
+
+    private void ClearSelectedStorageItem((SlotKind Kind, int Index) key)
+    {
+        if (key.Kind == SlotKind.Storage && key.Index >= 0 && key.Index < _meta.StorageSlots.Count) _meta.StorageSlots[key.Index] = null;
+        else if (key.Kind == SlotKind.RunBackpack && key.Index >= 0 && key.Index < _meta.RunBackpackSlots.Count) _meta.RunBackpackSlots[key.Index] = null;
+        else if (IsMetaLoadoutSlot(key.Kind)) SetMetaLoadoutItem(key.Kind, null);
+    }
+
     private void SortStorage(int mode)
     {
+        ClearStorageSelection();
         _storageSortMode = mode;
         var items = _meta.StorageSlots.Where(item => item is not null).Select(item => item!).ToList();
         var sorted = mode switch
@@ -5336,6 +5395,8 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
+        var sellingSelection = _selectedStorageSlots.Contains(GetStorageSelectionKey(slot));
+
         if (_inventoryUseHoldKind != slot.Kind || _inventoryUseHoldIndex != slot.Index)
         {
             _inventoryUseHoldKind = slot.Kind;
@@ -5346,14 +5407,39 @@ public sealed partial class SciFiRogueGame : IDisposable
         _inventoryUseHoldTimer += Raylib.GetFrameTime();
         if (_inventoryUseHoldTimer < InventoryConsumableUseHoldDuration) return;
 
-        SellStorageSlot(slot);
+        if (sellingSelection) SellSelectedStorageSlots();
+        else SellStorageSlot(slot);
         ResetInventoryUseHold();
+    }
+
+    private void SellSelectedStorageSlots()
+    {
+        var soldCount = 0;
+        var totalValue = 0;
+
+        foreach (var key in _selectedStorageSlots.ToList())
+        {
+            var item = GetSelectedStorageItem(key);
+            if (item is null) continue;
+
+            totalValue += GetSellValue(item);
+            ClearSelectedStorageItem(key);
+            soldCount++;
+        }
+
+        ClearStorageSelection();
+        if (soldCount <= 0) return;
+
+        _meta.SynthCoins += totalValue;
+        SavePersistentState();
+        ShowNotice($"Sold {soldCount} items for {totalValue} SynthCoins.");
     }
 
     private void SellStorageSlot(UiSlot slot)
     {
         if (slot.Item is null) return;
 
+        _selectedStorageSlots.Remove(GetStorageSelectionKey(slot));
         var value = GetSellValue(slot.Item);
         _meta.SynthCoins += value;
         ReplaceStorageSourceWith(new DragPayload(slot.Kind, slot.Index, slot.Item), null);

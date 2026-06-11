@@ -1377,29 +1377,53 @@ public sealed class Enemy
         Health = MathF.Max(0f, Health - amount);
     }
 
-    public void Draw(VisualTheme theme)
+    public void Draw(VisualTheme theme, Texture2D? baseEnemyTexture = null, Texture2D? triangleEnemyTexture = null)
     {
         if (Alive)
         {
             if (IsStrong)
             {
-                var p1 = Position + new Vector2(0, -16);
-                var p2 = Position + new Vector2(-14, 14);
-                var p3 = Position + new Vector2(14, 14);
-                Raylib.DrawTriangle(p1, p2, p3, theme.EnemyStrong);
-                Raylib.DrawTriangleLines(p1, p2, p3, Color.Maroon);
+                if (triangleEnemyTexture is { Id: not 0 } texture)
+                {
+                    var size = 40f;
+                    var source = new Rectangle(0f, 0f, texture.Width, texture.Height);
+                    var dest = new Rectangle(Position.X, Position.Y, size, size);
+                    var origin = new Vector2(size * 0.5f, size * 0.5f);
+                    var rotation = MathF.Atan2(_facing.Y, _facing.X) * 180f / MathF.PI;
+                    Raylib.DrawTexturePro(texture, source, dest, origin, rotation, Color.White);
+                }
+                else
+                {
+                    var tip = Position + _facing * 16f;
+                    var left = Position + VisibilityUtils.Rotate(_facing, MathF.PI * 0.78f) * 14f;
+                    var right = Position + VisibilityUtils.Rotate(_facing, -MathF.PI * 0.78f) * 14f;
+                    Raylib.DrawTriangle(tip, left, right, theme.EnemyStrong);
+                    Raylib.DrawTriangleLines(tip, left, right, Color.Maroon);
+                }
                 if (IsEnhanced)
                 {
-                    var inner1 = Position + new Vector2(0, -8);
-                    var inner2 = Position + new Vector2(-7, 7);
-                    var inner3 = Position + new Vector2(7, 7);
-                    Raylib.DrawTriangle(inner1, inner2, inner3, Color.White);
-                    Raylib.DrawTriangleLines(inner1, inner2, inner3, Color.Black);
+                    var innerTip = Position + _facing * 8f;
+                    var innerLeft = Position + VisibilityUtils.Rotate(_facing, MathF.PI * 0.78f) * 7f;
+                    var innerRight = Position + VisibilityUtils.Rotate(_facing, -MathF.PI * 0.78f) * 7f;
+                    Raylib.DrawTriangle(innerTip, innerLeft, innerRight, Color.White);
+                    Raylib.DrawTriangleLines(innerTip, innerLeft, innerRight, Color.Black);
                 }
             }
             else
             {
-                Raylib.DrawCircleV(Position, 14f, theme.Enemy);
+                if (baseEnemyTexture is { Id: not 0 } texture)
+                {
+                    var size = 34f;
+                    var source = new Rectangle(0f, 0f, texture.Width, texture.Height);
+                    var dest = new Rectangle(Position.X, Position.Y, size, size);
+                    var origin = new Vector2(size * 0.5f, size * 0.5f);
+                    var rotation = MathF.Atan2(_facing.Y, _facing.X) * 180f / MathF.PI;
+                    Raylib.DrawTexturePro(texture, source, dest, origin, rotation, Color.White);
+                }
+                else
+                {
+                    Raylib.DrawCircleV(Position, 14f, theme.Enemy);
+                }
                 if (IsEnhanced) Raylib.DrawCircleV(Position, 7f, Color.White);
                 Raylib.DrawCircleLines((int)Position.X, (int)Position.Y, 16f, Color.Maroon);
             }

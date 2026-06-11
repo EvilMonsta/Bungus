@@ -257,7 +257,9 @@ public sealed partial class SciFiRogueGame
         _destroyerBoss?.DrawSight();
         _stationBoss?.DrawSight();
         foreach (var boss in _pitStationBosses) boss.DrawSight();
-        foreach (var e in _enemies) e.Draw(Theme);
+        var hasBaseEnemyTexture = TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "base_enemy.png"), out var baseEnemyTexture);
+        var hasTriangleEnemyTexture = TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "triangle.png"), out var triangleEnemyTexture);
+        foreach (var e in _enemies) e.Draw(Theme, hasBaseEnemyTexture ? baseEnemyTexture : null, hasTriangleEnemyTexture ? triangleEnemyTexture : null);
         foreach (var h in _hexEnemies) h.Draw();
         foreach (var t in _turrets) t.Draw();
         foreach (var b in _miniBosses) b.Draw(Theme);
@@ -2390,7 +2392,7 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText("Equip items here before deployment. Extracted loot returns to this stash.", 70, 106, 24, Color.LightGray);
         Raylib.DrawText($"Capacity {GetStoredItemCount()}/{MetaProfile.StorageCapacity}", 70, 138, 22, Color.White);
         DrawSynthCoinsCounter(24, 138, 22);
-        Raylib.DrawText("Hold X over an item to sell it. Mouse wheel scrolls stash.", 1000, 800, 20, Color.LightGray);
+        Raylib.DrawText("Shift+click selects items. Hold X on a selected item to sell selected.", 850, 800, 20, Color.LightGray);
 
         Raylib.DrawRectangle(40, 190, 300, 600, MenuPanelFill());
         Raylib.DrawRectangleLinesEx(new Rectangle(40, 190, 300, 600), 2f, MenuPanelLine());
@@ -2438,6 +2440,10 @@ public sealed partial class SciFiRogueGame
                 {
                     Raylib.DrawRectangleRec(slot.Rect, Palette.C(0, 0, 0, 165));
                 }
+            }
+            if (slot.Item is not null && _selectedStorageSlots.Contains((slot.Kind, slot.Index)))
+            {
+                DrawStorageSelectionFrame(slot.Rect, slot.Item.Color);
             }
             if (slot.Item is not null && Raylib.CheckCollisionPointRec(mouse, slot.Rect)) DrawHoverOrbitFrame(slot.Rect, slot.Item.Color);
         }
@@ -3116,6 +3122,15 @@ public sealed partial class SciFiRogueGame
             var start = (offset + i * perimeter / 3f) % perimeter;
             DrawHoverOrbitSegment(rect, start, segmentLength, color);
         }
+    }
+
+    private static void DrawStorageSelectionFrame(Rectangle rect, Color color)
+    {
+        Raylib.DrawRectangleRec(rect, WithAlpha(color, 0.12f));
+        Raylib.DrawRectangleLinesEx(new Rectangle(rect.X - 2f, rect.Y - 2f, rect.Width + 4f, rect.Height + 4f), 3f, WithAlpha(color, 0.76f));
+
+        var pulse = 0.5f + 0.5f * MathF.Sin((float)Raylib.GetTime() * 7.5f);
+        Raylib.DrawRectangleLinesEx(new Rectangle(rect.X + 4f, rect.Y + 4f, rect.Width - 8f, rect.Height - 8f), 1.5f, WithAlpha(Color.White, 0.28f + pulse * 0.28f));
     }
 
     private static void DrawHoverOrbitSegment(Rectangle rect, float start, float length, Color color)

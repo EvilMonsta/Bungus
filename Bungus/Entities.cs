@@ -1035,6 +1035,7 @@ public sealed class Enemy
     private int _navigationPathIndex;
     private Vector2 _navigationGoal;
     private float _navigationRefreshTimer;
+    private float _navigationForcePathTimer;
 
     private float _deathAnim = 0.45f;
     private float _slowTimer;
@@ -1287,9 +1288,10 @@ public sealed class Enemy
         const float radius = 14f;
 
         _navigationRefreshTimer -= dt;
+        _navigationForcePathTimer = MathF.Max(0f, _navigationForcePathTimer - dt);
         var waypoint = desiredTarget;
 
-        if (PathfindingUtils.HasClearPath(Position, desiredTarget, radius, obstacles, worldSize))
+        if (_navigationForcePathTimer <= 0f && PathfindingUtils.HasClearPath(Position, desiredTarget, radius, obstacles, worldSize))
         {
             _navigationPath.Clear();
             _navigationPathIndex = 0;
@@ -1304,7 +1306,8 @@ public sealed class Enemy
 
             if (shouldRefresh)
             {
-                if (PathfindingUtils.TryFindPath(Position, desiredTarget, radius, obstacles, worldSize, out var path))
+                var allowDirectShortcut = _navigationForcePathTimer <= 0f;
+                if (PathfindingUtils.TryFindPath(Position, desiredTarget, radius, obstacles, worldSize, out var path, allowDirectShortcut))
                 {
                     _navigationPath = path;
                     _navigationPathIndex = 0;
@@ -1343,6 +1346,7 @@ public sealed class Enemy
         if (Vector2.DistanceSquared(previous, Position) < 0.0025f)
         {
             _navigationRefreshTimer = 0f;
+            if (IsStrong) _navigationForcePathTimer = 0.8f;
         }
     }
 
@@ -2447,6 +2451,10 @@ public sealed class MiniBossEnemySquare
     private float _chillTimer;
     private float _poisonTimer;
     private float _poisonDamagePerSecond;
+    private List<Vector2> _navigationPath = [];
+    private int _navigationPathIndex;
+    private Vector2 _navigationGoal;
+    private float _navigationRefreshTimer;
 
     private const float ViewDistance = 600f;
     private const float AlertDistance = 850f;
@@ -2508,8 +2516,7 @@ public sealed class MiniBossEnemySquare
         if (toPlayer == Vector2.Zero) return;
 
         var dir = Vector2.Normalize(toPlayer);
-        _facing = dir;
-        Position = MovementUtils.MoveWithCollisions(Position, dir * 52.5f * GetFastSpeedMultiplier() * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier * dt, 28f, obstacles, worldSize);
+        MoveTowardNavigated(playerPos, 52.5f * GetFastSpeedMultiplier() * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier, dt, obstacles, worldSize);
 
         if (_ramCd <= 0f)
         {
@@ -2642,10 +2649,71 @@ public sealed class MiniBossEnemySquare
             return;
         }
 
+        MoveTowardNavigated(target, 47.5f * GetFastSpeedMultiplier() * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier, dt, obstacles, worldSize);
+        if (_returningFromInvestigation) HealDuringInvestigationReturn();
+    }
+
+    private void MoveTowardNavigated(Vector2 desiredTarget, float speed, float dt, List<Obstacle> obstacles, int worldSize)
+    {
+        const float radius = 28f;
+
+        _navigationRefreshTimer -= dt;
+        var waypoint = desiredTarget;
+
+        if (PathfindingUtils.HasClearPath(Position, desiredTarget, radius, obstacles, worldSize))
+        {
+            _navigationPath.Clear();
+            _navigationPathIndex = 0;
+            _navigationGoal = desiredTarget;
+        }
+        else
+        {
+            var shouldRefresh = _navigationPath.Count == 0
+                || _navigationPathIndex >= _navigationPath.Count
+                || _navigationRefreshTimer <= 0f
+                || Vector2.DistanceSquared(_navigationGoal, desiredTarget) > 120f * 120f;
+
+            if (shouldRefresh)
+            {
+                if (PathfindingUtils.TryFindPath(Position, desiredTarget, radius, obstacles, worldSize, out var path))
+                {
+                    _navigationPath = path;
+                    _navigationPathIndex = 0;
+                    _navigationGoal = desiredTarget;
+                    _navigationRefreshTimer = 0.5f;
+                }
+                else
+                {
+                    _navigationPath.Clear();
+                    _navigationPathIndex = 0;
+                    _navigationRefreshTimer = 0.25f;
+                }
+            }
+
+            if (_navigationPathIndex < _navigationPath.Count)
+            {
+                while (_navigationPathIndex < _navigationPath.Count - 1
+                       && Vector2.DistanceSquared(Position, _navigationPath[_navigationPathIndex]) < 26f * 26f)
+                {
+                    _navigationPathIndex++;
+                }
+
+                waypoint = _navigationPath[_navigationPathIndex];
+            }
+        }
+
+        var to = waypoint - Position;
+        if (to.LengthSquared() <= 0.01f) return;
+
         var dir = Vector2.Normalize(to);
         _facing = dir;
-        Position = MovementUtils.MoveWithCollisions(Position, dir * 47.5f * GetFastSpeedMultiplier() * GetMovementSpeedMultiplier() * ChallengeSpeedMultiplier * dt, 28f, obstacles, worldSize);
-        if (_returningFromInvestigation) HealDuringInvestigationReturn();
+
+        var previous = Position;
+        Position = MovementUtils.MoveWithCollisions(Position, dir * speed * dt, radius, obstacles, worldSize);
+        if (Vector2.DistanceSquared(previous, Position) < 0.0025f)
+        {
+            _navigationRefreshTimer = 0f;
+        }
     }
 
     private void StartInvestigationReturn()
@@ -3137,6 +3205,10 @@ public sealed class BossEnemyDestroyer
     private float _chillTimer;
     private float _poisonTimer;
     private float _poisonDamagePerSecond;
+    private List<Vector2> _navigationPath = [];
+    private int _navigationPathIndex;
+    private Vector2 _navigationGoal;
+    private float _navigationRefreshTimer;
 
     private const float ViewDistance = 825f;
     private const float AlertViewMultiplier = 1.25f;
@@ -3210,11 +3282,11 @@ public sealed class BossEnemyDestroyer
 
         if (PhaseTwo)
         {
-            UpdatePhaseTwoMovement(dt, dir, distance, obstacles, worldSize);
+            UpdatePhaseTwoMovement(dt, dir, distance, playerPos, obstacles, worldSize);
         }
         else
         {
-            Position = MovementUtils.MoveWithCollisions(Position, dir * PhaseOneSpeed * GetMovementSpeedMultiplier() * dt, CollisionRadius, obstacles, worldSize);
+            MoveTowardNavigated(playerPos, PhaseOneSpeed * GetMovementSpeedMultiplier(), dt, obstacles, worldSize);
         }
 
         if (_forwardDashCd <= 0f)
@@ -3269,11 +3341,17 @@ public sealed class BossEnemyDestroyer
         }
     }
 
-    private void UpdatePhaseTwoMovement(float dt, Vector2 dir, float distance, List<Obstacle> obstacles, int worldSize)
+    private void UpdatePhaseTwoMovement(float dt, Vector2 dir, float distance, Vector2 playerPos, List<Obstacle> obstacles, int worldSize)
     {
         var radial = 0f;
         if (distance > DesiredDistance + 25f) radial = PhaseTwoSpeed;
         else if (distance < DesiredDistance - 20f) radial = -PhaseTwoSpeed * 0.75f;
+
+        if (radial > 0f && !PathfindingUtils.HasClearPath(Position, playerPos, CollisionRadius, obstacles, worldSize))
+        {
+            MoveTowardNavigated(playerPos, PhaseTwoSpeed * GetMovementSpeedMultiplier(), dt, obstacles, worldSize);
+            return;
+        }
 
         _strafeSwitch -= dt;
         if (_strafeSwitch <= 0f) _strafeSwitch = 0.22f + Random.Shared.NextSingle() * 0.55f;
@@ -3389,10 +3467,69 @@ public sealed class BossEnemyDestroyer
             return;
         }
 
+        MoveTowardNavigated(target, PhaseOneSpeed * GetMovementSpeedMultiplier(), dt, obstacles, worldSize);
+        if (_returningFromInvestigation) HealDuringInvestigationReturn();
+    }
+
+    private void MoveTowardNavigated(Vector2 desiredTarget, float speed, float dt, List<Obstacle> obstacles, int worldSize)
+    {
+        _navigationRefreshTimer -= dt;
+        var waypoint = desiredTarget;
+
+        if (PathfindingUtils.HasClearPath(Position, desiredTarget, CollisionRadius, obstacles, worldSize))
+        {
+            _navigationPath.Clear();
+            _navigationPathIndex = 0;
+            _navigationGoal = desiredTarget;
+        }
+        else
+        {
+            var shouldRefresh = _navigationPath.Count == 0
+                || _navigationPathIndex >= _navigationPath.Count
+                || _navigationRefreshTimer <= 0f
+                || Vector2.DistanceSquared(_navigationGoal, desiredTarget) > 140f * 140f;
+
+            if (shouldRefresh)
+            {
+                if (PathfindingUtils.TryFindPath(Position, desiredTarget, CollisionRadius, obstacles, worldSize, out var path))
+                {
+                    _navigationPath = path;
+                    _navigationPathIndex = 0;
+                    _navigationGoal = desiredTarget;
+                    _navigationRefreshTimer = 0.55f;
+                }
+                else
+                {
+                    _navigationPath.Clear();
+                    _navigationPathIndex = 0;
+                    _navigationRefreshTimer = 0.25f;
+                }
+            }
+
+            if (_navigationPathIndex < _navigationPath.Count)
+            {
+                while (_navigationPathIndex < _navigationPath.Count - 1
+                       && Vector2.DistanceSquared(Position, _navigationPath[_navigationPathIndex]) < 38f * 38f)
+                {
+                    _navigationPathIndex++;
+                }
+
+                waypoint = _navigationPath[_navigationPathIndex];
+            }
+        }
+
+        var to = waypoint - Position;
+        if (to.LengthSquared() <= 0.01f) return;
+
         var dir = Vector2.Normalize(to);
         _facing = dir;
-        Position = MovementUtils.MoveWithCollisions(Position, dir * PhaseOneSpeed * GetMovementSpeedMultiplier() * dt, CollisionRadius, obstacles, worldSize);
-        if (_returningFromInvestigation) HealDuringInvestigationReturn();
+
+        var previous = Position;
+        Position = MovementUtils.MoveWithCollisions(Position, dir * speed * dt, CollisionRadius, obstacles, worldSize);
+        if (Vector2.DistanceSquared(previous, Position) < 0.0025f)
+        {
+            _navigationRefreshTimer = 0f;
+        }
     }
 
     private void StartInvestigationReturn()

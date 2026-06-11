@@ -458,13 +458,14 @@ public static class PathfindingUtils
 
         var dir = delta / distance;
         var step = MathF.Max(8f, radius * 0.7f);
+        var clearanceRadius = radius + 2f;
         for (var travelled = step; travelled < distance; travelled += step)
         {
             var point = start + dir * travelled;
-            if (!IsWalkable(point, radius, obstacles, worldSize)) return false;
+            if (!IsWalkable(point, clearanceRadius, obstacles, worldSize)) return false;
         }
 
-        return IsWalkable(goal, radius, obstacles, worldSize);
+        return IsWalkable(goal, clearanceRadius, obstacles, worldSize);
     }
 
     public static bool TryFindPath(
@@ -473,13 +474,14 @@ public static class PathfindingUtils
         float radius,
         List<Obstacle> obstacles,
         int worldSize,
-        out List<Vector2> path)
+        out List<Vector2> path,
+        bool allowDirectShortcut = true)
     {
         path = [];
         if (!TryFindNearestWalkable(start, radius, obstacles, worldSize, out var safeStart)) return false;
         if (!TryFindNearestWalkable(goal, radius, obstacles, worldSize, out var safeGoal)) return false;
 
-        if (HasClearPath(safeStart, safeGoal, radius, obstacles, worldSize))
+        if (allowDirectShortcut && HasClearPath(safeStart, safeGoal, radius, obstacles, worldSize))
         {
             path.Add(safeGoal);
             return true;
@@ -503,7 +505,7 @@ public static class PathfindingUtils
 
             if (current == goalCell)
             {
-                path = BuildPath(cameFrom, current, safeStart, safeGoal, radius, obstacles, worldSize);
+                path = BuildPath(cameFrom, current, safeStart, safeGoal, radius, obstacles, worldSize, allowDirectShortcut);
                 return path.Count > 0;
             }
 
@@ -654,7 +656,8 @@ public static class PathfindingUtils
         Vector2 safeGoal,
         float radius,
         List<Obstacle> obstacles,
-        int worldSize)
+        int worldSize,
+        bool allowDirectShortcut)
     {
         var cells = new List<(int X, int Y)> { current };
         while (cameFrom.TryGetValue(current, out var previous))
@@ -677,6 +680,7 @@ public static class PathfindingUtils
             var best = i;
             for (var j = raw.Count - 1; j > i; j--)
             {
+                if (!allowDirectShortcut && j == raw.Count - 1 && i == 0) continue;
                 if (!HasClearPath(anchor, raw[j], radius, obstacles, worldSize)) continue;
                 best = j;
                 break;

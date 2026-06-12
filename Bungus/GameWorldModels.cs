@@ -953,7 +953,7 @@ public static class VisibilityUtils
         => new(rect.X - pad, rect.Y - pad, rect.Width + pad * 2f, rect.Height + pad * 2f);
 }
 
-public enum LootContainerKind { Chest, Crate }
+public enum LootContainerKind { Chest, Crate, EnemyCache }
 
 public sealed class LootChest(Vector2 position, List<ItemStack> items, int? zoneId = null, LootContainerKind kind = LootContainerKind.Chest)
 {

@@ -1098,7 +1098,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                     HandlePitEnemyDeath(e);
                     continue;
                 }
-                TryDropEnemyConsumable(e.Position);
+                TryDropEnemyCache(e.Position);
                 _player.RegisterKill(e.IsStrong ? 2 : 1);
                 AddRunScore(e.IsStrong ? 20 : 10);
             }
@@ -1134,7 +1134,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                     HandlePitEnemyDeath(h);
                     continue;
                 }
-                TryDropEnemyConsumable(h.Position);
+                TryDropEnemyCache(h.Position);
                 _player.RegisterKill(2);
                 AddRunScore(25);
             }
@@ -1157,7 +1157,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                     HandlePitEnemyDeath(turret);
                     continue;
                 }
-                TryDropEnemyConsumable(turret.Position);
+                TryDropEnemyCache(turret.Position);
                 _player.RegisterKill(2);
                 AddRunScore(20);
             }
@@ -1180,7 +1180,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                     HandlePitEnemyDeath(b);
                     continue;
                 }
-                TryDropEnemyConsumable(b.Position);
+                TryDropEnemyCache(b.Position);
                 _chests.Add(new LootChest(b.Position, RollMiniBossLoot()));
                 _player.RegisterKill(5);
                 AddRunScore(100);
@@ -1204,7 +1204,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 HandlePitEnemyDeath(_destroyerBoss);
                 return;
             }
-            TryDropEnemyConsumable(_destroyerBoss.Position);
+            TryDropEnemyCache(_destroyerBoss.Position);
             _player.RegisterKill(25);
             AddRunScore(1000);
             _chests.Add(new LootChest(_destroyerBoss.Position, RollBossLoot()));
@@ -1230,7 +1230,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 var generator = _generators.FirstOrDefault(g => g.ZoneId == guard.ZoneId);
                 if (generator is not null) generator.GuardDefeated = true;
                 TryDropStationKey(guard.Position);
-                TryDropEnemyConsumable(guard.Position);
+                TryDropEnemyCache(guard.Position);
                 _player.RegisterKill(4);
                 AddRunScore(80);
             }
@@ -1250,7 +1250,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                     HandlePitEnemyDeath(toxic);
                     continue;
                 }
-                TryDropEnemyConsumable(toxic.Position);
+                TryDropEnemyCache(toxic.Position);
                 _player.RegisterKill(2);
                 AddRunScore(25);
             }
@@ -1681,6 +1681,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         foreach (var item in CollectExtractedItems())
         {
             if (item.IsStarter) continue;
+            if (item.IsDeviceDataFragment) continue;
             if (_meta.AddToStorage(item)) stored++;
             else lostForCapacity++;
         }
@@ -4309,16 +4310,16 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private IEnumerable<ItemStack> CollectExtractedItems()
     {
-        if (_player.Armor is not null) yield return _player.Armor;
-        if (_player.RangedWeapon is not null) yield return _player.RangedWeapon;
-        if (_player.HeavyWeapon is not null) yield return _player.HeavyWeapon;
-        if (_player.MeleeWeapon is not null) yield return _player.MeleeWeapon;
-        if (_player.Inventory.QuickSlotQ is not null) yield return _player.Inventory.QuickSlotQ;
-        if (_player.Inventory.QuickSlotR is not null) yield return _player.Inventory.QuickSlotR;
+        if (_player.Armor is not null && !_player.Armor.IsDeviceDataFragment) yield return _player.Armor;
+        if (_player.RangedWeapon is not null && !_player.RangedWeapon.IsDeviceDataFragment) yield return _player.RangedWeapon;
+        if (_player.HeavyWeapon is not null && !_player.HeavyWeapon.IsDeviceDataFragment) yield return _player.HeavyWeapon;
+        if (_player.MeleeWeapon is not null && !_player.MeleeWeapon.IsDeviceDataFragment) yield return _player.MeleeWeapon;
+        if (_player.Inventory.QuickSlotQ is not null && !_player.Inventory.QuickSlotQ.IsDeviceDataFragment) yield return _player.Inventory.QuickSlotQ;
+        if (_player.Inventory.QuickSlotR is not null && !_player.Inventory.QuickSlotR.IsDeviceDataFragment) yield return _player.Inventory.QuickSlotR;
 
         foreach (var item in _player.Inventory.BackpackSlots)
         {
-            if (item is not null) yield return item;
+            if (item is not null && !item.IsDeviceDataFragment) yield return item;
         }
     }
 
@@ -5686,10 +5687,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         return true;
     }
 
-    private void TryDropEnemyConsumable(Vector2 position)
+    private void TryDropEnemyCache(Vector2 position)
     {
-        if (_rng.NextSingle() >= 0.01f) return;
-        _groundConsumables.Add(new GroundConsumablePickup(position, ItemStack.Consumable(RollConsumableType())));
+        if (_challengeMode) return;
+        if (_rng.NextSingle() >= 0.25f) return;
+
+        var loot = new List<ItemStack> { ItemStack.DeviceDataFragment() };
+        if (_rng.NextSingle() < 0.01f) loot.Add(ItemStack.Consumable(RollConsumableType()));
+        _chests.Add(new LootChest(position, loot, null, LootContainerKind.EnemyCache));
     }
 
     private void TryDropStationKey(Vector2 position)

@@ -39,6 +39,7 @@ public sealed class MetaProfile
     public bool AddToStorage(ItemStack item)
     {
         if (item.IsHeavyAmmo) return TryAddHeavyAmmo(item.AmmoPercent, out _);
+        if (item.IsDeviceDataFragment) return ItemStack.TryAddDeviceDataFragmentsToSlots(StorageSlots, item.Quantity, out _);
 
         for (var i = 0; i < StorageSlots.Count; i++)
         {
@@ -170,6 +171,7 @@ public sealed class ItemStackSaveData
     public float WeaponDamage { get; set; }
     public float PowerBonus { get; set; }
     public float AmmoPercent { get; set; }
+    public int Quantity { get; set; } = 1;
 }
 
 public sealed class ArmoryOffer
@@ -211,6 +213,7 @@ public sealed class Inventory
     public bool AddToBackpack(ItemStack item)
     {
         if (item.IsHeavyAmmo) return TryAddHeavyAmmo(item.AmmoPercent, out _);
+        if (item.IsDeviceDataFragment) return ItemStack.TryAddDeviceDataFragmentsToSlots(BackpackSlots, item.Quantity, out _);
         if (TryPlaceIntoConsumableSlot(item)) return true;
 
         for (var i = 0; i < BackpackSlots.Count; i++)
@@ -329,6 +332,8 @@ public sealed class ItemStack
     public bool IsStationKey
         => Type == ItemType.KeyItem && Name.Equals("S.T.A.T.I.O.N", StringComparison.OrdinalIgnoreCase)
            || Type == ItemType.Consumable && ConsumableKind == ConsumableType.StationKey;
+    public bool IsDeviceDataFragment
+        => Type == ItemType.KeyItem && Name.Equals("Device's Data Fragment", StringComparison.OrdinalIgnoreCase);
     public bool IsPrimaryWeapon => Type == ItemType.Weapon && WeaponKind == WeaponClass.Ranged && Pattern is WeaponPattern.Standard or WeaponPattern.PulseRifle or WeaponPattern.AutoRifle or WeaponPattern.Pulsar or WeaponPattern.Toxikus;
     public bool IsHeavyWeapon => Type == ItemType.Weapon && WeaponKind == WeaponClass.Ranged && Pattern is WeaponPattern.GrenadeLauncher or WeaponPattern.LinearRifle or WeaponPattern.RocketLauncher or WeaponPattern.SniperRifle or WeaponPattern.TraceRifle or WeaponPattern.RamBomber or WeaponPattern.RocketPulseRifle;
     public bool IsHeavyAmmo => Type == ItemType.Ammo;
@@ -346,6 +351,7 @@ public sealed class ItemStack
     public float DashDistancePercent { get; }
     public float BaseDamage { get; }
     public float AmmoPercent { get; }
+    public int Quantity { get; }
 
     private ItemStack(
         ItemType type,
@@ -369,7 +375,8 @@ public sealed class ItemStack
         float ammoPercent = 0f,
         ArmorKind armorKind = ArmorKind.Standard,
         float movementSpreadPercent = 0f,
-        float dashDistancePercent = 0f)
+        float dashDistancePercent = 0f,
+        int quantity = 1)
     {
         Type = type;
         Name = name;
@@ -393,6 +400,7 @@ public sealed class ItemStack
         DashDistancePercent = type == ItemType.Armor ? dashDistancePercent : 0f;
         BaseDamage = baseDamage;
         AmmoPercent = MathF.Round(Math.Clamp(ammoPercent, 0f, 100f), 1);
+        Quantity = Math.Clamp(quantity, 1, 999);
     }
 
     public static ItemStackSaveData? ToSaveData(ItemStack? item)
@@ -426,7 +434,8 @@ public sealed class ItemStack
             DashDistancePercent = item.DashDistancePercent,
             WeaponDamage = item.BaseDamage,
             PowerBonus = item.BaseDamage,
-            AmmoPercent = item.AmmoPercent
+            AmmoPercent = item.AmmoPercent,
+            Quantity = item.Quantity
         };
     }
 
@@ -468,7 +477,35 @@ public sealed class ItemStack
             data.AmmoPercent,
             armorKind,
             data.MovementSpreadPercent,
-            data.DashDistancePercent);
+            data.DashDistancePercent,
+            data.Quantity);
+    }
+
+    public static bool TryAddDeviceDataFragmentsToSlots(List<ItemStack?> slots, int quantity, out int remaining)
+    {
+        remaining = Math.Clamp(quantity, 0, 999);
+        if (remaining <= 0) return true;
+
+        for (var i = 0; i < slots.Count && remaining > 0; i++)
+        {
+            var item = slots[i];
+            if (item?.IsDeviceDataFragment != true || item.Quantity >= 999) continue;
+
+            var add = Math.Min(999 - item.Quantity, remaining);
+            slots[i] = DeviceDataFragment(item.Quantity + add);
+            remaining -= add;
+        }
+
+        for (var i = 0; i < slots.Count && remaining > 0; i++)
+        {
+            if (slots[i] is not null) continue;
+
+            var add = Math.Min(999, remaining);
+            slots[i] = DeviceDataFragment(add);
+            remaining -= add;
+        }
+
+        return remaining <= 0;
     }
 
     public static bool TryAddHeavyAmmoToSlots(List<ItemStack?> slots, float percent, out float remainingPercent)
@@ -1023,6 +1060,28 @@ public sealed class ItemStack
             0f,
             0f,
             false);
+
+    public static ItemStack DeviceDataFragment(int quantity = 1)
+        => new(
+            ItemType.KeyItem,
+            "Device's Data Fragment",
+            "Grants access to secured objects.",
+            ArmorRarity.Common,
+            Palette.C(190, 150, 82),
+            null,
+            WeaponPattern.Standard,
+            null,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            false,
+            quantity: quantity);
 
     public static ItemStack Consumable(ConsumableType t)
     {

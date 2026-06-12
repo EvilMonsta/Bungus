@@ -185,12 +185,16 @@ public sealed partial class SciFiRogueGame
             var empty = chest.Items.Count == 0;
             var fill = empty
                 ? Palette.C(65, 65, 65, 180)
-                : chest.Kind == LootContainerKind.Crate
+                : chest.Kind == LootContainerKind.EnemyCache
+                    ? Palette.C(96, 82, 68, 240)
+                    : chest.Kind == LootContainerKind.Crate
                     ? Palette.C(98, 62, 34, 240)
                     : Palette.C(122, 82, 38, 240);
             var line = empty
                 ? Color.Gray
-                : chest.Kind == LootContainerKind.Crate
+                : chest.Kind == LootContainerKind.EnemyCache
+                    ? Palette.C(120, 104, 88)
+                    : chest.Kind == LootContainerKind.Crate
                     ? Palette.C(140, 90, 52)
                     : locked ? Color.Red : Color.Gold;
 
@@ -198,10 +202,15 @@ public sealed partial class SciFiRogueGame
             {
                 rect = new Rectangle(chest.Position.X - 14, chest.Position.Y - 14, 28, 28);
             }
+            else if (chest.Kind == LootContainerKind.EnemyCache)
+            {
+                rect = new Rectangle(chest.Position.X - 10, chest.Position.Y - 7, 20, 14);
+            }
 
             Raylib.DrawRectangleRec(rect, fill);
             Raylib.DrawRectangleLinesEx(rect, 1.5f, line);
-            Raylib.DrawLine((int)rect.X, (int)(rect.Y + rect.Height / 2), (int)(rect.X + rect.Width), (int)(rect.Y + rect.Height / 2), Color.Black);
+            var stripColor = chest.Kind == LootContainerKind.EnemyCache ? Palette.C(240, 190, 65) : Color.Black;
+            Raylib.DrawLine((int)rect.X, (int)(rect.Y + rect.Height / 2), (int)(rect.X + rect.Width), (int)(rect.Y + rect.Height / 2), stripColor);
 
             if (!empty && Vector2.Distance(chest.Position, _player.Position) < 30f)
             {
@@ -955,6 +964,10 @@ public sealed partial class SciFiRogueGame
         {
             if (!textureDrawn) DrawStationKeyIcon(rect);
         }
+        else if (item.IsDeviceDataFragment)
+        {
+            if (!textureDrawn) DrawDeviceDataFragmentIcon(rect);
+        }
         else if (item.IsHeavyAmmo)
         {
             if (!textureDrawn) DrawHeavyAmmoIcon(rect);
@@ -982,7 +995,23 @@ public sealed partial class SciFiRogueGame
             DrawHeavyWeaponMarker(rect);
         }
 
+        if (item.Quantity > 1)
+        {
+            DrawStackQuantity(item, rect);
+        }
+
         DrawComparisonMarker(item, rect, comparison, sourceKind);
+    }
+
+    private static void DrawStackQuantity(ItemStack item, Rectangle rect)
+    {
+        var text = item.Quantity.ToString();
+        var fontSize = Math.Max(12, (int)(rect.Height * 0.22f));
+        var width = Raylib.MeasureText(text, fontSize);
+        var pad = 4;
+        var bg = new Rectangle(rect.X + rect.Width - width - pad * 2 - 2, rect.Y + rect.Height - fontSize - pad - 2, width + pad * 2, fontSize + pad);
+        Raylib.DrawRectangleRec(bg, Palette.C(0, 0, 0, 210));
+        Raylib.DrawText(text, (int)(bg.X + pad), (int)(bg.Y + 1), fontSize, Color.White);
     }
 
     private static void DrawHeavyWeaponMarker(Rectangle rect)
@@ -1139,6 +1168,7 @@ public sealed partial class SciFiRogueGame
             return Path.Combine("Assets", "Icons", "Armor", armorIcon);
         }
         if (item.IsStationKey) return Path.Combine("Assets", "Icons", "KeyItems", "station_key.png");
+        if (item.IsDeviceDataFragment) return Path.Combine("Assets", "Icons", "KeyItems", "device's_data_fragment.png");
         if (item.IsHeavyAmmo) return Path.Combine("Assets", "Icons", "Consumables", "heavy_ammo.png");
 
         if (item.Type == ItemType.Consumable)
@@ -1491,6 +1521,15 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText(label, textX, textY, fontSize, Color.White);
     }
 
+    private static void DrawDeviceDataFragmentIcon(Rectangle rect)
+    {
+        Raylib.DrawRectangleLinesEx(rect, MathF.Max(2f, rect.Width * 0.04f), Palette.C(55, 42, 30));
+        var chip = new Rectangle(rect.X + rect.Width * 0.24f, rect.Y + rect.Height * 0.24f, rect.Width * 0.52f, rect.Height * 0.52f);
+        Raylib.DrawRectangleRec(chip, Palette.C(82, 68, 54));
+        Raylib.DrawRectangleLinesEx(chip, MathF.Max(1f, rect.Width * 0.025f), Palette.C(245, 196, 72));
+        Raylib.DrawLineEx(new Vector2(chip.X + chip.Width * 0.18f, chip.Y + chip.Height * 0.5f), new Vector2(chip.X + chip.Width * 0.82f, chip.Y + chip.Height * 0.5f), MathF.Max(2f, rect.Height * 0.04f), Palette.C(245, 196, 72));
+    }
+
     private static void DrawTooltip(ItemStack item, Vector2 mouse, ComparisonContext? comparison = null)
     {
         var detailLines = BuildTooltipDetails(item, comparison);
@@ -1601,6 +1640,7 @@ public sealed partial class SciFiRogueGame
             return lines;
         }
 
+        if (item.IsDeviceDataFragment) return lines;
         if (item.IsStationKey) lines.Add(("Key item | opens station entrance", item.Color));
         else lines.Add(("Use by Q/R", Color.Green));
         return lines;

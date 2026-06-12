@@ -21,6 +21,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private const int WindowedDesignH = 1080;
     private const float MinZoneGap = 300f;
     private const float CenterNoZoneRadius = 850f;
+    private const float PlayerSpawnMinEnemyDistance = 1000f;
     private const int ProtectedSaveVersion = 2;
     private const float UiSlotSize = 87f;
     private const float UiSlotStep = 88f;
@@ -280,6 +281,19 @@ public sealed partial class SciFiRogueGame : IDisposable
         _stationBossDoorSealTimer = -1f;
         GenerateDeadZoneSetPieces();
         MovementUtils.WarmObstacleIndex(_obstacles);
+        _projectiles = [];
+        _explosions = [];
+        _beamEffects = [];
+        _lightningEffects = [];
+        _swings = [];
+        _enemies = GenerateEnemies();
+        _hexEnemies = [];
+        _turrets = GenerateTurrets();
+        _miniBosses = GenerateMiniBosses();
+        _destroyerBoss = _currentMap.IsDeadZone ? null : GenerateDestroyerBoss();
+        _generatorGuards = GenerateGeneratorGuards();
+        _toxicEnemies = GenerateToxicEnemies();
+        _stationBoss = GenerateStationBoss();
         _player = Player.Create(
             GeneratePlayerSpawnPoint(),
             GetCommonHealthBonus(),
@@ -302,19 +316,6 @@ public sealed partial class SciFiRogueGame : IDisposable
             TakeMetaLoadoutItem(SlotKind.QuickSlotQ),
             TakeMetaLoadoutItem(SlotKind.QuickSlotR));
         ApplyIsFunnyNextRunBonus();
-        _projectiles = [];
-        _explosions = [];
-        _beamEffects = [];
-        _lightningEffects = [];
-        _swings = [];
-        _enemies = GenerateEnemies();
-        _hexEnemies = [];
-        _turrets = GenerateTurrets();
-        _miniBosses = GenerateMiniBosses();
-        _destroyerBoss = _currentMap.IsDeadZone ? null : GenerateDestroyerBoss();
-        _generatorGuards = GenerateGeneratorGuards();
-        _toxicEnemies = GenerateToxicEnemies();
-        _stationBoss = GenerateStationBoss();
         PreloadGameplayTextures();
         _pitStationBosses.Clear();
         _nextHexSpawnTimer = NextHexSpawnDelay();
@@ -6143,16 +6144,62 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private Vector2 GeneratePlayerSpawnPoint()
     {
-        for (var i = 0; i < 200; i++)
+        var center = new Vector2(_worldSize / 2f, _worldSize / 2f);
+        var minCenterDistance = MathF.Max(CenterNoZoneRadius + 650f, _worldSize * 0.25f);
+        var relaxedCenterDistance = CenterNoZoneRadius + 250f;
+        var minEnemyDistanceSq = PlayerSpawnMinEnemyDistance * PlayerSpawnMinEnemyDistance;
+        var best = Vector2.Zero;
+        var bestScore = float.NegativeInfinity;
+        var hasBest = false;
+
+        for (var i = 0; i < 900; i++)
         {
             var point = RandomOutdoorPoint(16f);
-            if (Vector2.Distance(point, new Vector2(_worldSize / 2f, _worldSize / 2f)) >= CenterNoZoneRadius + 250f)
+            var centerDistance = Vector2.Distance(point, center);
+            var nearestEnemyDistanceSq = GetNearestEnemyDistanceSquared(point);
+            var score = nearestEnemyDistanceSq + centerDistance * centerDistance * 0.15f;
+            if (!hasBest || score > bestScore)
+            {
+                best = point;
+                bestScore = score;
+                hasBest = true;
+            }
+
+            if (centerDistance >= minCenterDistance && nearestEnemyDistanceSq >= minEnemyDistanceSq)
             {
                 return point;
             }
         }
 
-        return new Vector2(_worldSize / 2f, CenterNoZoneRadius + 250f);
+        for (var i = 0; i < 400; i++)
+        {
+            var point = RandomOutdoorPoint(16f);
+            if (Vector2.Distance(point, center) < relaxedCenterDistance) continue;
+            if (GetNearestEnemyDistanceSquared(point) >= minEnemyDistanceSq) return point;
+        }
+
+        return hasBest ? best : new Vector2(_worldSize / 2f, CenterNoZoneRadius + 250f);
+    }
+
+    private float GetNearestEnemyDistanceSquared(Vector2 point)
+    {
+        var nearest = float.PositiveInfinity;
+        void Consider(Vector2 enemyPosition)
+        {
+            nearest = MathF.Min(nearest, Vector2.DistanceSquared(point, enemyPosition));
+        }
+
+        foreach (var enemy in _enemies) Consider(enemy.Position);
+        foreach (var hex in _hexEnemies) Consider(hex.Position);
+        foreach (var turret in _turrets) Consider(turret.Position);
+        foreach (var boss in _miniBosses) Consider(boss.Position);
+        if (_destroyerBoss is not null) Consider(_destroyerBoss.Position);
+        foreach (var guard in _generatorGuards) Consider(guard.Position);
+        foreach (var toxic in _toxicEnemies) Consider(toxic.Position);
+        if (_stationBoss is not null) Consider(_stationBoss.Position);
+        foreach (var boss in _pitStationBosses) Consider(boss.Position);
+
+        return nearest;
     }
 
     private List<MiniBossEnemySquare> GenerateMiniBosses()

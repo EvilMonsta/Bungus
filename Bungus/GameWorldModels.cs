@@ -971,6 +971,24 @@ public sealed class GroundConsumablePickup(Vector2 position, ItemStack item)
     public ItemStack Item { get; } = item;
 }
 
+public sealed class SecuredTerminalZone(Vector2 position, string password)
+{
+    public Vector2 Position { get; } = position;
+    public string Password { get; } = password;
+    public bool Unlocked { get; set; }
+    public Rectangle Rect => new(Position.X - 150f, Position.Y - 150f, 300f, 300f);
+    public Vector2 HatchPosition => Position;
+    public Vector2 TerminalPosition => Position + new Vector2(-46f, 38f);
+    public float InteractionRadius { get; } = 34f;
+}
+
+public sealed class TerminalNote(Vector2 position, int index, string text)
+{
+    public Vector2 Position { get; } = position;
+    public int Index { get; } = index;
+    public string Text { get; } = text;
+}
+
 public sealed class ExtractPortal(Vector2 position, float seed)
 {
     public Vector2 Position { get; } = position;

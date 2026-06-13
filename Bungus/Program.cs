@@ -82,6 +82,13 @@ public sealed partial class SciFiRogueGame : IDisposable
     private readonly Dictionary<object, float> _chilledTargets = new(ReferenceEqualityComparer.Instance);
     private List<GeneratorNode> _generators = [];
     private List<ToxicPool> _toxicPools = [];
+    private SecuredTerminalZone? _securedTerminalZone;
+    private readonly List<TerminalNote> _terminalNotes = [];
+    private readonly bool[] _terminalNotesRead = [false, false];
+    private bool _terminalOpen;
+    private int? _openTerminalNoteIndex;
+    private string _terminalInput = string.Empty;
+    private string _terminalScreenText = "ACCESS DENIED";
 
     private DragPayload? _drag;
     private ItemStack? _hovered;
@@ -280,6 +287,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _stationBossDoorSealed = false;
         _stationBossDoorSealTimer = -1f;
         GenerateDeadZoneSetPieces();
+        GenerateSecuredTerminalContent();
         MovementUtils.WarmObstacleIndex(_obstacles);
         _projectiles = [];
         _explosions = [];
@@ -358,6 +366,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _protectiveDomes = [];
         _freezeZones = [];
         _midaMiniTurrets = [];
+        ResetSecuredTerminalContent();
         _frozenTargets.Clear();
         _chilledTargets.Clear();
         _generators = [];
@@ -533,7 +542,13 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateCursorVisibility()
     {
-        if (_state == GameState.Playing && !_player.InventoryOpen && !_mapOpen && !_pitRewardOpen && !_pitDifficultyOpen)
+        if (_state == GameState.Playing
+            && !_player.InventoryOpen
+            && !_mapOpen
+            && !_pitRewardOpen
+            && !_pitDifficultyOpen
+            && !_terminalOpen
+            && _openTerminalNoteIndex is null)
         {
             Raylib.HideCursor();
         }
@@ -901,6 +916,20 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdatePlaying(float dt)
     {
+        if (_terminalOpen)
+        {
+            UpdateTerminalPanel();
+            UpdateCursorVisibility();
+            return;
+        }
+
+        if (_openTerminalNoteIndex is not null)
+        {
+            UpdateTerminalNotePopup();
+            UpdateCursorVisibility();
+            return;
+        }
+
         if (_challengeMode && _pitRewardOpen)
         {
             UpdatePitRewardSelection(dt);
@@ -999,6 +1028,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         UpdateProtectiveDomes(dt);
         UpdateChests();
         UpdateGroundConsumables();
+        UpdateSecuredTerminalInteractions();
         UpdateInventoryUi();
         UpdateLevelUi();
         if (_drag is null) _player.Inventory.AutoFillConsumableSlots();
@@ -2017,6 +2047,127 @@ public sealed partial class SciFiRogueGame : IDisposable
             _groundConsumables.RemoveAt(i);
             break;
         }
+    }
+
+    private void UpdateSecuredTerminalInteractions()
+    {
+        if (_player.InventoryOpen || _mapOpen || _pitRewardOpen || _pitDifficultyOpen) return;
+        if (!Raylib.IsKeyPressed(KeyboardKey.F)) return;
+
+        if (_securedTerminalZone is not null
+            && Vector2.Distance(_player.Position, _securedTerminalZone.TerminalPosition) <= _securedTerminalZone.InteractionRadius)
+        {
+            _terminalOpen = true;
+            _terminalInput = string.Empty;
+            _terminalScreenText = _securedTerminalZone.Unlocked ? "ACCESS ALLOWED" : "ACCESS DENIED";
+            ClearUiInteraction();
+            return;
+        }
+
+        for (var i = 0; i < _terminalNotes.Count; i++)
+        {
+            var note = _terminalNotes[i];
+            if (Vector2.Distance(_player.Position, note.Position) > 28f) continue;
+
+            _terminalNotesRead[note.Index] = true;
+            _openTerminalNoteIndex = note.Index;
+            ClearUiInteraction();
+            return;
+        }
+    }
+
+    private void UpdateTerminalPanel()
+    {
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape))
+        {
+            CloseTerminalPanel();
+            return;
+        }
+
+        if (_securedTerminalZone?.Unlocked == true) return;
+
+        for (var digit = 0; digit <= 9; digit++)
+        {
+            if ((Raylib.IsKeyPressed((KeyboardKey)('0' + digit)) || Clicked(TerminalDigitButtonRect(digit)))
+                && _terminalInput.Length < 6)
+            {
+                _terminalInput += digit.ToString();
+            }
+        }
+
+        if ((Raylib.IsKeyPressed(KeyboardKey.Backspace) || Clicked(TerminalDeleteButtonRect())) && _terminalInput.Length > 0)
+        {
+            _terminalInput = _terminalInput[..^1];
+        }
+
+        if (Raylib.IsKeyPressed(KeyboardKey.Enter) || Clicked(TerminalEnterButtonRect()))
+        {
+            SubmitTerminalCode();
+        }
+    }
+
+    private void UpdateTerminalNotePopup()
+    {
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Raylib.IsKeyPressed(KeyboardKey.F) || Clicked(TerminalNoteCloseButtonRect()))
+        {
+            _openTerminalNoteIndex = null;
+        }
+    }
+
+    private void CloseTerminalPanel()
+    {
+        _terminalOpen = false;
+        _terminalInput = string.Empty;
+    }
+
+    private void SubmitTerminalCode()
+    {
+        if (_securedTerminalZone is null) return;
+
+        if (_terminalInput != _securedTerminalZone.Password)
+        {
+            _terminalScreenText = "ACCESS DENIED";
+            _terminalInput = string.Empty;
+            return;
+        }
+
+        if (GetDeviceDataFragmentCount() < 5)
+        {
+            _terminalScreenText = "ACCESS DENIED - 5 FRAGMENTS REQUIRED";
+            _terminalInput = string.Empty;
+            return;
+        }
+
+        _securedTerminalZone.Unlocked = true;
+        _terminalScreenText = "ACCESS ALLOWED";
+        _terminalInput = string.Empty;
+    }
+
+    private int GetDeviceDataFragmentCount()
+    {
+        var count = 0;
+        foreach (var item in _player.Inventory.BackpackSlots)
+        {
+            if (item?.IsDeviceDataFragment == true) count += item.Quantity;
+        }
+
+        return count;
+    }
+
+    private string GetKnownTerminalCodeDisplay()
+    {
+        if (_securedTerminalZone is null) return string.Empty;
+
+        var code = _securedTerminalZone.Password;
+        var first = code[..3];
+        var last = code[3..];
+        var knowsLast = _terminalNotesRead[0];
+        var knowsFirst = _terminalNotesRead[1];
+
+        if (knowsFirst && knowsLast) return code;
+        if (knowsFirst) return first + "XXX";
+        if (knowsLast) return "XXX" + last;
+        return string.Empty;
     }
 
     private void MarkPitConsumablePicked(GroundConsumablePickup pickup)
@@ -5701,6 +5852,63 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         if (_rng.NextSingle() >= 0.05f) return;
         _groundConsumables.Add(new GroundConsumablePickup(position, ItemStack.StationKey()));
+    }
+
+    private void GenerateSecuredTerminalContent()
+    {
+        ResetSecuredTerminalContent();
+        if (_challengeMode) return;
+
+        var password = _rng.Next(0, 1_000_000).ToString("D6");
+        _securedTerminalZone = new SecuredTerminalZone(RandomSecuredTerminalZonePoint(), password);
+
+        var selectedOutposts = _outposts
+            .OrderBy(_ => _rng.Next())
+            .Take(Math.Min(2, _outposts.Count))
+            .ToList();
+
+        if (selectedOutposts.Count >= 1)
+        {
+            _terminalNotes.Add(new TerminalNote(
+                RandomPointInZoneSafe(selectedOutposts[0].Rect, 12f),
+                0,
+                "XXX" + password[3..]));
+        }
+
+        if (selectedOutposts.Count >= 2)
+        {
+            _terminalNotes.Add(new TerminalNote(
+                RandomPointInZoneSafe(selectedOutposts[1].Rect, 12f),
+                1,
+                password[..3] + "XXX"));
+        }
+    }
+
+    private void ResetSecuredTerminalContent()
+    {
+        _securedTerminalZone = null;
+        _terminalNotes.Clear();
+        _terminalNotesRead[0] = false;
+        _terminalNotesRead[1] = false;
+        _terminalOpen = false;
+        _openTerminalNoteIndex = null;
+        _terminalInput = string.Empty;
+        _terminalScreenText = "ACCESS DENIED";
+    }
+
+    private Vector2 RandomSecuredTerminalZonePoint()
+    {
+        for (var i = 0; i < 300; i++)
+        {
+            var point = RandomOutdoorPoint(24f);
+            var rect = new Rectangle(point.X - 150f, point.Y - 150f, 300f, 300f);
+            if (rect.X < 80f || rect.Y < 80f || rect.X + rect.Width > _worldSize - 80f || rect.Y + rect.Height > _worldSize - 80f) continue;
+            if (AllZones().Any(zone => Raylib.CheckCollisionRecs(rect, ExpandRect(zone.Rect, 24f)))) continue;
+            if (_obstacles.Any(obstacle => Raylib.CheckCollisionRecs(rect, obstacle.Rect))) continue;
+            return point;
+        }
+
+        return RandomOutdoorPoint(24f);
     }
 
     private bool TryPickGroundItem(ItemStack item)

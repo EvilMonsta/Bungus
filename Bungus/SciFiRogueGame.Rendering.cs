@@ -62,6 +62,8 @@ public sealed partial class SciFiRogueGame
                 DrawCombatCursor();
                 if (_mapOpen) DrawMapWindow();
                 else DrawInventory();
+                DrawTerminalPanel();
+                DrawTerminalNotePopup();
                 DrawNotice();
                 DrawLowHealthOverlay();
                 EndUiScale();
@@ -146,6 +148,8 @@ public sealed partial class SciFiRogueGame
             Raylib.DrawRectangleRec(obstacle.Rect, Theme.ObstacleFill);
             Raylib.DrawRectangleLinesEx(obstacle.Rect, 1.5f, Theme.ObstacleLine);
         }
+
+        DrawSecuredTerminalWorldObjects();
 
         foreach (var dome in _protectiveDomes)
         {
@@ -486,6 +490,44 @@ public sealed partial class SciFiRogueGame
 
     private static Color Opaque(Color color) => new((int)color.R, color.G, color.B, 255);
 
+    private void DrawSecuredTerminalWorldObjects()
+    {
+        if (_securedTerminalZone is not null)
+        {
+            Raylib.DrawRectangleRec(_securedTerminalZone.Rect, Palette.C(90, 90, 96, 58));
+            Raylib.DrawRectangleLinesEx(_securedTerminalZone.Rect, 1.5f, Palette.C(135, 135, 145, 110));
+
+            var hatch = new Rectangle(_securedTerminalZone.HatchPosition.X - 32f, _securedTerminalZone.HatchPosition.Y - 32f, 64f, 64f);
+            Raylib.DrawRectangleRec(hatch, Palette.C(38, 38, 42, 245));
+            Raylib.DrawRectangleLinesEx(hatch, 2f, Palette.C(92, 92, 98));
+
+            var terminal = new Rectangle(_securedTerminalZone.TerminalPosition.X - 14f, _securedTerminalZone.TerminalPosition.Y - 10f, 28f, 20f);
+            Raylib.DrawRectangleRec(terminal, Palette.C(92, 92, 98, 245));
+            Raylib.DrawRectangleLinesEx(terminal, 1.5f, Palette.C(150, 150, 156));
+            var indicator = new Rectangle(terminal.X + 6f, terminal.Y + 5f, terminal.Width - 12f, terminal.Height - 10f);
+            Raylib.DrawRectangleRec(indicator, _securedTerminalZone.Unlocked ? Palette.C(70, 220, 110) : Palette.C(210, 44, 48));
+
+            if (Vector2.Distance(_securedTerminalZone.TerminalPosition, _player.Position) < 34f)
+            {
+                Raylib.DrawText("F", (int)terminal.X + 9, (int)terminal.Y - 18, 18, _securedTerminalZone.Unlocked ? Palette.C(120, 255, 150) : Palette.C(255, 120, 125));
+            }
+        }
+
+        foreach (var note in _terminalNotes)
+        {
+            var read = note.Index >= 0 && note.Index < _terminalNotesRead.Length && _terminalNotesRead[note.Index];
+            var rect = new Rectangle(note.Position.X - 9f, note.Position.Y - 7f, 18f, 14f);
+            Raylib.DrawRectangleRec(rect, read ? Palette.C(72, 68, 58, 210) : Palette.C(104, 88, 62, 235));
+            Raylib.DrawRectangleLinesEx(rect, 1.5f, read ? Palette.C(130, 120, 90) : Palette.C(230, 190, 80));
+            Raylib.DrawLine((int)rect.X + 3, (int)rect.Y + 5, (int)(rect.X + rect.Width - 3), (int)rect.Y + 5, Palette.C(235, 190, 70));
+
+            if (Vector2.Distance(note.Position, _player.Position) < 28f)
+            {
+                Raylib.DrawText("F", (int)rect.X + 5, (int)rect.Y - 18, 18, Palette.C(235, 205, 110));
+            }
+        }
+    }
+
     private void DrawHud()
     {
         if (!_challengeMode)
@@ -519,7 +561,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawCombatCursor()
     {
-        if (_player.InventoryOpen || _mapOpen || _pitRewardOpen || _pitDifficultyOpen) return;
+        if (_player.InventoryOpen || _mapOpen || _pitRewardOpen || _pitDifficultyOpen || _terminalOpen || _openTerminalNoteIndex is not null) return;
 
         var mouse = GetUiMousePosition();
         var color = Color.White;
@@ -594,6 +636,12 @@ public sealed partial class SciFiRogueGame
         if (_stationZone is not null)
         {
             DrawMapRect(_stationZone.Rect, mapRect, Palette.C(80, 80, 90, 80), Palette.C(240, 60, 70));
+        }
+
+        if (_securedTerminalZone is not null)
+        {
+            DrawMapRect(_securedTerminalZone.Rect, mapRect, Palette.C(90, 90, 96, 80), Palette.C(190, 190, 200));
+            DrawMapCircle(_securedTerminalZone.TerminalPosition, mapRect, 5f, _securedTerminalZone.Unlocked ? Palette.C(90, 230, 120) : Palette.C(230, 80, 85));
         }
 
         foreach (var obstacle in _obstacles)
@@ -784,6 +832,15 @@ public sealed partial class SciFiRogueGame
             ammoX -= 48f;
             DrawRocketPulseModeText(new Vector2(ammoX, hpRect.Y - 78), ammoFont);
             ammoX += 48f;
+        }
+
+        var knownCode = GetKnownTerminalCodeDisplay();
+        if (!string.IsNullOrEmpty(knownCode))
+        {
+            var codeText = $"Access code: {knownCode}";
+            var codeFont = 20;
+            var codeX = hpRect.X + hpRect.Width - Raylib.MeasureText(codeText, codeFont);
+            Raylib.DrawText(codeText, (int)codeX, (int)hpRect.Y - 106, codeFont, Palette.C(235, 205, 110));
         }
 
         Raylib.DrawText(ammoText, (int)ammoX, (int)hpRect.Y - 78, ammoFont, Palette.C(120, 210, 255));
@@ -2229,6 +2286,69 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawRectangle(0, 0, width, height, Palette.C(0, 0, 0, 35));
     }
 
+    private void DrawTerminalPanel()
+    {
+        if (!_terminalOpen || _securedTerminalZone is null) return;
+
+        Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(0, 0, 0, 170));
+
+        var panel = TerminalPanelRect();
+        var screen = TerminalScreenRect();
+        var input = TerminalInputRect();
+        var unlocked = _securedTerminalZone.Unlocked;
+
+        Raylib.DrawRectangleRec(panel, Palette.C(10, 12, 18, 242));
+        Raylib.DrawRectangleLinesEx(panel, 2f, Palette.C(120, 130, 145));
+
+        Raylib.DrawRectangleRec(screen, unlocked ? Palette.C(52, 104, 64, 235) : Palette.C(122, 46, 50, 235));
+        Raylib.DrawRectangleLinesEx(screen, 2f, unlocked ? Palette.C(110, 245, 140) : Palette.C(245, 120, 125));
+        var screenText = string.IsNullOrEmpty(_terminalScreenText) ? "ACCESS DENIED" : _terminalScreenText;
+        var screenFont = screenText.Length > 18 ? 20 : 28;
+        Raylib.DrawText(screenText, (int)(screen.X + screen.Width / 2f - Raylib.MeasureText(screenText, screenFont) / 2f), (int)(screen.Y + screen.Height / 2f - screenFont / 2f), screenFont, unlocked ? Palette.C(190, 255, 200) : Palette.C(255, 190, 195));
+
+        Raylib.DrawRectangleRec(input, Palette.C(20, 24, 32, 255));
+        Raylib.DrawRectangleLinesEx(input, 2f, Palette.C(82, 92, 110));
+        var shownInput = unlocked ? "------" : _terminalInput.PadRight(6, '_');
+        Raylib.DrawText(shownInput, (int)(input.X + input.Width / 2f - Raylib.MeasureText(shownInput, 28) / 2f), (int)input.Y + 6, 28, Color.White);
+
+        for (var digit = 1; digit <= 9; digit++)
+        {
+            DrawButton(TerminalDigitButtonRect(digit), digit.ToString(), !unlocked);
+        }
+
+        DrawTerminalActionButton(TerminalDeleteButtonRect(), "DEL", Palette.C(132, 42, 46), Palette.C(245, 110, 115), !unlocked);
+        DrawButton(TerminalDigitButtonRect(0), "0", !unlocked);
+        DrawTerminalActionButton(TerminalEnterButtonRect(), "OK", Palette.C(44, 118, 62), Palette.C(115, 245, 140), !unlocked);
+    }
+
+    private static void DrawTerminalActionButton(Rectangle rect, string text, Color fill, Color line, bool enabled)
+    {
+        var hover = enabled && Raylib.CheckCollisionPointRec(GetUiMousePosition(), rect);
+        Raylib.DrawRectangleRec(rect, enabled ? (hover ? Mix(fill, Color.White, 0.18f) : fill) : Palette.C(34, 38, 48));
+        DrawButtonPulseFill(rect, line, hover);
+        Raylib.DrawRectangleLinesEx(rect, 2f, enabled ? line : Color.DarkGray);
+        const int fs = 22;
+        Raylib.DrawText(text, (int)(rect.X + rect.Width / 2f - Raylib.MeasureText(text, fs) / 2f), (int)(rect.Y + rect.Height / 2f - fs / 2f), fs, enabled ? Color.White : Color.Gray);
+    }
+
+    private void DrawTerminalNotePopup()
+    {
+        if (_openTerminalNoteIndex is not int noteIndex) return;
+        var note = _terminalNotes.FirstOrDefault(n => n.Index == noteIndex);
+        if (note is null) return;
+
+        Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(0, 0, 0, 150));
+
+        var panel = TerminalNotePanelRect();
+        Raylib.DrawRectangleRec(panel, Palette.C(20, 18, 16, 245));
+        Raylib.DrawRectangleLinesEx(panel, 2f, Palette.C(230, 190, 80));
+        Raylib.DrawText("DATA NOTE", (int)panel.X + 26, (int)panel.Y + 20, 26, Color.White);
+
+        var codeFont = 42;
+        Raylib.DrawText(note.Text, (int)(panel.X + panel.Width / 2f - Raylib.MeasureText(note.Text, codeFont) / 2f), (int)panel.Y + 82, codeFont, Palette.C(235, 205, 110));
+        DrawButton(TerminalNoteCloseButtonRect(), "Close");
+    }
+
     private void DrawCodesPopup()
     {
         Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(0, 0, 0, 165));
@@ -3482,6 +3602,58 @@ public sealed partial class SciFiRogueGame
     {
         var popup = AboutPopupRect();
         return new Rectangle(popup.X + popup.Width - 46, popup.Y + 14, 32, 32);
+    }
+
+    private static Rectangle TerminalPanelRect()
+        => new((GetUiScreenWidth() - 520) / 2f, (GetUiScreenHeight() - 500) / 2f, 520, 500);
+
+    private static Rectangle TerminalScreenRect()
+    {
+        var panel = TerminalPanelRect();
+        return new Rectangle(panel.X + 36, panel.Y + 32, panel.Width - 72, 82);
+    }
+
+    private static Rectangle TerminalInputRect()
+    {
+        var panel = TerminalPanelRect();
+        return new Rectangle(panel.X + 146, panel.Y + 132, 228, 40);
+    }
+
+    private static Rectangle TerminalDigitButtonRect(int digit)
+    {
+        var panel = TerminalPanelRect();
+        const float size = 58f;
+        const float gap = 12f;
+        var startX = panel.X + panel.Width / 2f - size * 1.5f - gap;
+        var startY = panel.Y + 192f;
+
+        if (digit == 0) return new Rectangle(startX + size + gap, startY + (size + gap) * 3f, size, size);
+
+        var index = digit - 1;
+        var col = index % 3;
+        var row = index / 3;
+        return new Rectangle(startX + col * (size + gap), startY + row * (size + gap), size, size);
+    }
+
+    private static Rectangle TerminalDeleteButtonRect()
+    {
+        var zero = TerminalDigitButtonRect(0);
+        return new Rectangle(zero.X - zero.Width - 12f, zero.Y, zero.Width, zero.Height);
+    }
+
+    private static Rectangle TerminalEnterButtonRect()
+    {
+        var zero = TerminalDigitButtonRect(0);
+        return new Rectangle(zero.X + zero.Width + 12f, zero.Y, zero.Width, zero.Height);
+    }
+
+    private static Rectangle TerminalNotePanelRect()
+        => new((GetUiScreenWidth() - 420) / 2f, (GetUiScreenHeight() - 220) / 2f, 420, 220);
+
+    private static Rectangle TerminalNoteCloseButtonRect()
+    {
+        var panel = TerminalNotePanelRect();
+        return new Rectangle(panel.X + panel.Width / 2f - 80f, panel.Y + panel.Height - 64f, 160, 40);
     }
 
     private static Rectangle CenterRect(int offsetX, int y, int w, int h) => new((GetUiScreenWidth() - w) / 2f + offsetX, y, w, h);

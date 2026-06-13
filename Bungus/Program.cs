@@ -22,6 +22,10 @@ public sealed partial class SciFiRogueGame : IDisposable
     private const float MinZoneGap = 300f;
     private const float CenterNoZoneRadius = 850f;
     private const float PlayerSpawnMinEnemyDistance = 1000f;
+    private const float RunIntroFadeInDuration = 1f;
+    private const float RunIntroHoldDuration = 2f;
+    private const float RunIntroFadeOutDuration = 1f;
+    private const float RunIntroDuration = RunIntroFadeInDuration + RunIntroHoldDuration + RunIntroFadeOutDuration;
     private const int ProtectedSaveVersion = 2;
     private const float UiSlotSize = 87f;
     private const float UiSlotStep = 88f;
@@ -175,6 +179,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private string _codeInput = string.Empty;
     private string _codeStatusText = string.Empty;
     private bool _codeStatusSuccess;
+    private float _runIntroTimer;
 
     private static readonly Rectangle TakeAllButtonRect = new(740, 318, 220, 34);
     private static readonly float[] PitRewardSpinDurations = [3f, 4f, 5f, 6f];
@@ -345,6 +350,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         _camera.Offset = GetUiScreenCenter();
         _camera.Target = _player.Position;
+        StartRunIntro();
         SavePersistentState();
     }
 
@@ -453,6 +459,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         _camera.Offset = GetUiScreenCenter();
         _camera.Target = _player.Position;
+        StartRunIntro();
         SavePersistentState();
     }
 
@@ -916,6 +923,12 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdatePlaying(float dt)
     {
+        if (UpdateRunIntro(dt))
+        {
+            UpdateCursorVisibility();
+            return;
+        }
+
         if (_terminalOpen)
         {
             UpdateTerminalPanel();
@@ -984,21 +997,23 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         var enemyCollisionObstacles = BuildEnemyCollisionObstacles();
+        var playerInvisibleForIntro = IsPlayerInvisibleForRunIntro();
         var playerPreviousPosition = _player.Position;
         _player.Update(dt, _obstacles, _worldSize, _dashAfterImages);
         AddMotionTrail(playerPreviousPosition, _player.Position, Theme.Player, 15f, MotionTrailShape.Circle, 0.18f, 13f);
         _player.UpdateCombat(dt, _projectiles);
-        if (Raylib.IsKeyPressed(KeyboardKey.Q)) HandleConsumedQuickSlot(_player.UseQuickSlotQ());
-        if (Raylib.IsKeyPressed(KeyboardKey.R)) HandleConsumedQuickSlot(_player.UseQuickSlotR());
+        if (!playerInvisibleForIntro && Raylib.IsKeyPressed(KeyboardKey.Q)) HandleConsumedQuickSlot(_player.UseQuickSlotQ());
+        if (!playerInvisibleForIntro && Raylib.IsKeyPressed(KeyboardKey.R)) HandleConsumedQuickSlot(_player.UseQuickSlotR());
         if (Raylib.IsKeyPressed((KeyboardKey)49)) _player.SelectWeaponSlot(WeaponSlot.Melee);
         if (Raylib.IsKeyPressed((KeyboardKey)50)) _player.SelectWeaponSlot(WeaponSlot.PrimaryRanged);
         if (Raylib.IsKeyPressed((KeyboardKey)51)) _player.SelectWeaponSlot(WeaponSlot.HeavyRanged);
-        if (!_player.InventoryOpen && Raylib.IsMouseButtonPressed(MouseButton.Right)) _player.ToggleRocketPulseMode();
+        if (!playerInvisibleForIntro && !_player.InventoryOpen && Raylib.IsMouseButtonPressed(MouseButton.Right)) _player.ToggleRocketPulseMode();
 
         var mouseWorld = Raylib.GetScreenToWorld2D(GetUiMousePosition(), _camera);
         var linearRelease = _player.IsLinearRifleEquipped && Raylib.IsMouseButtonReleased(MouseButton.Left);
         var activeWeapon = _player.ActiveWeapon;
-        if (!_player.InventoryOpen
+        if (!playerInvisibleForIntro
+            && !_player.InventoryOpen
             && activeWeapon?.Pattern == WeaponPattern.RamBomber
             && Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
@@ -1006,6 +1021,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
         else if (activeWeapon?.Pattern != WeaponPattern.RamBomber
             && (Raylib.IsMouseButtonDown(MouseButton.Left) || linearRelease)
+            && !playerInvisibleForIntro
             && !_player.InventoryOpen)
         {
             _player.Attack(mouseWorld, _projectiles, _swings, _obstacles, _worldSize, _dashAfterImages);
@@ -1013,15 +1029,16 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         UpdateFreezeZones(dt);
         UpdateMidaMiniTurrets(dt);
-        UpdateEnemies(dt, enemyCollisionObstacles);
-        UpdateHexEnemies(dt, enemyCollisionObstacles);
-        UpdateTurrets(dt, enemyCollisionObstacles);
-        UpdateMiniBosses(dt, enemyCollisionObstacles);
-        UpdateDestroyerBoss(dt, enemyCollisionObstacles);
-        UpdateDeadZoneEnemies(dt, enemyCollisionObstacles);
+        var enemyPlayerTarget = GetEnemyPlayerTarget();
+        UpdateEnemies(dt, enemyCollisionObstacles, enemyPlayerTarget);
+        UpdateHexEnemies(dt, enemyCollisionObstacles, enemyPlayerTarget);
+        UpdateTurrets(dt, enemyCollisionObstacles, enemyPlayerTarget);
+        UpdateMiniBosses(dt, enemyCollisionObstacles, enemyPlayerTarget);
+        UpdateDestroyerBoss(dt, enemyCollisionObstacles, enemyPlayerTarget);
+        UpdateDeadZoneEnemies(dt, enemyCollisionObstacles, enemyPlayerTarget);
         UpdateDeadZoneHazards(dt);
         UpdateDeadZoneProgress(dt);
-        if (_challengeMode) UpdatePitChallenge(dt);
+        if (_challengeMode && !IsPlayerInvisibleForRunIntro()) UpdatePitChallenge(dt);
         UpdateProjectiles(dt);
         UpdateSwings(dt);
         UpdateEffects(dt);
@@ -1047,6 +1064,41 @@ public sealed partial class SciFiRogueGame : IDisposable
         ClearPendingLevelUpPoints();
         ResetInventoryUseHold();
     }
+
+    private void StartRunIntro()
+    {
+        _runIntroTimer = RunIntroDuration;
+    }
+
+    private bool UpdateRunIntro(float dt)
+    {
+        if (_runIntroTimer <= 0f) return false;
+
+        _runIntroTimer = MathF.Max(0f, _runIntroTimer - dt);
+        return _runIntroTimer > RunIntroDuration - RunIntroFadeInDuration;
+    }
+
+    private float GetRunIntroAlpha()
+    {
+        if (_runIntroTimer <= 0f) return 0f;
+
+        var elapsed = RunIntroDuration - _runIntroTimer;
+        if (elapsed < RunIntroFadeInDuration) return Math.Clamp(elapsed / RunIntroFadeInDuration, 0f, 1f);
+
+        var fadeOutStart = RunIntroFadeInDuration + RunIntroHoldDuration;
+        if (elapsed < fadeOutStart) return 1f;
+
+        return Math.Clamp(1f - (elapsed - fadeOutStart) / RunIntroFadeOutDuration, 0f, 1f);
+    }
+
+    private bool ShouldHideWorldForRunIntro()
+        => _runIntroTimer > RunIntroFadeOutDuration;
+
+    private bool IsPlayerInvisibleForRunIntro()
+        => _runIntroTimer > 0f;
+
+    private Vector2 GetEnemyPlayerTarget()
+        => IsPlayerInvisibleForRunIntro() ? new Vector2(-100000f, -100000f) : _player.Position;
 
     private Vector2 GetDesiredCameraTarget(Vector2 mouseWorld)
     {
@@ -1102,20 +1154,21 @@ public sealed partial class SciFiRogueGame : IDisposable
             ? 5f + _rng.NextSingle() * 10f
             : 80f + _rng.NextSingle() * 160f;
 
-    private void UpdateEnemies(float dt, List<Obstacle> enemyCollisionObstacles)
+    private void UpdateEnemies(float dt, List<Obstacle> enemyCollisionObstacles, Vector2 playerTarget)
     {
+        var playerInvisible = IsPlayerInvisibleForRunIntro();
         foreach (var e in _enemies)
         {
             var previousPosition = e.Position;
             if (IsFrozenTarget(e)) continue;
             e.UpdateVisionSweep(dt);
-            if (_challengeMode) e.ForceAggro(_player.Position);
-            else e.UpdateAwareness(_player.Position, dt, enemyCollisionObstacles);
-            e.UpdateMovement(dt, _player.Position, enemyCollisionObstacles, _worldSize);
+            if (_challengeMode && !playerInvisible) e.ForceAggro(playerTarget);
+            else e.UpdateAwareness(playerTarget, dt, enemyCollisionObstacles);
+            e.UpdateMovement(dt, playerTarget, enemyCollisionObstacles, _worldSize);
             AddMotionTrail(previousPosition, e.Position, e.IsStrong ? Theme.EnemyStrong : Theme.Enemy, e.IsStrong ? 11f : 12f, e.IsStrong ? MotionTrailShape.Triangle : MotionTrailShape.Circle);
-            e.TryShootBurst(_player.Position, _projectiles);
+            if (!playerInvisible) e.TryShootBurst(playerTarget, _projectiles);
 
-            if (e.TryMeleeHit(_player) && _rng.NextSingle() <= _player.GetStatusEffectChance(0.05f))
+            if (!playerInvisible && e.TryMeleeHit(_player) && _rng.NextSingle() <= _player.GetStatusEffectChance(0.05f))
             {
                 _player.ApplyBleed(3f);
             }
@@ -1148,13 +1201,13 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
     }
 
-    private void UpdateHexEnemies(float dt, List<Obstacle> enemyCollisionObstacles)
+    private void UpdateHexEnemies(float dt, List<Obstacle> enemyCollisionObstacles, Vector2 playerTarget)
     {
         foreach (var h in _hexEnemies)
         {
             var previousPosition = h.Position;
             if (IsFrozenTarget(h)) continue;
-            h.Update(dt, _player.Position, _projectiles, enemyCollisionObstacles, _worldSize);
+            h.Update(dt, playerTarget, _projectiles, enemyCollisionObstacles, _worldSize);
             AddMotionTrail(previousPosition, h.Position, Palette.C(255, 110, 180), 17f, MotionTrailShape.Hex, 0.08f);
             if (!h.Alive && !h.KillAwarded)
             {
@@ -1171,13 +1224,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
     }
 
-    private void UpdateTurrets(float dt, List<Obstacle> enemyCollisionObstacles)
+    private void UpdateTurrets(float dt, List<Obstacle> enemyCollisionObstacles, Vector2 playerTarget)
     {
+        var playerInvisible = IsPlayerInvisibleForRunIntro();
         foreach (var turret in _turrets)
         {
             var previousPosition = turret.Position;
             if (IsFrozenTarget(turret)) continue;
-            turret.Update(dt, _player.Position, _projectiles, enemyCollisionObstacles, _challengeMode);
+            turret.Update(dt, playerTarget, _projectiles, enemyCollisionObstacles, _challengeMode && !playerInvisible);
             AddMotionTrail(previousPosition, turret.Position, Palette.C(230, 80, 80), 15f, MotionTrailShape.Square, rotateWithMovement: false);
             if (!turret.Alive && !turret.KillAwarded)
             {
@@ -1194,13 +1248,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
     }
 
-    private void UpdateMiniBosses(float dt, List<Obstacle> enemyCollisionObstacles)
+    private void UpdateMiniBosses(float dt, List<Obstacle> enemyCollisionObstacles, Vector2 playerTarget)
     {
+        var playerInvisible = IsPlayerInvisibleForRunIntro();
         foreach (var b in _miniBosses)
         {
             var previousPosition = b.Position;
             if (IsFrozenTarget(b)) continue;
-            b.Update(dt, _player.Position, _projectiles, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages, _challengeMode);
+            b.Update(dt, playerTarget, _projectiles, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages, _challengeMode && !playerInvisible);
             AddMotionTrail(previousPosition, b.Position, Palette.C(230, 100, 100), 21f, MotionTrailShape.Square, 0.2f, rotateWithMovement: false);
             if (!b.Alive && !b.KillAwarded)
             {
@@ -1218,13 +1273,13 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
     }
 
-    private void UpdateDestroyerBoss(float dt, List<Obstacle> enemyCollisionObstacles)
+    private void UpdateDestroyerBoss(float dt, List<Obstacle> enemyCollisionObstacles, Vector2 playerTarget)
     {
         if (_destroyerBoss is null) return;
 
         var previousPosition = _destroyerBoss.Position;
         if (IsFrozenTarget(_destroyerBoss)) return;
-        _destroyerBoss.Update(dt, _player.Position, _projectiles, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages);
+        _destroyerBoss.Update(dt, playerTarget, _projectiles, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages);
         AddMotionTrail(previousPosition, _destroyerBoss.Position, Theme.Boss, 24f, MotionTrailShape.Square, 0.2f, rotateWithMovement: false);
         if (!_destroyerBoss.Alive && !_destroyerBoss.KillAwarded)
         {
@@ -1241,13 +1296,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
     }
 
-    private void UpdateDeadZoneEnemies(float dt, List<Obstacle> enemyCollisionObstacles)
+    private void UpdateDeadZoneEnemies(float dt, List<Obstacle> enemyCollisionObstacles, Vector2 playerTarget)
     {
+        var playerInvisible = IsPlayerInvisibleForRunIntro();
         foreach (var guard in _generatorGuards)
         {
             var previousPosition = guard.Position;
             if (IsFrozenTarget(guard)) continue;
-            guard.Update(dt, _player.Position, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages, _challengeMode);
+            guard.Update(dt, playerTarget, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages, _challengeMode && !playerInvisible);
             AddMotionTrail(previousPosition, guard.Position, Palette.C(255, 170, 95), 17f, MotionTrailShape.Triangle, 0.2f);
             if (!guard.Alive && !guard.KillAwarded)
             {
@@ -1270,7 +1326,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var previousPosition = toxic.Position;
             if (IsFrozenTarget(toxic)) continue;
-            toxic.Update(dt, _player.Position, _projectiles, enemyCollisionObstacles, _worldSize, _challengeMode);
+            toxic.Update(dt, playerTarget, _projectiles, enemyCollisionObstacles, _worldSize, _challengeMode && !playerInvisible);
             AddMotionTrail(previousPosition, toxic.Position, Palette.C(220, 110, 100), 12f, MotionTrailShape.Triangle);
             if (!toxic.Alive && !toxic.KillAwarded)
             {
@@ -1291,7 +1347,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             var previousPosition = _stationBoss.Position;
             if (!IsFrozenTarget(_stationBoss))
             {
-                _stationBoss.Update(dt, _player.Position, _projectiles, _player, enemyCollisionObstacles, _worldSize);
+                _stationBoss.Update(dt, playerTarget, _projectiles, _player, enemyCollisionObstacles, _worldSize);
                 AddMotionTrail(previousPosition, _stationBoss.Position, Palette.C(255, 40, 40), 30f, MotionTrailShape.Circle, 0.2f);
                 if (!_stationBoss.Alive && !_stationBoss.KillAwarded)
                 {
@@ -1313,7 +1369,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var previousPosition = boss.Position;
             if (IsFrozenTarget(boss)) continue;
-            boss.Update(dt, _player.Position, _projectiles, _player, enemyCollisionObstacles, _worldSize);
+            boss.Update(dt, playerTarget, _projectiles, _player, enemyCollisionObstacles, _worldSize);
             AddMotionTrail(previousPosition, boss.Position, Palette.C(255, 40, 40), 30f, MotionTrailShape.Circle, 0.2f);
             if (!boss.Alive && !boss.KillAwarded)
             {

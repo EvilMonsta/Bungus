@@ -56,17 +56,27 @@ public sealed partial class SciFiRogueGame
                 EndUiScale();
                 break;
             case GameState.Playing:
-                DrawWorld();
-                BeginUiScale();
-                DrawHud();
-                DrawCombatCursor();
-                if (_mapOpen) DrawMapWindow();
-                else DrawInventory();
-                DrawTerminalPanel();
-                DrawTerminalNotePopup();
-                DrawNotice();
-                DrawLowHealthOverlay();
-                EndUiScale();
+                if (!ShouldHideWorldForRunIntro())
+                {
+                    DrawWorld();
+                    BeginUiScale();
+                    DrawHud();
+                    DrawCombatCursor();
+                    if (_mapOpen) DrawMapWindow();
+                    else DrawInventory();
+                    DrawTerminalPanel();
+                    DrawTerminalNotePopup();
+                    DrawNotice();
+                    DrawLowHealthOverlay();
+                    DrawRunIntroOverlay();
+                    EndUiScale();
+                }
+                else
+                {
+                    BeginUiScale();
+                    DrawRunIntroOverlay(forceOpaque: true);
+                    EndUiScale();
+                }
                 break;
             case GameState.Paused:
                 DrawWorld();
@@ -526,6 +536,22 @@ public sealed partial class SciFiRogueGame
                 Raylib.DrawText("F", (int)rect.X + 5, (int)rect.Y - 18, 18, Palette.C(235, 205, 110));
             }
         }
+    }
+
+    private void DrawRunIntroOverlay(bool forceOpaque = false)
+    {
+        var alpha = forceOpaque ? 1f : GetRunIntroAlpha();
+        if (alpha <= 0f) return;
+
+        var width = GetUiScreenWidth();
+        var height = GetUiScreenHeight();
+        var fill = WithAlpha(Mix(Opaque(Theme.Background), Color.Black, 0.42f), alpha);
+        Raylib.DrawRectangle(0, 0, width, height, fill);
+
+        const string text = "Loading...";
+        const int fontSize = 42;
+        var textColor = WithAlpha(Color.White, alpha);
+        Raylib.DrawText(text, width / 2 - Raylib.MeasureText(text, fontSize) / 2, height / 2 - fontSize / 2, fontSize, textColor);
     }
 
     private void DrawHud()

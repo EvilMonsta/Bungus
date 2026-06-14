@@ -37,6 +37,7 @@ public sealed partial class SciFiRogueGame
             Raylib.SetTargetFPS(_targetFps);
             _selectedMapName = string.IsNullOrWhiteSpace(data.SelectedMapName) ? "Baselands" : data.SelectedMapName;
             _isFunnyNextRun = data.IsFunnyNextRun;
+            _toBunkerNextRun = data.ToBunkerNextRun;
             _promoCodeUses.Clear();
             foreach (var pair in data.PromoCodeUses ?? [])
             {
@@ -58,6 +59,7 @@ public sealed partial class SciFiRogueGame
             Raylib.SetTargetFPS(_targetFps);
             _selectedMapName = "Baselands";
             _isFunnyNextRun = false;
+            _toBunkerNextRun = false;
             _promoCodeUses.Clear();
             _sessionActiveCodes.Clear();
             ApplyMetaSaveData(null);
@@ -83,6 +85,7 @@ public sealed partial class SciFiRogueGame
                 TargetFps = _targetFps,
                 SelectedMapName = _selectedMapName,
                 IsFunnyNextRun = _isFunnyNextRun,
+                ToBunkerNextRun = _toBunkerNextRun,
                 PromoCodeUses = new Dictionary<string, int>(_promoCodeUses, StringComparer.OrdinalIgnoreCase),
                 Meta = BuildMetaSaveData()
             };

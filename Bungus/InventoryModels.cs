@@ -99,6 +99,7 @@ public sealed class PersistentStateData
     public int TargetFps { get; set; } = 60;
     public string SelectedMapName { get; set; } = "Baselands";
     public bool IsFunnyNextRun { get; set; }
+    public bool ToBunkerNextRun { get; set; }
     public Dictionary<string, int> PromoCodeUses { get; set; } = [];
     public MetaProfileSaveData Meta { get; set; } = new();
 }

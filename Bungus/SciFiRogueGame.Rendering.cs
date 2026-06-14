@@ -8,7 +8,7 @@ public sealed partial class SciFiRogueGame
     private void Draw()
     {
         Raylib.BeginDrawing();
-        Raylib.ClearBackground(Theme.Background);
+        Raylib.ClearBackground(_inBunker ? Color.Black : Theme.Background);
 
         switch (_state)
         {
@@ -116,6 +116,12 @@ public sealed partial class SciFiRogueGame
 
     private void DrawWorld()
     {
+        if (_inBunker)
+        {
+            DrawBunkerWorld();
+            return;
+        }
+
         Raylib.BeginMode2D(GetRenderCamera());
         DrawGrid();
 
@@ -350,6 +356,138 @@ public sealed partial class SciFiRogueGame
         Raylib.EndMode2D();
     }
 
+    private void DrawBunkerWorld()
+    {
+        Raylib.BeginMode2D(GetRenderCamera());
+        Raylib.DrawRectangle(0, 0, BunkerWorldSize, BunkerWorldSize, Color.Black);
+
+        foreach (var room in _bunkerRooms)
+        {
+            if (!_revealedBunkerRooms.Contains(room.Id)) continue;
+            Raylib.DrawRectangleRec(room.Rect, Palette.C(48, 50, 56));
+        }
+
+        foreach (var obstacle in _bunkerObstacles)
+        {
+            var visible = _bunkerRooms.Any(room =>
+            {
+                if (!_revealedBunkerRooms.Contains(room.Id)) return false;
+                var bounds = new Rectangle(
+                    room.Rect.X - BunkerWallThickness,
+                    room.Rect.Y - BunkerWallThickness,
+                    room.Rect.Width + BunkerWallThickness * 2f,
+                    room.Rect.Height + BunkerWallThickness * 2f);
+                return Raylib.CheckCollisionRecs(obstacle.Rect, bounds);
+            });
+            if (!visible) continue;
+            Raylib.DrawRectangleRec(obstacle.Rect, Palette.C(105, 108, 118));
+        }
+
+        foreach (var door in _bunkerDoors)
+        {
+            if (door.Open || (!_revealedBunkerRooms.Contains(door.RoomA) && !_revealedBunkerRooms.Contains(door.RoomB))) continue;
+            Raylib.DrawRectangleRec(door.Rect, Palette.C(126, 82, 62));
+            Raylib.DrawRectangleLinesEx(door.Rect, 1.5f, Palette.C(220, 160, 110));
+            if (Vector2.Distance(_player.Position, door.Center) <= 44f)
+            {
+                Raylib.DrawText("F", (int)door.Center.X - 5, (int)door.Center.Y - 24, 18, Palette.C(245, 205, 150));
+            }
+        }
+
+        var entranceHatch = new Rectangle(BunkerEntranceHatchPosition.X - 36f, BunkerEntranceHatchPosition.Y - 36f, 72f, 72f);
+        Raylib.DrawRectangleRec(entranceHatch, Palette.C(34, 35, 40, 255));
+        Raylib.DrawRectangleLinesEx(entranceHatch, 2f, Palette.C(125, 128, 138));
+        if (Vector2.Distance(_player.Position, BunkerEntranceHatchPosition) <= 34f)
+        {
+            Raylib.DrawText("F", (int)entranceHatch.X + 31, (int)entranceHatch.Y - 20, 18, Palette.C(220, 225, 235));
+        }
+
+        if (_revealedBunkerRooms.Contains(21))
+        {
+            var hatch = new Rectangle(BunkerExitHatchPosition.X - 36f, BunkerExitHatchPosition.Y - 36f, 72f, 72f);
+            Raylib.DrawRectangleRec(hatch, Palette.C(34, 35, 40, 255));
+            Raylib.DrawRectangleLinesEx(hatch, 2f, Palette.C(125, 128, 138));
+            if (Vector2.Distance(_player.Position, BunkerExitHatchPosition) <= 34f)
+            {
+                Raylib.DrawText("F", (int)hatch.X + 31, (int)hatch.Y - 20, 18, Palette.C(220, 225, 235));
+            }
+        }
+
+        foreach (var dome in _bunkerProtectiveDomes)
+        {
+            if (!dome.Alive) continue;
+            var ratio = Math.Clamp(dome.Health / ProtectiveDome.MaxHealth, 0f, 1f);
+            Raylib.DrawCircleV(dome.Position, ProtectiveDome.Radius, Palette.C(120, 190, 255, 46));
+            Raylib.DrawCircleLines((int)dome.Position.X, (int)dome.Position.Y, ProtectiveDome.Radius, Palette.C(170, 225, 255));
+            Raylib.DrawCircleLines((int)dome.Position.X, (int)dome.Position.Y, ProtectiveDome.Radius - 6f, Palette.C(120, 180, 255, 110));
+            var bar = new Rectangle(dome.Position.X - 40f, dome.Position.Y - ProtectiveDome.Radius - 18f, 80f, 5f);
+            Raylib.DrawRectangleRec(bar, Palette.C(20, 20, 20, 220));
+            Raylib.DrawRectangle((int)bar.X, (int)bar.Y, (int)(bar.Width * ratio), (int)bar.Height, Palette.C(120, 205, 255));
+        }
+
+        foreach (var zone in _bunkerFreezeZones)
+        {
+            if (!zone.Alive) continue;
+            var alpha = zone.Freezing ? 0.26f : 0.26f * zone.Alpha;
+            Raylib.DrawCircleV(zone.Position, FreezeZone.Radius, WithAlpha(Palette.C(120, 225, 255), alpha));
+            Raylib.DrawCircleLines((int)zone.Position.X, (int)zone.Position.Y, FreezeZone.Radius, WithAlpha(Palette.C(170, 240, 255), zone.Freezing ? 0.78f : 0.78f * zone.Alpha));
+        }
+
+        foreach (var turret in _bunkerMidaMiniTurrets)
+        {
+            if (!turret.Alive) continue;
+            Raylib.DrawCircleV(turret.Position, 13f, Palette.C(32, 34, 38));
+            Raylib.DrawCircleV(turret.Position, 7f, Palette.C(255, 220, 120));
+            Raylib.DrawCircleLines((int)turret.Position.X, (int)turret.Position.Y, 15f, Palette.C(255, 80, 70));
+            var bar = new Rectangle(turret.Position.X - 34f, turret.Position.Y - 28f, 68f, 5f);
+            Raylib.DrawRectangleRec(bar, Palette.C(20, 20, 20, 220));
+            Raylib.DrawRectangle((int)bar.X, (int)bar.Y, (int)(bar.Width * turret.LifeRatio), (int)bar.Height, Palette.C(255, 210, 100));
+        }
+
+        foreach (var ghost in _dashAfterImages) ghost.Draw();
+        foreach (var ghost in _motionAfterImages) ghost.Draw();
+        foreach (var beam in _beamEffects) beam.Draw();
+        foreach (var lightning in _lightningEffects) lightning.Draw();
+        foreach (var p in _projectiles)
+        {
+            if (p.Kind == ProjectileKind.TraceBeam) continue;
+            if (p.Kind == ProjectileKind.LinearShot)
+            {
+                Raylib.DrawLineEx(p.SourcePosition, p.Position, 2f, WithAlpha(p.Color, 0.35f));
+            }
+
+            if (p.Kind is ProjectileKind.PulsarBolt or ProjectileKind.MicroCharge)
+            {
+                var pulse = 0.65f + MathF.Sin((float)Raylib.GetTime() * 18f) * 0.25f;
+                Raylib.DrawCircleV(p.Position, p.DrawRadius + 2f, WithAlpha(Palette.C(180, 245, 255), 0.25f + pulse * 0.25f));
+            }
+
+            if (p.Highlighted) Raylib.DrawCircleV(p.Position, p.DrawRadius + 1f, Color.White);
+            Raylib.DrawCircleV(p.Position, p.DrawRadius, p.Color);
+        }
+
+        foreach (var ex in _explosions)
+        {
+            var t = ex.Life / ex.MaxLife;
+            var r = ex.Radius * (1f - t);
+            if (ex.Filled)
+            {
+                Raylib.DrawCircleV(ex.Position, r, WithAlpha(ex.Color, ex.FillAlpha * t));
+            }
+            if (ex.Outlined)
+            {
+                Raylib.DrawCircleLines((int)ex.Position.X, (int)ex.Position.Y, r, ex.Color);
+            }
+        }
+
+        foreach (var s in _swings) DrawSwing(s);
+        DrawPlayerSniperAimLine();
+        DrawPlayerShieldAura();
+        Raylib.DrawCircleV(_player.Position, 16f, Theme.Player);
+        Raylib.DrawRectangleLinesEx(new Rectangle(0, 0, BunkerWorldSize, BunkerWorldSize), 6f, Palette.C(120, 124, 136));
+        Raylib.EndMode2D();
+    }
+
     private Camera2D GetRenderCamera()
     {
         var scale = GetUiScale();
@@ -510,6 +648,10 @@ public sealed partial class SciFiRogueGame
             var hatch = new Rectangle(_securedTerminalZone.HatchPosition.X - 32f, _securedTerminalZone.HatchPosition.Y - 32f, 64f, 64f);
             Raylib.DrawRectangleRec(hatch, Palette.C(38, 38, 42, 245));
             Raylib.DrawRectangleLinesEx(hatch, 2f, Palette.C(92, 92, 98));
+            if (_securedTerminalZone.Unlocked && Vector2.Distance(_securedTerminalZone.HatchPosition, _player.Position) < 34f)
+            {
+                Raylib.DrawText("F", (int)hatch.X + 27, (int)hatch.Y - 20, 18, Palette.C(120, 255, 150));
+            }
 
             var terminal = new Rectangle(_securedTerminalZone.TerminalPosition.X - 14f, _securedTerminalZone.TerminalPosition.Y - 10f, 28f, 20f);
             Raylib.DrawRectangleRec(terminal, Palette.C(92, 92, 98, 245));
@@ -520,6 +662,20 @@ public sealed partial class SciFiRogueGame
             if (Vector2.Distance(_securedTerminalZone.TerminalPosition, _player.Position) < 34f)
             {
                 Raylib.DrawText("F", (int)terminal.X + 9, (int)terminal.Y - 18, 18, _securedTerminalZone.Unlocked ? Palette.C(120, 255, 150) : Palette.C(255, 120, 125));
+            }
+        }
+
+        if (_secondaryBunkerHatchPosition != Vector2.Zero)
+        {
+            var hatch = new Rectangle(_secondaryBunkerHatchPosition.X - 32f, _secondaryBunkerHatchPosition.Y - 32f, 64f, 64f);
+            Raylib.DrawRectangleRec(hatch, Palette.C(38, 38, 42, 245));
+            Raylib.DrawRectangleLinesEx(
+                hatch,
+                2f,
+                _secondaryBunkerHatchUnlocked ? Palette.C(90, 220, 120) : Palette.C(92, 92, 98));
+            if (_secondaryBunkerHatchUnlocked && Vector2.Distance(_secondaryBunkerHatchPosition, _player.Position) < 34f)
+            {
+                Raylib.DrawText("F", (int)hatch.X + 27, (int)hatch.Y - 20, 18, Palette.C(120, 255, 150));
             }
         }
 
@@ -575,14 +731,14 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText($"Current: {activeWeapon?.Name ?? "None"} {BuildWeaponDamageText(_player, activeWeapon, _player.ActiveWeaponClass)}", 20, 48, 22, activeWeapon?.Color ?? Color.LightGray);
         Raylib.DrawText($"Consumables: Q [{(_player.Inventory.QuickSlotQ?.Name ?? "-")}]  R [{(_player.Inventory.QuickSlotR?.Name ?? "-")}]", 20, 78, 20, Color.White);
         if (!_challengeMode) Raylib.DrawText($"Run score {_runScore}", 20, 108, 20, Color.Gold);
-        DrawExtractionHud();
+        if (!_inBunker) DrawExtractionHud();
         DrawVitalBars();
         DrawLevelUpIndicator();
         DrawStatusEffects();
         if (_pitRewardOpen) DrawPitRewardSelection();
         if (_pitDifficultyOpen) DrawPitDifficultySelection();
         Raylib.DrawText("WASD move | LMB attack | 1 melee | 2 primary | 3 heavy | TAB inventory | ESC menu", 20, GetUiScreenHeight() - 28, 18, Color.Gray);
-        DrawZoneArrows();
+        if (!_inBunker) DrawZoneArrows();
     }
 
     private void DrawCombatCursor()
@@ -639,6 +795,12 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawRectangleRec(mapRect, Palette.C(12, 18, 28, 255));
         Raylib.DrawRectangleLinesEx(mapRect, 2f, Color.SkyBlue);
 
+        if (_inBunker)
+        {
+            DrawBunkerMapContents(mapRect);
+            return;
+        }
+
         foreach (var building in _buildings)
         {
             DrawMapRect(building.Rect, mapRect, Theme.BuildingFill, Theme.BuildingLine);
@@ -670,6 +832,15 @@ public sealed partial class SciFiRogueGame
             DrawMapCircle(_securedTerminalZone.TerminalPosition, mapRect, 5f, _securedTerminalZone.Unlocked ? Palette.C(90, 230, 120) : Palette.C(230, 80, 85));
         }
 
+        if (_secondaryBunkerHatchPosition != Vector2.Zero)
+        {
+            DrawMapCircle(
+                _secondaryBunkerHatchPosition,
+                mapRect,
+                5f,
+                _secondaryBunkerHatchUnlocked ? Palette.C(90, 230, 120) : Palette.C(105, 105, 112));
+        }
+
         foreach (var obstacle in _obstacles)
         {
             DrawMapRect(obstacle.Rect, mapRect, Theme.ObstacleFill, Theme.ObstacleLine);
@@ -686,6 +857,42 @@ public sealed partial class SciFiRogueGame
         }
 
         if (_mapMarker is Vector2 marker)
+        {
+            var markerPos = WorldToMap(marker, mapRect);
+            Raylib.DrawCircleV(markerPos, 7f, Palette.C(255, 220, 80));
+            Raylib.DrawCircleLines((int)markerPos.X, (int)markerPos.Y, 11f, Color.White);
+            Raylib.DrawText("M", (int)markerPos.X - 5, (int)markerPos.Y - 24, 18, Palette.C(255, 230, 120));
+        }
+
+        var playerPos = WorldToMap(_player.Position, mapRect);
+        Raylib.DrawCircleV(playerPos, 6f, Theme.Player);
+        Raylib.DrawCircleLines((int)playerPos.X, (int)playerPos.Y, 9f, Color.White);
+        Raylib.DrawText("P", (int)playerPos.X - 5, (int)playerPos.Y - 24, 18, Color.White);
+    }
+
+    private void DrawBunkerMapContents(Rectangle mapRect)
+    {
+        Raylib.DrawRectangleRec(mapRect, Color.Black);
+        foreach (var room in _bunkerRooms)
+        {
+            if (!_revealedBunkerRooms.Contains(room.Id)) continue;
+            DrawMapRect(room.Rect, mapRect, Palette.C(48, 50, 56, 255), Palette.C(150, 154, 166));
+        }
+
+        DrawMapCircle(BunkerEntranceHatchPosition, mapRect, 6f, Palette.C(220, 225, 235));
+
+        foreach (var door in _bunkerDoors)
+        {
+            if (door.Open || (!_revealedBunkerRooms.Contains(door.RoomA) && !_revealedBunkerRooms.Contains(door.RoomB))) continue;
+            DrawMapRect(door.Rect, mapRect, Palette.C(126, 82, 62), Palette.C(220, 160, 110));
+        }
+
+        if (_revealedBunkerRooms.Contains(21))
+        {
+            DrawMapCircle(BunkerExitHatchPosition, mapRect, 6f, Palette.C(220, 225, 235));
+        }
+
+        if (_bunkerMapMarker is Vector2 marker)
         {
             var markerPos = WorldToMap(marker, mapRect);
             Raylib.DrawCircleV(markerPos, 7f, Palette.C(255, 220, 80));

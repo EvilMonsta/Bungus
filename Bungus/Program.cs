@@ -26,6 +26,13 @@ public sealed partial class SciFiRogueGame : IDisposable
     private const float RunIntroHoldDuration = 2f;
     private const float RunIntroFadeOutDuration = 1f;
     private const float RunIntroDuration = RunIntroFadeInDuration + RunIntroHoldDuration + RunIntroFadeOutDuration;
+    private const int BunkerWorldSize = 4000;
+    private const float BunkerWallThickness = 8f;
+    private const float BunkerDoorLength = 100f;
+    private static readonly Vector2 BunkerSpawnPosition = new(300f, 300f);
+    private static readonly Vector2 BunkerEntranceHatchPosition = new(100f, 300f);
+    private static readonly Vector2 BunkerExitHatchPosition = new(3700f, 3700f);
+    private static readonly Vector2 BunkerSecondarySpawnPosition = new(3550f, 3700f);
     private const int ProtectedSaveVersion = 2;
     private const float UiSlotSize = 87f;
     private const float UiSlotStep = 88f;
@@ -82,6 +89,9 @@ public sealed partial class SciFiRogueGame : IDisposable
     private List<ProtectiveDome> _protectiveDomes = [];
     private List<FreezeZone> _freezeZones = [];
     private List<MidaMiniTurret> _midaMiniTurrets = [];
+    private List<ProtectiveDome> _bunkerProtectiveDomes = [];
+    private List<FreezeZone> _bunkerFreezeZones = [];
+    private List<MidaMiniTurret> _bunkerMidaMiniTurrets = [];
     private readonly Dictionary<object, float> _frozenTargets = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<object, float> _chilledTargets = new(ReferenceEqualityComparer.Instance);
     private List<GeneratorNode> _generators = [];
@@ -109,6 +119,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private int? _openedChestIndex;
     private bool _mapOpen;
     private Vector2? _mapMarker;
+    private Vector2? _bunkerMapMarker;
     private int _storageScrollRow;
     private int _storageSortMode = -1;
     private readonly HashSet<(SlotKind Kind, int Index)> _selectedStorageSlots = [];
@@ -180,6 +191,15 @@ public sealed partial class SciFiRogueGame : IDisposable
     private string _codeStatusText = string.Empty;
     private bool _codeStatusSuccess;
     private float _runIntroTimer;
+    private bool _inBunker;
+    private Vector2 _surfaceReturnPosition;
+    private Vector2 _secondaryBunkerHatchPosition;
+    private bool _secondaryBunkerHatchUnlocked;
+    private bool _toBunkerNextRun;
+    private List<BunkerRoom> _bunkerRooms = [];
+    private List<BunkerDoor> _bunkerDoors = [];
+    private List<Obstacle> _bunkerObstacles = [];
+    private readonly HashSet<int> _revealedBunkerRooms = [];
 
     private static readonly Rectangle TakeAllButtonRect = new(740, 318, 220, 34);
     private static readonly float[] PitRewardSpinDurations = [3f, 4f, 5f, 6f];
@@ -189,6 +209,15 @@ public sealed partial class SciFiRogueGame : IDisposable
     private const int ArmoryConsumableRowCount = 6;
     private readonly record struct PitDifficultyOffer(char Kind, float Percent);
     private readonly record struct EnemyTarget(object Target, Vector2 Position, float Radius);
+    private readonly record struct BunkerRoom(int Id, Rectangle Rect);
+    private sealed class BunkerDoor(int roomA, int roomB, Rectangle rect)
+    {
+        public int RoomA { get; } = roomA;
+        public int RoomB { get; } = roomB;
+        public Rectangle Rect { get; } = rect;
+        public bool Open { get; set; }
+        public Vector2 Center => new(Rect.X + Rect.Width * 0.5f, Rect.Y + Rect.Height * 0.5f);
+    }
     private sealed record MapDefinition(
         string Name,
         int Difficulty,
@@ -280,6 +309,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         _protectiveDomes = [];
         _freezeZones = [];
         _midaMiniTurrets = [];
+        _bunkerProtectiveDomes = [];
+        _bunkerFreezeZones = [];
+        _bunkerMidaMiniTurrets = [];
         _frozenTargets.Clear();
         _chilledTargets.Clear();
         _generators = [];
@@ -343,10 +375,15 @@ public sealed partial class SciFiRogueGame : IDisposable
         _openedChestIndex = null;
         _mapOpen = false;
         _mapMarker = null;
+        _bunkerMapMarker = null;
         _drag = null;
         _hovered = null;
+        _inBunker = false;
+        _surfaceReturnPosition = Vector2.Zero;
+        InitializeBunkerLayout();
         ClearPendingLevelUpPoints();
         LoadMetaRunBackpackIntoPlayer();
+        ApplyToBunkerNextRunBonus();
 
         _camera.Offset = GetUiScreenCenter();
         _camera.Target = _player.Position;
@@ -372,6 +409,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         _protectiveDomes = [];
         _freezeZones = [];
         _midaMiniTurrets = [];
+        _bunkerProtectiveDomes = [];
+        _bunkerFreezeZones = [];
+        _bunkerMidaMiniTurrets = [];
         ResetSecuredTerminalContent();
         _frozenTargets.Clear();
         _chilledTargets.Clear();
@@ -452,8 +492,17 @@ public sealed partial class SciFiRogueGame : IDisposable
         _openedChestIndex = null;
         _mapOpen = false;
         _mapMarker = null;
+        _bunkerMapMarker = null;
         _drag = null;
         _hovered = null;
+        _inBunker = false;
+        _surfaceReturnPosition = Vector2.Zero;
+        _secondaryBunkerHatchPosition = Vector2.Zero;
+        _secondaryBunkerHatchUnlocked = false;
+        _bunkerRooms = [];
+        _bunkerDoors = [];
+        _bunkerObstacles = [];
+        _revealedBunkerRooms.Clear();
         ClearPendingLevelUpPoints();
         SpawnPitWave();
 
@@ -925,9 +974,11 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         if (UpdateRunIntro(dt))
         {
+            _player.Invulnerable = true;
             UpdateCursorVisibility();
             return;
         }
+        _player.Invulnerable = IsPlayerInvisibleForRunIntro();
 
         if (_terminalOpen)
         {
@@ -993,6 +1044,12 @@ public sealed partial class SciFiRogueGame : IDisposable
             UpdateInventoryUi();
             UpdateLevelUi();
             if (_drag is null) _player.Inventory.AutoFillConsumableSlots();
+            return;
+        }
+
+        if (_inBunker)
+        {
+            UpdateBunker(dt);
             return;
         }
 
@@ -1065,6 +1122,258 @@ public sealed partial class SciFiRogueGame : IDisposable
         ResetInventoryUseHold();
     }
 
+    private void InitializeBunkerLayout()
+    {
+        _bunkerRooms =
+        [
+            new(1, new Rectangle(0, 200, 600, 200)),
+            new(2, new Rectangle(600, 0, 600, 600)),
+            new(3, new Rectangle(800, 600, 200, 1600)),
+            new(4, new Rectangle(0, 800, 800, 600)),
+            new(5, new Rectangle(0, 1400, 800, 600)),
+            new(6, new Rectangle(0, 2000, 400, 400)),
+            new(7, new Rectangle(1200, 200, 400, 200)),
+            new(8, new Rectangle(1600, 200, 200, 600)),
+            new(9, new Rectangle(1400, 800, 400, 600)),
+            new(10, new Rectangle(1800, 200, 1400, 200)),
+            new(11, new Rectangle(1800, 400, 600, 800)),
+            new(12, new Rectangle(2400, 400, 600, 400)),
+            new(13, new Rectangle(2400, 800, 600, 800)),
+            new(14, new Rectangle(3200, 200, 200, 1400)),
+            new(15, new Rectangle(3200, 1600, 800, 600)),
+            new(16, new Rectangle(2400, 1800, 800, 400)),
+            new(17, new Rectangle(1800, 1800, 600, 600)),
+            new(18, new Rectangle(1800, 2400, 600, 200)),
+            new(19, new Rectangle(1000, 2600, 2200, 1400)),
+            new(20, new Rectangle(3200, 3600, 200, 200)),
+            new(21, new Rectangle(3400, 3400, 600, 600))
+        ];
+
+        var connections = new (int A, int B)[]
+        {
+            (1, 2), (2, 3), (3, 4), (3, 5), (4, 5), (5, 6), (2, 7),
+            (7, 8), (8, 9), (8, 10), (10, 11), (10, 12), (12, 13),
+            (10, 14), (14, 15), (15, 16), (16, 17), (17, 18), (18, 19),
+            (19, 20), (20, 21)
+        };
+
+        _bunkerDoors = connections
+            .Select(connection => CreateBunkerDoor(connection.A, connection.B))
+            .ToList();
+        _revealedBunkerRooms.Clear();
+        _revealedBunkerRooms.Add(1);
+        RebuildBunkerObstacles();
+    }
+
+    private BunkerDoor CreateBunkerDoor(int roomAId, int roomBId)
+    {
+        var roomA = _bunkerRooms.First(room => room.Id == roomAId).Rect;
+        var roomB = _bunkerRooms.First(room => room.Id == roomBId).Rect;
+        var halfWall = BunkerWallThickness * 0.5f;
+
+        if (MathF.Abs(roomA.X + roomA.Width - roomB.X) < 0.1f || MathF.Abs(roomB.X + roomB.Width - roomA.X) < 0.1f)
+        {
+            var boundaryX = MathF.Abs(roomA.X + roomA.Width - roomB.X) < 0.1f ? roomB.X : roomA.X;
+            var overlapStart = MathF.Max(roomA.Y, roomB.Y);
+            var overlapEnd = MathF.Min(roomA.Y + roomA.Height, roomB.Y + roomB.Height);
+            var centerY = (overlapStart + overlapEnd) * 0.5f;
+            return new BunkerDoor(roomAId, roomBId, new Rectangle(boundaryX - halfWall, centerY - BunkerDoorLength * 0.5f, BunkerWallThickness, BunkerDoorLength));
+        }
+
+        var boundaryY = MathF.Abs(roomA.Y + roomA.Height - roomB.Y) < 0.1f ? roomB.Y : roomA.Y;
+        var horizontalOverlapStart = MathF.Max(roomA.X, roomB.X);
+        var horizontalOverlapEnd = MathF.Min(roomA.X + roomA.Width, roomB.X + roomB.Width);
+        var centerX = (horizontalOverlapStart + horizontalOverlapEnd) * 0.5f;
+        return new BunkerDoor(roomAId, roomBId, new Rectangle(centerX - BunkerDoorLength * 0.5f, boundaryY - halfWall, BunkerDoorLength, BunkerWallThickness));
+    }
+
+    private void RebuildBunkerObstacles()
+    {
+        var obstacles = new List<Obstacle>();
+        foreach (var room in _bunkerRooms)
+        {
+            AddBunkerRoomWalls(room.Rect, obstacles);
+        }
+
+        foreach (var door in _bunkerDoors)
+        {
+            if (!door.Open) obstacles.Add(new Obstacle(door.Rect));
+        }
+
+        _bunkerObstacles = obstacles;
+        MovementUtils.WarmObstacleIndex(_bunkerObstacles);
+    }
+
+    private void AddBunkerRoomWalls(Rectangle room, List<Obstacle> obstacles)
+    {
+        AddBunkerHorizontalWall(room.X, room.X + room.Width, room.Y, obstacles);
+        AddBunkerHorizontalWall(room.X, room.X + room.Width, room.Y + room.Height, obstacles);
+        AddBunkerVerticalWall(room.Y, room.Y + room.Height, room.X, obstacles);
+        AddBunkerVerticalWall(room.Y, room.Y + room.Height, room.X + room.Width, obstacles);
+    }
+
+    private void AddBunkerHorizontalWall(float start, float end, float y, List<Obstacle> obstacles)
+    {
+        var gaps = _bunkerDoors
+            .Where(door => door.Rect.Width > door.Rect.Height && MathF.Abs(door.Rect.Y + door.Rect.Height * 0.5f - y) < 0.1f)
+            .Select(door => (Start: MathF.Max(start, door.Rect.X), End: MathF.Min(end, door.Rect.X + door.Rect.Width)))
+            .Where(gap => gap.End > gap.Start)
+            .OrderBy(gap => gap.Start)
+            .ToList();
+
+        var cursor = start;
+        foreach (var gap in gaps)
+        {
+            if (gap.Start > cursor) obstacles.Add(new Obstacle(new Rectangle(cursor, y - BunkerWallThickness * 0.5f, gap.Start - cursor, BunkerWallThickness)));
+            cursor = MathF.Max(cursor, gap.End);
+        }
+
+        if (cursor < end) obstacles.Add(new Obstacle(new Rectangle(cursor, y - BunkerWallThickness * 0.5f, end - cursor, BunkerWallThickness)));
+    }
+
+    private void AddBunkerVerticalWall(float start, float end, float x, List<Obstacle> obstacles)
+    {
+        var gaps = _bunkerDoors
+            .Where(door => door.Rect.Height > door.Rect.Width && MathF.Abs(door.Rect.X + door.Rect.Width * 0.5f - x) < 0.1f)
+            .Select(door => (Start: MathF.Max(start, door.Rect.Y), End: MathF.Min(end, door.Rect.Y + door.Rect.Height)))
+            .Where(gap => gap.End > gap.Start)
+            .OrderBy(gap => gap.Start)
+            .ToList();
+
+        var cursor = start;
+        foreach (var gap in gaps)
+        {
+            if (gap.Start > cursor) obstacles.Add(new Obstacle(new Rectangle(x - BunkerWallThickness * 0.5f, cursor, BunkerWallThickness, gap.Start - cursor)));
+            cursor = MathF.Max(cursor, gap.End);
+        }
+
+        if (cursor < end) obstacles.Add(new Obstacle(new Rectangle(x - BunkerWallThickness * 0.5f, cursor, BunkerWallThickness, end - cursor)));
+    }
+
+    private void UpdateBunker(float dt)
+    {
+        if (_player.InventoryOpen)
+        {
+            UpdateInventoryUi();
+            UpdateLevelUi();
+            if (_drag is null) _player.Inventory.AutoFillConsumableSlots();
+            return;
+        }
+
+        var previousPosition = _player.Position;
+        _player.Update(dt, _bunkerObstacles, BunkerWorldSize, _dashAfterImages);
+        _player.UpdateCombat(dt, _projectiles);
+        AddMotionTrail(previousPosition, _player.Position, Theme.Player, 15f, MotionTrailShape.Circle, 0.18f, 13f);
+        if (Raylib.IsKeyPressed(KeyboardKey.Q)) HandleConsumedQuickSlot(_player.UseQuickSlotQ());
+        if (Raylib.IsKeyPressed(KeyboardKey.R)) HandleConsumedQuickSlot(_player.UseQuickSlotR());
+        if (Raylib.IsKeyPressed((KeyboardKey)49)) _player.SelectWeaponSlot(WeaponSlot.Melee);
+        if (Raylib.IsKeyPressed((KeyboardKey)50)) _player.SelectWeaponSlot(WeaponSlot.PrimaryRanged);
+        if (Raylib.IsKeyPressed((KeyboardKey)51)) _player.SelectWeaponSlot(WeaponSlot.HeavyRanged);
+        if (Raylib.IsMouseButtonPressed(MouseButton.Right)) _player.ToggleRocketPulseMode();
+
+        var mouseWorld = Raylib.GetScreenToWorld2D(GetUiMousePosition(), _camera);
+        var linearRelease = _player.IsLinearRifleEquipped && Raylib.IsMouseButtonReleased(MouseButton.Left);
+        var activeWeapon = _player.ActiveWeapon;
+        if (activeWeapon?.Pattern == WeaponPattern.RamBomber && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _player.Attack(mouseWorld, _projectiles, _swings, _bunkerObstacles, BunkerWorldSize, _dashAfterImages);
+        }
+        else if (activeWeapon?.Pattern != WeaponPattern.RamBomber && (Raylib.IsMouseButtonDown(MouseButton.Left) || linearRelease))
+        {
+            _player.Attack(mouseWorld, _projectiles, _swings, _bunkerObstacles, BunkerWorldSize, _dashAfterImages);
+        }
+
+        if (Raylib.IsKeyPressed(KeyboardKey.F) && TryOpenNearbyBunkerDoor())
+        {
+            return;
+        }
+
+        if (Vector2.Distance(_player.Position, BunkerEntranceHatchPosition) <= 34f && Raylib.IsKeyPressed(KeyboardKey.F))
+        {
+            ExitBunkerToSurface(_securedTerminalZone?.HatchPosition + new Vector2(0f, 72f) ?? _surfaceReturnPosition);
+            return;
+        }
+
+        if (Vector2.Distance(_player.Position, BunkerExitHatchPosition) <= 34f && Raylib.IsKeyPressed(KeyboardKey.F))
+        {
+            _secondaryBunkerHatchUnlocked = true;
+            ExitBunkerToSurface(_secondaryBunkerHatchPosition + new Vector2(0f, 72f));
+            return;
+        }
+
+        UpdateBunkerFreezeZones(dt);
+        UpdateBunkerMidaMiniTurrets(dt);
+        UpdateProjectiles(dt);
+        UpdateEffects(dt);
+        UpdateSwings(dt);
+        UpdateBunkerProtectiveDomes(dt);
+        if (_drag is null) _player.Inventory.AutoFillConsumableSlots();
+        _camera.Target = Vector2.Lerp(_camera.Target, _player.Position, 0.2f);
+    }
+
+    private bool TryOpenNearbyBunkerDoor()
+    {
+        var door = _bunkerDoors
+            .Where(candidate => !candidate.Open)
+            .Where(candidate => _revealedBunkerRooms.Contains(candidate.RoomA) || _revealedBunkerRooms.Contains(candidate.RoomB))
+            .OrderBy(candidate => Vector2.DistanceSquared(candidate.Center, _player.Position))
+            .FirstOrDefault();
+        if (door is null || Vector2.Distance(door.Center, _player.Position) > 44f) return false;
+
+        door.Open = true;
+        _revealedBunkerRooms.Add(door.RoomA);
+        _revealedBunkerRooms.Add(door.RoomB);
+        RebuildBunkerObstacles();
+        return true;
+    }
+
+    private void EnterBunker(bool fromSecondaryHatch = false)
+    {
+        if (_securedTerminalZone?.Unlocked != true) return;
+        if (fromSecondaryHatch && !_secondaryBunkerHatchUnlocked) return;
+
+        _surfaceReturnPosition = fromSecondaryHatch
+            ? _secondaryBunkerHatchPosition + new Vector2(0f, 72f)
+            : _securedTerminalZone.HatchPosition + new Vector2(0f, 72f);
+        _inBunker = true;
+        _player.PlaceAt(fromSecondaryHatch ? BunkerSecondarySpawnPosition : BunkerSpawnPosition);
+        _camera.Target = _player.Position;
+        _mapOpen = false;
+        _openedChestIndex = null;
+        _terminalOpen = false;
+        _openTerminalNoteIndex = null;
+        _player.InventoryOpen = false;
+        _drag = null;
+        ResetInventoryUseHold();
+        ClearTransitionEffects();
+        StartRunIntro();
+    }
+
+    private void ExitBunkerToSurface(Vector2 surfacePosition)
+    {
+        _inBunker = false;
+        _surfaceReturnPosition = surfacePosition == Vector2.Zero ? _surfaceReturnPosition : surfacePosition;
+        _player.PlaceAt(_surfaceReturnPosition);
+        _camera.Target = _player.Position;
+        _mapOpen = false;
+        _openedChestIndex = null;
+        _player.InventoryOpen = false;
+        _drag = null;
+        ResetInventoryUseHold();
+        ClearTransitionEffects();
+        StartRunIntro();
+    }
+
+    private void ClearTransitionEffects()
+    {
+        _dashAfterImages.Clear();
+        _motionAfterImages.Clear();
+        _swings.Clear();
+        _beamEffects.Clear();
+        _lightningEffects.Clear();
+        _explosions.Clear();
+    }
+
     private void StartRunIntro()
     {
         _runIntroTimer = RunIntroDuration;
@@ -1132,6 +1441,12 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
+        if (_inBunker)
+        {
+            UpdateBunkerMapWindow();
+            return;
+        }
+
         var mapRect = GetMapRect();
         var mouse = GetUiMousePosition();
         if (!Raylib.CheckCollisionPointRec(mouse, mapRect)) return;
@@ -1146,6 +1461,25 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
             _mapMarker = MapToWorld(mouse, mapRect);
+        }
+    }
+
+    private void UpdateBunkerMapWindow()
+    {
+        var mapRect = GetMapRect();
+        var mouse = GetUiMousePosition();
+        if (!Raylib.CheckCollisionPointRec(mouse, mapRect)) return;
+
+        if (Raylib.IsMouseButtonPressed(MouseButton.Right) && _bunkerMapMarker is Vector2 marker)
+        {
+            var markerScreen = WorldToMap(marker, mapRect);
+            if (Vector2.Distance(markerScreen, mouse) <= 22f) _bunkerMapMarker = null;
+            return;
+        }
+
+        if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _bunkerMapMarker = MapToWorld(mouse, mapRect);
         }
     }
 
@@ -2110,6 +2444,20 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (_player.InventoryOpen || _mapOpen || _pitRewardOpen || _pitDifficultyOpen) return;
         if (!Raylib.IsKeyPressed(KeyboardKey.F)) return;
 
+        if (_securedTerminalZone?.Unlocked == true
+            && Vector2.Distance(_player.Position, _securedTerminalZone.HatchPosition) <= _securedTerminalZone.InteractionRadius)
+        {
+            EnterBunker();
+            return;
+        }
+
+        if (_secondaryBunkerHatchUnlocked
+            && Vector2.Distance(_player.Position, _secondaryBunkerHatchPosition) <= 34f)
+        {
+            EnterBunker(true);
+            return;
+        }
+
         if (_securedTerminalZone is not null
             && Vector2.Distance(_player.Position, _securedTerminalZone.TerminalPosition) <= _securedTerminalZone.InteractionRadius)
         {
@@ -2243,13 +2591,15 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         if (consumableType == ConsumableType.ProtectiveDome)
         {
-            _protectiveDomes.Add(new ProtectiveDome(_player.Position));
+            var domes = _inBunker ? _bunkerProtectiveDomes : _protectiveDomes;
+            domes.Add(new ProtectiveDome(_player.Position));
             return;
         }
 
         if (consumableType == ConsumableType.MidaMiniTurret)
         {
-            _midaMiniTurrets.Add(new MidaMiniTurret(_player.Position));
+            var turrets = _inBunker ? _bunkerMidaMiniTurrets : _midaMiniTurrets;
+            turrets.Add(new MidaMiniTurret(_player.Position));
             return;
         }
 
@@ -2313,6 +2663,10 @@ public sealed partial class SciFiRogueGame : IDisposable
         return result;
     }
 
+    private int GetActiveWorldSize() => _inBunker ? BunkerWorldSize : _worldSize;
+
+    private List<Obstacle> GetActiveProjectileObstacles() => _inBunker ? _bunkerObstacles : _obstacles;
+
     private void UpdateProjectiles(float dt)
     {
         for (var i = _projectiles.Count - 1; i >= 0; i--)
@@ -2346,8 +2700,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                 MotionTrailShape.Circle,
                 IsGrenadeProjectile(p) ? 0.2f : 0.26f);
 
-            var hitWorldBounds = p.Position.X < 0 || p.Position.Y < 0 || p.Position.X > _worldSize || p.Position.Y > _worldSize;
-            var hitObstacle = MovementUtils.CircleHitsObstacle(p.Position, p.DrawRadius, _obstacles);
+            var activeWorldSize = GetActiveWorldSize();
+            var hitWorldBounds = p.Position.X < 0 || p.Position.Y < 0 || p.Position.X > activeWorldSize || p.Position.Y > activeWorldSize;
+            var hitObstacle = MovementUtils.CircleHitsObstacle(p.Position, p.DrawRadius, GetActiveProjectileObstacles());
             var domeHit = p.OwnerEnemy ? FindHitDome(p.Position, p.DrawRadius) : null;
 
             if (p.Kind == ProjectileKind.MicroCharge)
@@ -2524,6 +2879,12 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private bool TryGetNearestPlayerSegmentHitPoint(Vector2 from, Vector2 to, float radius, out Vector2 hitPoint)
     {
+        if (_inBunker)
+        {
+            hitPoint = to;
+            return false;
+        }
+
         if ((to - from).LengthSquared() <= 0.001f)
         {
             hitPoint = to;
@@ -2582,6 +2943,8 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private bool HasEnemyInRadius(Vector2 position, float radius)
     {
+        if (_inBunker) return false;
+
         if (_enemies.Any(e => e.Alive && Vector2.Distance(e.Position, position) < radius)) return true;
         if (_hexEnemies.Any(h => h.Alive && Vector2.Distance(h.Position, position) < radius)) return true;
         if (_turrets.Any(t => t.Alive && Vector2.Distance(t.Position, position) < radius + 6f)) return true;
@@ -2602,6 +2965,8 @@ public sealed partial class SciFiRogueGame : IDisposable
     private bool TryApplyPlayerSegmentDamageCore(Vector2 from, Vector2 to, float radius, float damage, Vector2 shotSource, float poisonDamagePerSecond, float poisonDuration, object? ignoreTarget, out object? hitTarget, bool rangedWeaponEffects = true)
     {
         hitTarget = null;
+        if (_inBunker) return false;
+
         var enemyHit = _enemies
             .Where(e => e.Alive && !ReferenceEquals(e, ignoreTarget) && DistanceToSegment(e.Position, from, to) <= radius + 11f)
             .OrderBy(e => DistanceToSegment(e.Position, from, to))
@@ -2730,8 +3095,11 @@ public sealed partial class SciFiRogueGame : IDisposable
         _explosions.Add(new Explosion(projectile.Position, projectile.ExplosionRadius, projectile.Color, projectile.Kind == ProjectileKind.RamBlast));
         if (projectile.Kind == ProjectileKind.FreezeGrenade)
         {
-            _freezeZones.Add(new FreezeZone(projectile.Position));
+            var zones = _inBunker ? _bunkerFreezeZones : _freezeZones;
+            zones.Add(new FreezeZone(projectile.Position));
         }
+
+        if (_inBunker) return;
 
         if (projectile.OwnerEnemy)
         {
@@ -2920,6 +3288,8 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private IEnumerable<EnemyTarget> EnumerateEnemyTargets()
     {
+        if (_inBunker) yield break;
+
         foreach (var enemy in _enemies.Where(e => e.Alive)) yield return new EnemyTarget(enemy, enemy.Position, 14f);
         foreach (var hex in _hexEnemies.Where(h => h.Alive)) yield return new EnemyTarget(hex, hex.Position, 16f);
         foreach (var turret in _turrets.Where(t => t.Alive)) yield return new EnemyTarget(turret, turret.Position, 18f);
@@ -3618,6 +3988,33 @@ public sealed partial class SciFiRogueGame : IDisposable
                 ClearStorageSelection();
             }
             _drag = null;
+        }
+    }
+
+    private void UpdateBunkerProtectiveDomes(float dt)
+    {
+        for (var i = _bunkerProtectiveDomes.Count - 1; i >= 0; i--)
+        {
+            _bunkerProtectiveDomes[i].Update(dt);
+            if (!_bunkerProtectiveDomes[i].Alive) _bunkerProtectiveDomes.RemoveAt(i);
+        }
+    }
+
+    private void UpdateBunkerFreezeZones(float dt)
+    {
+        for (var i = _bunkerFreezeZones.Count - 1; i >= 0; i--)
+        {
+            _bunkerFreezeZones[i].Update(dt);
+            if (!_bunkerFreezeZones[i].Alive) _bunkerFreezeZones.RemoveAt(i);
+        }
+    }
+
+    private void UpdateBunkerMidaMiniTurrets(float dt)
+    {
+        for (var i = _bunkerMidaMiniTurrets.Count - 1; i >= 0; i--)
+        {
+            _bunkerMidaMiniTurrets[i].Update(dt);
+            if (!_bunkerMidaMiniTurrets[i].Alive) _bunkerMidaMiniTurrets.RemoveAt(i);
         }
     }
 
@@ -4359,6 +4756,18 @@ public sealed partial class SciFiRogueGame : IDisposable
         ShowNotice("ISFUNNY activated. +250 run levels.");
     }
 
+    private void ApplyToBunkerNextRunBonus()
+    {
+        if (!_toBunkerNextRun) return;
+
+        _player.Inventory.AddToBackpack(ItemStack.DeviceDataFragment(5));
+        _terminalNotesRead[0] = true;
+        _terminalNotesRead[1] = true;
+        _toBunkerNextRun = false;
+        SavePersistentState();
+        ShowNotice("TOBUNKER activated. Access code revealed and +5 data fragments.");
+    }
+
     private void AddMetaScore(int amount)
     {
         _meta.Score += amount;
@@ -4721,12 +5130,21 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
+        if (code == "TOBUNKER")
+        {
+            var result = ApplyToBunkerCode();
+            SetCodeStatus(result.Success, result.Message);
+            if (result.Success) _codeInput = string.Empty;
+            return;
+        }
+
         SetCodeStatus(false, "No such code.");
     }
 
     private ProtectiveDome? FindHitDome(Vector2 point, float radius)
     {
-        foreach (var dome in _protectiveDomes)
+        var domes = _inBunker ? _bunkerProtectiveDomes : _protectiveDomes;
+        foreach (var dome in domes)
         {
             if (!dome.Alive) continue;
             var limit = ProtectiveDome.Radius + radius;
@@ -4965,6 +5383,25 @@ public sealed partial class SciFiRogueGame : IDisposable
         return (true, "Success: +3000 XP.");
     }
 
+    private (bool Success, string Message) ApplyToBunkerCode()
+    {
+        const string code = "TOBUNKER";
+        if (_toBunkerNextRun)
+        {
+            return (false, "This code is already active for the next run.");
+        }
+
+        if (!CanUsePromoCode(code, null, false, out var error))
+        {
+            return (false, error);
+        }
+
+        _toBunkerNextRun = true;
+        RegisterPromoCodeUse(code, false);
+        SavePersistentState();
+        return (true, "Success: next expedition starts with 5 data fragments and revealed access code.");
+    }
+
     private bool CanUsePromoCode(string code, int? maxUses, bool sessionOnly, out string error)
     {
         error = string.Empty;
@@ -5035,16 +5472,19 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private Vector2 WorldToMap(Vector2 worldPoint, Rectangle mapRect)
     {
-        var scale = mapRect.Width / _worldSize;
+        var scale = mapRect.Width / GetActiveMapWorldSize();
         return new Vector2(mapRect.X + worldPoint.X * scale, mapRect.Y + worldPoint.Y * scale);
     }
 
     private Vector2 MapToWorld(Vector2 mapPoint, Rectangle mapRect)
     {
-        var scale = _worldSize / mapRect.Width;
+        var worldSize = GetActiveMapWorldSize();
+        var scale = worldSize / mapRect.Width;
         var world = new Vector2((mapPoint.X - mapRect.X) * scale, (mapPoint.Y - mapRect.Y) * scale);
-        return Vector2.Clamp(world, Vector2.Zero, new Vector2(_worldSize, _worldSize));
+        return Vector2.Clamp(world, Vector2.Zero, new Vector2(worldSize, worldSize));
     }
+
+    private int GetActiveMapWorldSize() => _inBunker ? BunkerWorldSize : _worldSize;
 
     private void DrawScreenZoneArrow(List<LootZone> zones, Color color, string marker)
     {
@@ -5917,6 +6357,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         var password = _rng.Next(0, 1_000_000).ToString("D6");
         _securedTerminalZone = new SecuredTerminalZone(RandomSecuredTerminalZonePoint(), password);
+        _secondaryBunkerHatchPosition = RandomSecondaryBunkerHatchPoint();
 
         var selectedOutposts = _outposts
             .OrderBy(_ => _rng.Next())
@@ -5950,6 +6391,27 @@ public sealed partial class SciFiRogueGame : IDisposable
         _openTerminalNoteIndex = null;
         _terminalInput = string.Empty;
         _terminalScreenText = "ACCESS DENIED";
+        _secondaryBunkerHatchPosition = Vector2.Zero;
+        _secondaryBunkerHatchUnlocked = false;
+    }
+
+    private Vector2 RandomSecondaryBunkerHatchPoint()
+    {
+        var primaryHatch = _securedTerminalZone?.HatchPosition ?? Vector2.Zero;
+        for (var i = 0; i < 300; i++)
+        {
+            var point = RandomOutdoorPoint(100f);
+            var clearance = new Rectangle(point.X - 90f, point.Y - 90f, 180f, 180f);
+            if (Vector2.Distance(point, primaryHatch) < 600f) continue;
+            if (clearance.X < 80f || clearance.Y < 80f
+                || clearance.X + clearance.Width > _worldSize - 80f
+                || clearance.Y + clearance.Height > _worldSize - 80f) continue;
+            if (AllZones().Any(zone => Raylib.CheckCollisionRecs(clearance, ExpandRect(zone.Rect, 24f)))) continue;
+            if (_obstacles.Any(obstacle => Raylib.CheckCollisionRecs(clearance, obstacle.Rect))) continue;
+            return point;
+        }
+
+        return RandomOutdoorPoint(100f);
     }
 
     private Vector2 RandomSecuredTerminalZonePoint()
@@ -5958,10 +6420,17 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var point = RandomOutdoorPoint(24f);
             var rect = new Rectangle(point.X - 150f, point.Y - 150f, 300f, 300f);
+            if (Vector2.Distance(point, new Vector2(_worldSize / 2f, _worldSize / 2f)) < CenterNoZoneRadius) continue;
             if (rect.X < 80f || rect.Y < 80f || rect.X + rect.Width > _worldSize - 80f || rect.Y + rect.Height > _worldSize - 80f) continue;
             if (AllZones().Any(zone => Raylib.CheckCollisionRecs(rect, ExpandRect(zone.Rect, 24f)))) continue;
             if (_obstacles.Any(obstacle => Raylib.CheckCollisionRecs(rect, obstacle.Rect))) continue;
             return point;
+        }
+
+        for (var i = 0; i < 100; i++)
+        {
+            var point = RandomOutdoorPoint(24f);
+            if (Vector2.Distance(point, new Vector2(_worldSize / 2f, _worldSize / 2f)) >= CenterNoZoneRadius) return point;
         }
 
         return RandomOutdoorPoint(24f);

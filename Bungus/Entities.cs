@@ -140,6 +140,7 @@ public sealed class Player
     public bool SniperChargeReady => IsLegendarySniperEquipped && _legendarySniperChargePrimed && _legendarySniperChargeTimer >= LegendarySniperChargeDuration;
 
     public bool InventoryOpen { get; set; }
+    public bool Invulnerable { get; set; }
 
     public int Str { get; private set; }
     public int Dex { get; private set; }
@@ -210,20 +211,29 @@ public sealed class Player
         _timeSinceLastDamage += dt;
         UpdateLinearRifleCharge(dt);
 
-        if (_bleed > 0)
+        if (_bleed > 0 && !Invulnerable)
         {
             _bleed -= dt;
             _timeSinceLastDamage = 0f;
             _regenTickTimer = 0f;
             Health = MathF.Max(0f, Health - 2.4f * dt);
         }
+        else if (_bleed > 0)
+        {
+            _bleed -= dt;
+        }
 
-        if (_poison > 0)
+        if (_poison > 0 && !Invulnerable)
         {
             _poison -= dt;
             _timeSinceLastDamage = 0f;
             _regenTickTimer = 0f;
             Health = MathF.Max(0f, Health - MaxHealth * 0.03f * dt);
+            if (_poison <= 0f) _poisonDurationMax = 0f;
+        }
+        else if (_poison > 0)
+        {
+            _poison -= dt;
             if (_poison <= 0f) _poisonDurationMax = 0f;
         }
 
@@ -887,6 +897,7 @@ public sealed class Player
 
     public void TakeDamage(float value, bool isExplosion = false)
     {
+        if (Invulnerable) return;
         if (value <= 0f) return;
 
         SyncArmorState();

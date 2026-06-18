@@ -39,7 +39,7 @@ public sealed class MetaProfile
     public bool AddToStorage(ItemStack item)
     {
         if (item.IsHeavyAmmo) return TryAddHeavyAmmo(item.AmmoPercent, out _);
-        if (item.IsDeviceDataFragment) return ItemStack.TryAddDeviceDataFragmentsToSlots(StorageSlots, item.Quantity, out _);
+        if (item.IsPersistentStackableKey) return ItemStack.TryAddStackableKeyToSlots(StorageSlots, item, out _);
 
         for (var i = 0; i < StorageSlots.Count; i++)
         {
@@ -214,7 +214,7 @@ public sealed class Inventory
     public bool AddToBackpack(ItemStack item)
     {
         if (item.IsHeavyAmmo) return TryAddHeavyAmmo(item.AmmoPercent, out _);
-        if (item.IsDeviceDataFragment) return ItemStack.TryAddDeviceDataFragmentsToSlots(BackpackSlots, item.Quantity, out _);
+        if (item.IsPersistentStackableKey) return ItemStack.TryAddStackableKeyToSlots(BackpackSlots, item, out _);
         if (TryPlaceIntoConsumableSlot(item)) return true;
 
         for (var i = 0; i < BackpackSlots.Count; i++)
@@ -257,8 +257,8 @@ public sealed class Inventory
             if (item?.IsHeavyAmmo != true) continue;
 
             var consumed = MathF.Min(item.AmmoPercent, remaining);
-            var left = MathF.Round(item.AmmoPercent - consumed, 1);
-            remaining = MathF.Round(remaining - consumed, 1);
+            var left = MathF.Round(item.AmmoPercent - consumed, 4);
+            remaining = MathF.Round(remaining - consumed, 4);
             BackpackSlots[i] = left > 0f ? ItemStack.HeavyAmmo(left) : null;
         }
 
@@ -335,8 +335,11 @@ public sealed class ItemStack
            || Type == ItemType.Consumable && ConsumableKind == ConsumableType.StationKey;
     public bool IsDeviceDataFragment
         => Type == ItemType.KeyItem && Name.Equals("Device's Data Fragment", StringComparison.OrdinalIgnoreCase);
+    public bool IsVexEye => Type == ItemType.KeyItem && Name.Equals("Vex's Eye", StringComparison.OrdinalIgnoreCase);
+    public bool IsInfectedExemplar => Type == ItemType.KeyItem && Name.Equals("Infected Exemplar", StringComparison.OrdinalIgnoreCase);
+    public bool IsPersistentStackableKey => IsDeviceDataFragment || IsVexEye || IsInfectedExemplar;
     public bool IsPrimaryWeapon => Type == ItemType.Weapon && WeaponKind == WeaponClass.Ranged && Pattern is WeaponPattern.Standard or WeaponPattern.PulseRifle or WeaponPattern.AutoRifle or WeaponPattern.Pulsar or WeaponPattern.Toxikus;
-    public bool IsHeavyWeapon => Type == ItemType.Weapon && WeaponKind == WeaponClass.Ranged && Pattern is WeaponPattern.GrenadeLauncher or WeaponPattern.LinearRifle or WeaponPattern.RocketLauncher or WeaponPattern.SniperRifle or WeaponPattern.TraceRifle or WeaponPattern.RamBomber or WeaponPattern.RocketPulseRifle;
+    public bool IsHeavyWeapon => Type == ItemType.Weapon && WeaponKind == WeaponClass.Ranged && Pattern is WeaponPattern.GrenadeLauncher or WeaponPattern.LinearRifle or WeaponPattern.RocketLauncher or WeaponPattern.SniperRifle or WeaponPattern.TraceRifle or WeaponPattern.RamBomber or WeaponPattern.RocketPulseRifle or WeaponPattern.Terror;
     public bool IsHeavyAmmo => Type == ItemType.Ammo;
 
     public ArmorKind ArmorKind { get; }
@@ -400,7 +403,7 @@ public sealed class ItemStack
         MovementSpreadPercent = type == ItemType.Armor ? movementSpreadPercent : 0f;
         DashDistancePercent = type == ItemType.Armor ? dashDistancePercent : 0f;
         BaseDamage = baseDamage;
-        AmmoPercent = MathF.Round(Math.Clamp(ammoPercent, 0f, 100f), 1);
+        AmmoPercent = MathF.Round(Math.Clamp(ammoPercent, 0f, 100f), 4);
         Quantity = Math.Clamp(quantity, 1, 999);
     }
 
@@ -509,9 +512,43 @@ public sealed class ItemStack
         return remaining <= 0;
     }
 
+    public static bool TryAddStackableKeyToSlots(List<ItemStack?> slots, ItemStack key, out int remaining)
+    {
+        remaining = key.Quantity;
+        if (!key.IsPersistentStackableKey) return false;
+
+        for (var i = 0; i < slots.Count && remaining > 0; i++)
+        {
+            var item = slots[i];
+            if (item?.Type != ItemType.KeyItem
+                || !item.Name.Equals(key.Name, StringComparison.OrdinalIgnoreCase)
+                || item.Quantity >= 999) continue;
+            var add = Math.Min(999 - item.Quantity, remaining);
+            slots[i] = key.Name.Equals("Vex's Eye", StringComparison.OrdinalIgnoreCase)
+                ? VexEye(item.Quantity + add)
+                : key.Name.Equals("Infected Exemplar", StringComparison.OrdinalIgnoreCase)
+                    ? InfectedExemplar(item.Quantity + add)
+                    : DeviceDataFragment(item.Quantity + add);
+            remaining -= add;
+        }
+
+        for (var i = 0; i < slots.Count && remaining > 0; i++)
+        {
+            if (slots[i] is not null) continue;
+            var add = Math.Min(999, remaining);
+            slots[i] = key.Name.Equals("Vex's Eye", StringComparison.OrdinalIgnoreCase)
+                ? VexEye(add)
+                : key.Name.Equals("Infected Exemplar", StringComparison.OrdinalIgnoreCase)
+                    ? InfectedExemplar(add)
+                    : DeviceDataFragment(add);
+            remaining -= add;
+        }
+        return remaining <= 0;
+    }
+
     public static bool TryAddHeavyAmmoToSlots(List<ItemStack?> slots, float percent, out float remainingPercent)
     {
-        remainingPercent = MathF.Round(MathF.Max(0f, percent), 1);
+        remainingPercent = MathF.Round(MathF.Max(0f, percent), 4);
         if (remainingPercent <= 0f) return true;
 
         for (var i = 0; i < slots.Count && remainingPercent > 0f; i++)
@@ -521,7 +558,7 @@ public sealed class ItemStack
 
             var add = MathF.Min(100f - item.AmmoPercent, remainingPercent);
             slots[i] = HeavyAmmo(item.AmmoPercent + add);
-            remainingPercent = MathF.Round(remainingPercent - add, 1);
+            remainingPercent = MathF.Round(remainingPercent - add, 4);
         }
 
         for (var i = 0; i < slots.Count && remainingPercent > 0f; i++)
@@ -530,7 +567,7 @@ public sealed class ItemStack
 
             var add = MathF.Min(100f, remainingPercent);
             slots[i] = HeavyAmmo(add);
-            remainingPercent = MathF.Round(remainingPercent - add, 1);
+            remainingPercent = MathF.Round(remainingPercent - add, 4);
         }
 
         return remainingPercent <= 0f;
@@ -557,11 +594,13 @@ public sealed class ItemStack
             WeaponPattern.SniperRifle => 33,
             WeaponPattern.LinearRifle => 25,
             WeaponPattern.RocketPulseRifle => 120,
+            WeaponPattern.Terror => 75,
             _ => 0
         };
 
     public static float GetHeavyAmmoCostPercent(ItemStack? weapon)
     {
+        if (weapon?.Pattern == WeaponPattern.Terror) return 1.3333f;
         var rounds = GetHeavyAmmoRoundsPerFullStack(weapon);
         if (rounds <= 0) return 0f;
         return MathF.Max(0.1f, MathF.Floor(1000f / rounds) / 10f);
@@ -1041,6 +1080,20 @@ public sealed class ItemStack
     public static ItemStack RamBomber(Random rng)
         => CreatePatternWeapon(WeaponClass.Ranged, WeaponPattern.RamBomber, ArmorRarity.Red, rng);
 
+    public static ItemStack Terror()
+        => new(
+            ItemType.Weapon,
+            "Terror",
+            "Unique heavy weapon. Sustained fire spins up from 2 to 15 rounds per second over 6 seconds. Bullets inflict radioactive decomposition.",
+            ArmorRarity.Red,
+            Palette.Rarity(ArmorRarity.Red),
+            WeaponClass.Ranged,
+            WeaponPattern.Terror,
+            null,
+            0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f,
+            33f,
+            false);
+
     public static ItemStack StationKey()
         => new(
             ItemType.KeyItem,
@@ -1081,6 +1134,34 @@ public sealed class ItemStack
             0f,
             0f,
             0f,
+            false,
+            quantity: quantity);
+
+    public static ItemStack VexEye(int quantity = 1)
+        => new(
+            ItemType.KeyItem,
+            "Vex's Eye",
+            "The eye of monstrous robots that used plasma as an energy source. I wonder where they are now...",
+            ArmorRarity.Rare,
+            Palette.C(100, 190, 255),
+            null,
+            WeaponPattern.Standard,
+            null,
+            0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f,
+            false,
+            quantity: quantity);
+
+    public static ItemStack InfectedExemplar(int quantity = 1)
+        => new(
+            ItemType.KeyItem,
+            "Infected Exemplar",
+            "This specimen's DNA is dangerous, but some would pay dearly for it.",
+            ArmorRarity.Epic,
+            Palette.C(170, 95, 205),
+            null,
+            WeaponPattern.Standard,
+            null,
+            0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f,
             false,
             quantity: quantity);
 

@@ -94,6 +94,9 @@ public sealed partial class SciFiRogueGame : IDisposable
     private List<MidaMiniTurret> _bunkerMidaMiniTurrets = [];
     private readonly Dictionary<object, float> _frozenTargets = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<object, float> _chilledTargets = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<object, float> _radioactiveDecompositionTargets = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<object, float> _poisonVisualTargets = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<object, float> _slowVisualTargets = new(ReferenceEqualityComparer.Instance);
     private List<GeneratorNode> _generators = [];
     private List<ToxicPool> _toxicPools = [];
     private SecuredTerminalZone? _securedTerminalZone;
@@ -200,6 +203,27 @@ public sealed partial class SciFiRogueGame : IDisposable
     private List<BunkerDoor> _bunkerDoors = [];
     private List<Obstacle> _bunkerObstacles = [];
     private readonly HashSet<int> _revealedBunkerRooms = [];
+    private BunkerTyrant? _bunkerTyrant;
+    private readonly List<BunkerScrib> _bunkerScribs = [];
+    private readonly List<BunkerParasite> _bunkerParasites = [];
+    private readonly List<BunkerToxicCloud> _bunkerToxicClouds = [];
+    private readonly List<BunkerSiegeEnemy> _bunkerSiegeEnemies = [];
+    private readonly List<BunkerAssaultEnemy> _bunkerAssaultEnemies = [];
+    private readonly List<BunkerInfectedEnemy> _bunkerInfectedEnemies = [];
+    private readonly List<BunkerInfectedCloud> _bunkerInfectedClouds = [];
+    private readonly HashSet<LootChest> _bunkerChests = [];
+    private readonly bool[] _bunkerTyrantSwitches = new bool[4];
+    private bool _bunkerTyrantFightStarted;
+    private bool _bunkerTyrantRewardDropped;
+    private float _bunkerTyrantDoorSealTimer = -1f;
+    private bool _bunkerTyrantArenaObstaclesDestroyed;
+    private ItemStack? _bunkerTyrantDrop;
+    private static readonly Vector2[] BunkerTyrantSwitchPositions =
+    [
+        new(1100f, 2700f), new(3100f, 2700f), new(1100f, 3900f), new(3100f, 3900f)
+    ];
+    private static readonly Vector2 BunkerTyrantLeftSpawn = new(1100f, 3300f);
+    private static readonly Vector2 BunkerTyrantRightSpawn = new(3100f, 3300f);
 
     private static readonly Rectangle TakeAllButtonRect = new(740, 318, 220, 34);
     private static readonly float[] PitRewardSpinDurations = [3f, 4f, 5f, 6f];
@@ -314,6 +338,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         _bunkerMidaMiniTurrets = [];
         _frozenTargets.Clear();
         _chilledTargets.Clear();
+        _radioactiveDecompositionTargets.Clear();
+        _poisonVisualTargets.Clear();
+        _slowVisualTargets.Clear();
         _generators = [];
         _toxicPools = [];
         _stationEntranceDoor = null;
@@ -415,6 +442,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         ResetSecuredTerminalContent();
         _frozenTargets.Clear();
         _chilledTargets.Clear();
+        _radioactiveDecompositionTargets.Clear();
+        _poisonVisualTargets.Clear();
+        _slowVisualTargets.Clear();
         _generators = [];
         _toxicPools = [];
         _stationEntranceDoor = null;
@@ -1124,6 +1154,21 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void InitializeBunkerLayout()
     {
+        _bunkerTyrant = new BunkerTyrant(new Vector2(2100f, 3750f));
+        _bunkerScribs.Clear();
+        _bunkerParasites.Clear();
+        _bunkerToxicClouds.Clear();
+        _bunkerSiegeEnemies.Clear();
+        _bunkerAssaultEnemies.Clear();
+        _bunkerInfectedEnemies.Clear();
+        _bunkerInfectedClouds.Clear();
+        _bunkerChests.Clear();
+        Array.Fill(_bunkerTyrantSwitches, false);
+        _bunkerTyrantFightStarted = false;
+        _bunkerTyrantRewardDropped = false;
+        _bunkerTyrantDoorSealTimer = -1f;
+        _bunkerTyrantArenaObstaclesDestroyed = false;
+        _bunkerTyrantDrop = null;
         _bunkerRooms =
         [
             new(1, new Rectangle(0, 200, 600, 200)),
@@ -1162,7 +1207,85 @@ public sealed partial class SciFiRogueGame : IDisposable
             .ToList();
         _revealedBunkerRooms.Clear();
         _revealedBunkerRooms.Add(1);
+        SpawnBunkerRoomEnemies();
+        SpawnBunkerChests();
         RebuildBunkerObstacles();
+    }
+
+    private void SpawnBunkerChests()
+    {
+        foreach (var roomId in new[] { 4, 6, 9, 13, 17 })
+        {
+            var room = _bunkerRooms.First(candidate => candidate.Id == roomId).Rect;
+            var position = new Vector2(room.X + 58f, room.Y + 58f);
+            var chest = new LootChest(position, RollBunkerChestLoot(), null, LootContainerKind.Crate);
+            _chests.Add(chest);
+            _bunkerChests.Add(chest);
+        }
+    }
+
+    private List<ItemStack> RollBunkerChestLoot()
+    {
+        var loot = new List<ItemStack>
+        {
+            ItemStack.Consumable(RollConsumableType()),
+            ItemStack.HeavyAmmo(_rng.Next(20, 26))
+        };
+        if (_rng.NextSingle() < 0.10f)
+            loot.Add(_rng.Next(2) == 0 ? ItemStack.VexEye() : ItemStack.InfectedExemplar());
+        var equipmentRoll = _rng.NextSingle();
+        if (equipmentRoll < 0.05f) loot.Add(RollEquipmentOfRarity(ArmorRarity.Epic));
+        else if (equipmentRoll < 0.25f) loot.Add(RollEquipmentOfRarity(ArmorRarity.Rare));
+        return loot;
+    }
+
+    private void SpawnBunkerRoomEnemies()
+    {
+        SpawnBunkerRoomComposition(2, 3, 1, 0, 0);
+        SpawnBunkerRoomComposition(3, 4, 0, 2, 0);
+        SpawnBunkerRoomComposition(4, 0, 0, 5, 0);
+        SpawnBunkerRoomComposition(5, 0, 0, 2, 2);
+        SpawnBunkerRoomComposition(6, 0, 1, 0, 0);
+        SpawnBunkerRoomComposition(8, 0, 1, 0, 0);
+        SpawnBunkerRoomComposition(9, 0, 0, 2, 0);
+        SpawnBunkerRoomComposition(10, 0, 4, 0, 0);
+        SpawnBunkerRoomComposition(11, 0, 0, 0, 3);
+        SpawnBunkerRoomComposition(12, 0, 0, 2, 0);
+        SpawnBunkerRoomComposition(13, 0, 0, 3, 1);
+        SpawnBunkerRoomComposition(15, 0, 0, 2, 3);
+        SpawnBunkerRoomComposition(16, 0, 0, 2, 0);
+        SpawnBunkerRoomComposition(17, 0, 0, 0, 3);
+    }
+
+    private void SpawnBunkerRoomComposition(int roomId, int siegeCount, int assaultCount, int scribCount, int infectedCount)
+    {
+        var total = siegeCount + assaultCount + scribCount + infectedCount;
+        var room = _bunkerRooms.First(candidate => candidate.Id == roomId).Rect;
+        var positions = GenerateBunkerRoomSpawnPoints(room, total);
+        var index = 0;
+        for (var i = 0; i < siegeCount; i++) _bunkerSiegeEnemies.Add(new BunkerSiegeEnemy(roomId, room, positions[index++]));
+        for (var i = 0; i < assaultCount; i++) _bunkerAssaultEnemies.Add(new BunkerAssaultEnemy(roomId, room, positions[index++]));
+        for (var i = 0; i < scribCount; i++) _bunkerScribs.Add(new BunkerScrib(positions[index++], roomId, room, startAggroed: false));
+        for (var i = 0; i < infectedCount; i++) _bunkerInfectedEnemies.Add(new BunkerInfectedEnemy(roomId, room, positions[index++]));
+    }
+
+    private static List<Vector2> GenerateBunkerRoomSpawnPoints(Rectangle room, int count)
+    {
+        var result = new List<Vector2>(count);
+        if (count <= 0) return result;
+        var aspect = MathF.Max(0.2f, room.Width / MathF.Max(1f, room.Height));
+        var columns = Math.Min(count, Math.Max(1, (int)MathF.Ceiling(MathF.Sqrt(count * aspect))));
+        var rows = Math.Max(1, (int)MathF.Ceiling(count / (float)columns));
+        const float margin = 42f;
+        for (var i = 0; i < count; i++)
+        {
+            var column = i % columns;
+            var row = i / columns;
+            var x = room.X + margin + (column + 0.5f) * MathF.Max(1f, room.Width - margin * 2f) / columns;
+            var y = room.Y + margin + (row + 0.5f) * MathF.Max(1f, room.Height - margin * 2f) / rows;
+            result.Add(new Vector2(x, y));
+        }
+        return result;
     }
 
     private BunkerDoor CreateBunkerDoor(int roomAId, int roomBId)
@@ -1198,6 +1321,16 @@ public sealed partial class SciFiRogueGame : IDisposable
         foreach (var door in _bunkerDoors)
         {
             if (!door.Open) obstacles.Add(new Obstacle(door.Rect));
+        }
+
+        if (!_bunkerTyrantArenaObstaclesDestroyed)
+        {
+            obstacles.Add(new Obstacle(new Rectangle(1600f, 2996f, 200f, BunkerWallThickness)));
+            obstacles.Add(new Obstacle(new Rectangle(2400f, 2996f, 200f, BunkerWallThickness)));
+            obstacles.Add(new Obstacle(new Rectangle(1396f, 3400f, BunkerWallThickness, 200f)));
+            obstacles.Add(new Obstacle(new Rectangle(1400f, 3596f, 200f, BunkerWallThickness)));
+            obstacles.Add(new Obstacle(new Rectangle(2796f, 3400f, BunkerWallThickness, 200f)));
+            obstacles.Add(new Obstacle(new Rectangle(2600f, 3596f, 200f, BunkerWallThickness)));
         }
 
         _bunkerObstacles = obstacles;
@@ -1283,6 +1416,21 @@ public sealed partial class SciFiRogueGame : IDisposable
             _player.Attack(mouseWorld, _projectiles, _swings, _bunkerObstacles, BunkerWorldSize, _dashAfterImages);
         }
 
+        if (Raylib.IsKeyPressed(KeyboardKey.F) && TryActivateBunkerTyrantSwitch())
+        {
+            return;
+        }
+
+        if (Raylib.IsKeyPressed(KeyboardKey.F)
+            && _bunkerTyrantDrop is not null
+            && _bunkerTyrant is not null
+            && Vector2.Distance(_player.Position, _bunkerTyrant.Position) <= 34f
+            && TryPickGroundItem(_bunkerTyrantDrop))
+        {
+            _bunkerTyrantDrop = null;
+            return;
+        }
+
         if (Raylib.IsKeyPressed(KeyboardKey.F) && TryOpenNearbyBunkerDoor())
         {
             return;
@@ -1303,18 +1451,229 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         UpdateBunkerFreezeZones(dt);
         UpdateBunkerMidaMiniTurrets(dt);
+        UpdateBunkerRoomEnemies(dt);
+        UpdateBunkerTyrantFight(dt);
+        UpdateChests();
         UpdateProjectiles(dt);
         UpdateEffects(dt);
         UpdateSwings(dt);
         UpdateBunkerProtectiveDomes(dt);
         if (_drag is null) _player.Inventory.AutoFillConsumableSlots();
         _camera.Target = Vector2.Lerp(_camera.Target, _player.Position, 0.2f);
+        if (_player.Health <= 0f) FailRun("You Died", "All carried items were lost.");
     }
+
+    private void UpdateBunkerRoomEnemies(float dt)
+    {
+        foreach (var enemy in _bunkerSiegeEnemies.Where(enemy => enemy.Alive && _revealedBunkerRooms.Contains(enemy.RoomId)))
+        {
+            if (IsFrozenTarget(enemy)) continue;
+            enemy.Update(dt, _player.Position, _bunkerObstacles, _projectiles);
+        }
+
+        foreach (var enemy in _bunkerAssaultEnemies.Where(enemy => enemy.Alive && _revealedBunkerRooms.Contains(enemy.RoomId)))
+        {
+            if (IsFrozenTarget(enemy)) continue;
+            enemy.Update(dt, _player, _bunkerObstacles, _projectiles);
+        }
+
+        foreach (var enemy in _bunkerInfectedEnemies.Where(enemy => enemy.Alive && _revealedBunkerRooms.Contains(enemy.RoomId)))
+        {
+            if (IsFrozenTarget(enemy)) continue;
+            enemy.Update(dt, _player, _bunkerObstacles, _bunkerInfectedClouds);
+            if (Vector2.Distance(_player.Position, enemy.Position) <= 75f + 16f)
+            {
+                _player.ApplyPoison(2f);
+                _player.ApplyRadioactiveDecomposition(10f);
+            }
+        }
+
+        for (var i = _bunkerScribs.Count - 1; i >= 0; i--)
+        {
+            var scrib = _bunkerScribs[i];
+            if (!_revealedBunkerRooms.Contains(scrib.RoomId)) continue;
+            if (IsFrozenTarget(scrib)) continue;
+            if (scrib.Update(dt, _player.Position, _bunkerObstacles)) ExplodeBunkerScrib(scrib.Position);
+            if (!scrib.Alive) _bunkerScribs.RemoveAt(i);
+        }
+
+        for (var i = _bunkerInfectedClouds.Count - 1; i >= 0; i--)
+        {
+            var cloud = _bunkerInfectedClouds[i];
+            cloud.Update(dt);
+            if (Vector2.Distance(_player.Position, cloud.Position) <= cloud.Radius + 16f)
+            {
+                _player.ApplyPoison(2f);
+                _player.ApplyRadioactiveDecomposition(10f);
+            }
+            if (!cloud.Alive) _bunkerInfectedClouds.RemoveAt(i);
+        }
+    }
+
+    private void UpdateBunkerTyrantFight(float dt)
+    {
+        if (_bunkerTyrant is null) return;
+        var bossRoom = _bunkerRooms.First(room => room.Id == 19).Rect;
+        if (!_bunkerTyrantFightStarted && Raylib.CheckCollisionPointRec(_player.Position, bossRoom))
+        {
+            _bunkerTyrantFightStarted = true;
+            _bunkerTyrant.Activate();
+            _bunkerTyrantDoorSealTimer = 0.5f;
+        }
+
+        if (_bunkerTyrantDoorSealTimer > 0f)
+        {
+            _bunkerTyrantDoorSealTimer -= dt;
+            if (_bunkerTyrantDoorSealTimer <= 0f) SealBunkerTyrantArena();
+        }
+
+        if (!_bunkerTyrantFightStarted) return;
+
+        if (!IsFrozenTarget(_bunkerTyrant))
+        {
+            _bunkerTyrant.Update(
+                dt,
+                _player.Position,
+                _bunkerObstacles,
+                _projectiles,
+                position => _bunkerScribs.Add(new BunkerScrib(position)),
+                position => _bunkerParasites.Add(new BunkerParasite(position)),
+                BunkerTyrantLeftSpawn,
+                BunkerTyrantRightSpawn,
+                () => Array.Fill(_bunkerTyrantSwitches, false));
+        }
+
+        if (_bunkerTyrant.ShockwaveReady) TriggerBunkerTyrantShockwave();
+
+        for (var i = _bunkerParasites.Count - 1; i >= 0; i--)
+        {
+            var parasite = _bunkerParasites[i];
+            if (IsFrozenTarget(parasite)) continue;
+            if (parasite.Update(dt, _bunkerTyrant.Position, _bunkerObstacles))
+            {
+                _bunkerTyrant.HealFromParasite();
+                _bunkerParasites.RemoveAt(i);
+                continue;
+            }
+            if (!parasite.Alive) _bunkerParasites.RemoveAt(i);
+        }
+
+        for (var i = _bunkerToxicClouds.Count - 1; i >= 0; i--)
+        {
+            var cloud = _bunkerToxicClouds[i];
+            cloud.Update(dt);
+            if (Vector2.Distance(_player.Position, cloud.Position) <= cloud.Radius + 16f)
+            {
+                _player.ApplyPoison(2f);
+                _player.ApplyRadioactiveDecomposition(10f);
+            }
+            if (!cloud.Alive) _bunkerToxicClouds.RemoveAt(i);
+        }
+
+        if (_bunkerTyrant.Alive || _bunkerTyrantRewardDropped) return;
+        _bunkerTyrantRewardDropped = true;
+        _bunkerTyrantDoorSealTimer = -1f;
+        SetBunkerDoorOpen(18, 19, true);
+        SetBunkerDoorOpen(19, 20, true);
+        _revealedBunkerRooms.Add(20);
+        RebuildBunkerObstacles();
+        _bunkerTyrantDrop = ItemStack.Terror();
+    }
+
+    private void TriggerBunkerTyrantShockwave()
+    {
+        if (_bunkerTyrant is null) return;
+        _bunkerTyrant.MarkShockwaveTriggered();
+        _bunkerTyrantArenaObstaclesDestroyed = true;
+        RebuildBunkerObstacles();
+        _explosions.Add(new Explosion(_bunkerTyrant.Position, 520f, Palette.C(185, 40, 75), true, true, 0.2f));
+
+        var direction = _player.Position - _bunkerTyrant.Position;
+        if (direction.LengthSquared() <= 0.001f) direction = new Vector2(0f, -1f);
+        direction = Vector2.Normalize(direction);
+        var position = _player.Position;
+        var hitWall = false;
+        for (var distance = 0f; distance < 100f; distance += 4f)
+        {
+            var candidate = position + direction * 4f;
+            if (MovementUtils.CircleHitsObstacle(candidate, 16f, _bunkerObstacles))
+            {
+                hitWall = true;
+                break;
+            }
+            position = candidate;
+        }
+        _player.PlaceAt(position);
+        if (hitWall) _player.TakeDamage(20f);
+    }
+
+    private void SealBunkerTyrantArena()
+    {
+        _bunkerTyrantDoorSealTimer = -1f;
+        var entrance = FindBunkerDoor(18, 19);
+        if (entrance is not null && CircleIntersectsRect(_player.Position, 16f, entrance.Rect))
+        {
+            var bossRoom = _bunkerRooms.First(room => room.Id == 19).Rect;
+            _player.PlaceAt(new Vector2(
+                Math.Clamp(_player.Position.X, bossRoom.X + 24f, bossRoom.X + bossRoom.Width - 24f),
+                bossRoom.Y + 28f));
+        }
+
+        SetBunkerDoorOpen(18, 19, false);
+        SetBunkerDoorOpen(19, 20, false);
+        RebuildBunkerObstacles();
+    }
+
+    private void ExplodeBunkerScrib(Vector2 position)
+    {
+        const float explosionRadius = 112.5f;
+        _explosions.Add(new Explosion(position, explosionRadius, Palette.C(116, 185, 72), true));
+        _bunkerToxicClouds.Add(new BunkerToxicCloud(position, 5f));
+        if (Vector2.Distance(_player.Position, position) <= explosionRadius + 16f)
+        {
+            _player.TakeDamage(50f, true);
+            _player.ApplyPoison(2f);
+            _player.ApplyRadioactiveDecomposition(10f);
+        }
+    }
+
+    private bool TryActivateBunkerTyrantSwitch()
+    {
+        if (_bunkerTyrant is null || !_bunkerTyrantFightStarted || !_bunkerTyrant.Alive
+            || !_bunkerTyrant.Invulnerable || _bunkerTyrant.WakeTimer > 0f)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < BunkerTyrantSwitchPositions.Length; i++)
+        {
+            if (_bunkerTyrantSwitches[i] || Vector2.Distance(_player.Position, BunkerTyrantSwitchPositions[i]) > 38f) continue;
+            _bunkerTyrantSwitches[i] = true;
+            if (_bunkerTyrantSwitches.All(active => active)) _bunkerTyrant.MakeVulnerable();
+            return true;
+        }
+
+        return false;
+    }
+
+    private void SetBunkerDoorOpen(int roomA, int roomB, bool open)
+    {
+        var door = FindBunkerDoor(roomA, roomB);
+        if (door is not null) door.Open = open;
+    }
+
+    private BunkerDoor? FindBunkerDoor(int roomA, int roomB)
+        => _bunkerDoors.FirstOrDefault(candidate =>
+            candidate.RoomA == roomA && candidate.RoomB == roomB
+            || candidate.RoomA == roomB && candidate.RoomB == roomA);
 
     private bool TryOpenNearbyBunkerDoor()
     {
         var door = _bunkerDoors
             .Where(candidate => !candidate.Open)
+            .Where(candidate => !_bunkerTyrantFightStarted
+                || _bunkerTyrant?.Alive != true
+                || !IsBunkerTyrantArenaDoor(candidate))
             .Where(candidate => _revealedBunkerRooms.Contains(candidate.RoomA) || _revealedBunkerRooms.Contains(candidate.RoomB))
             .OrderBy(candidate => Vector2.DistanceSquared(candidate.Center, _player.Position))
             .FirstOrDefault();
@@ -1326,6 +1685,12 @@ public sealed partial class SciFiRogueGame : IDisposable
         RebuildBunkerObstacles();
         return true;
     }
+
+    private static bool IsBunkerTyrantArenaDoor(BunkerDoor door)
+        => door.RoomA == 18 && door.RoomB == 19
+        || door.RoomA == 19 && door.RoomB == 18
+        || door.RoomA == 19 && door.RoomB == 20
+        || door.RoomA == 20 && door.RoomB == 19;
 
     private void EnterBunker(bool fromSecondaryHatch = false)
     {
@@ -2777,8 +3142,9 @@ public sealed partial class SciFiRogueGame : IDisposable
             {
                 if (Vector2.Distance(p.Position, _player.Position) < 14f)
                 {
-                    _player.TakeDamage(p.Damage);
+                    _player.TakeDamage(p.Damage, armorPenetration: p.PlayerArmorPenetration);
                     if (p.PlayerPoisonDuration > 0f) _player.ApplyPoison(p.PlayerPoisonDuration);
+                    if (p.PlayerDecompositionDuration > 0f) _player.ApplyRadioactiveDecomposition(p.PlayerDecompositionDuration);
                     AddBulletImpact(p);
                     AddLinearShotFadeTrail(p);
                     _projectiles.RemoveAt(i);
@@ -2791,7 +3157,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 continue;
             }
 
-            if (TryApplyPlayerSegmentDamageCore(p.PreviousPosition, p.Position, p.DrawRadius, p.Damage, p.SourcePosition, p.PoisonDamagePerSecond, p.PoisonDuration, p.IgnoreTarget, out var ricochetTarget))
+            if (TryApplyPlayerSegmentDamageCore(p.PreviousPosition, p.Position, p.DrawRadius, p.Damage, p.SourcePosition, p.PoisonDamagePerSecond, p.PoisonDuration, p.IgnoreTarget, out var ricochetTarget, enemyDecompositionDuration: p.EnemyDecompositionDuration))
             {
                 if (p.Kind == ProjectileKind.PulsarBolt)
                 {
@@ -2959,13 +3325,13 @@ public sealed partial class SciFiRogueGame : IDisposable
             && _destroyerBoss.IntersectsAnyHitZone(position, radius);
     }
 
-    private bool TryApplyPlayerSegmentDamage(Vector2 from, Vector2 to, float radius, float damage, Vector2 shotSource, float poisonDamagePerSecond = 0f, float poisonDuration = 0f, bool rangedWeaponEffects = true)
-        => TryApplyPlayerSegmentDamageCore(from, to, radius, damage, shotSource, poisonDamagePerSecond, poisonDuration, null, out _, rangedWeaponEffects);
+    private bool TryApplyPlayerSegmentDamage(Vector2 from, Vector2 to, float radius, float damage, Vector2 shotSource, float poisonDamagePerSecond = 0f, float poisonDuration = 0f, bool rangedWeaponEffects = true, float enemyDecompositionDuration = 0f)
+        => TryApplyPlayerSegmentDamageCore(from, to, radius, damage, shotSource, poisonDamagePerSecond, poisonDuration, null, out _, rangedWeaponEffects, enemyDecompositionDuration);
 
-    private bool TryApplyPlayerSegmentDamageCore(Vector2 from, Vector2 to, float radius, float damage, Vector2 shotSource, float poisonDamagePerSecond, float poisonDuration, object? ignoreTarget, out object? hitTarget, bool rangedWeaponEffects = true)
+    private bool TryApplyPlayerSegmentDamageCore(Vector2 from, Vector2 to, float radius, float damage, Vector2 shotSource, float poisonDamagePerSecond, float poisonDuration, object? ignoreTarget, out object? hitTarget, bool rangedWeaponEffects = true, float enemyDecompositionDuration = 0f)
     {
         hitTarget = null;
-        if (_inBunker) return false;
+        if (_inBunker) return TryApplyBunkerSegmentDamage(from, to, radius, damage, enemyDecompositionDuration, out hitTarget);
 
         var enemyHit = _enemies
             .Where(e => e.Alive && !ReferenceEquals(e, ignoreTarget) && DistanceToSegment(e.Position, from, to) <= radius + 11f)
@@ -2974,7 +3340,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (enemyHit is not null)
         {
             hitTarget = enemyHit;
-            enemyHit.Damage(damage);
+            enemyHit.Damage(GetDamageAgainstTarget(enemyHit, damage));
+            ApplyEnemyDecomposition(enemyHit, enemyDecompositionDuration);
             ApplyPlayerHitEffects(enemyHit, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             var targetAggroed = enemyHit.ReactToShot(shotSource, _obstacles);
             AggroWitnesses(enemyHit.Position, targetAggroed);
@@ -2988,7 +3355,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (hexHit is not null)
         {
             hitTarget = hexHit;
-            hexHit.Damage(damage);
+            hexHit.Damage(GetDamageAgainstTarget(hexHit, damage));
+            ApplyEnemyDecomposition(hexHit, enemyDecompositionDuration);
             ApplyPlayerHitEffects(hexHit, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             AggroWitnesses(hexHit.Position, true);
             return true;
@@ -3001,7 +3369,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (turretHit is not null)
         {
             hitTarget = turretHit;
-            turretHit.Damage(damage);
+            turretHit.Damage(GetDamageAgainstTarget(turretHit, damage));
+            ApplyEnemyDecomposition(turretHit, enemyDecompositionDuration);
             ApplyPlayerHitEffects(turretHit, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             var targetAggroed = turretHit.ReactToShot(shotSource, _player.Position, _obstacles);
             AggroWitnesses(turretHit.Position, targetAggroed);
@@ -3015,7 +3384,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (miniBossHit is not null)
         {
             hitTarget = miniBossHit;
-            miniBossHit.Damage(damage);
+            miniBossHit.Damage(GetDamageAgainstTarget(miniBossHit, damage));
+            ApplyEnemyDecomposition(miniBossHit, enemyDecompositionDuration);
             ApplyPlayerHitEffects(miniBossHit, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             var targetAggroed = miniBossHit.ReactToShot(shotSource, _obstacles);
             AggroWitnesses(miniBossHit.Position, targetAggroed);
@@ -3029,7 +3399,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (guardHit is not null)
         {
             hitTarget = guardHit;
-            guardHit.Damage(damage);
+            guardHit.Damage(GetDamageAgainstTarget(guardHit, damage));
+            ApplyEnemyDecomposition(guardHit, enemyDecompositionDuration);
             ApplyPlayerHitEffects(guardHit, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             var targetAggroed = guardHit.TryAggroFromPlayerHit(_player.Position);
             AggroWitnesses(guardHit.Position, targetAggroed);
@@ -3043,7 +3414,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (toxicHit is not null)
         {
             hitTarget = toxicHit;
-            toxicHit.Damage(damage);
+            toxicHit.Damage(GetDamageAgainstTarget(toxicHit, damage));
+            ApplyEnemyDecomposition(toxicHit, enemyDecompositionDuration);
             ApplyPlayerHitEffects(toxicHit, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             var targetAggroed = toxicHit.ReactToShot(shotSource, _obstacles);
             AggroWitnesses(toxicHit.Position, targetAggroed);
@@ -3090,6 +3462,86 @@ public sealed partial class SciFiRogueGame : IDisposable
         return false;
     }
 
+    private bool TryApplyBunkerSegmentDamage(Vector2 from, Vector2 to, float radius, float damage, float enemyDecompositionDuration, out object? hitTarget)
+    {
+        hitTarget = null;
+        var parasite = _bunkerParasites
+            .Where(target => target.Alive && DistanceToSegment(target.Position, from, to) <= radius + 8f)
+            .OrderBy(target => Vector2.DistanceSquared(from, target.Position))
+            .FirstOrDefault();
+        if (parasite is not null)
+        {
+            parasite.Damage(GetDamageAgainstTarget(parasite, damage));
+            ApplyEnemyDecomposition(parasite, enemyDecompositionDuration);
+            hitTarget = parasite;
+            return true;
+        }
+
+        var scrib = _bunkerScribs
+            .Where(target => target.Alive && DistanceToSegment(target.Position, from, to) <= radius + BunkerScrib.Radius)
+            .OrderBy(target => Vector2.DistanceSquared(from, target.Position))
+            .FirstOrDefault();
+        if (scrib is not null)
+        {
+            scrib.ForceAggro(_player.Position);
+            if (scrib.Damage(GetDamageAgainstTarget(scrib, damage))) ExplodeBunkerScrib(scrib.Position);
+            ApplyEnemyDecomposition(scrib, enemyDecompositionDuration);
+            hitTarget = scrib;
+            return true;
+        }
+
+        var siege = _bunkerSiegeEnemies
+            .Where(target => target.Alive && DistanceToSegment(target.Position, from, to) <= radius + BunkerSiegeEnemy.Radius)
+            .OrderBy(target => Vector2.DistanceSquared(from, target.Position))
+            .FirstOrDefault();
+        if (siege is not null)
+        {
+            siege.ForceAggro(_player.Position);
+            siege.Damage(GetDamageAgainstTarget(siege, damage));
+            ApplyEnemyDecomposition(siege, enemyDecompositionDuration);
+            hitTarget = siege;
+            return true;
+        }
+
+        var assault = _bunkerAssaultEnemies
+            .Where(target => target.Alive && DistanceToSegment(target.Position, from, to) <= radius + BunkerAssaultEnemy.Radius)
+            .OrderBy(target => Vector2.DistanceSquared(from, target.Position))
+            .FirstOrDefault();
+        if (assault is not null)
+        {
+            assault.ForceAggro(_player.Position);
+            assault.Damage(GetDamageAgainstTarget(assault, damage));
+            ApplyEnemyDecomposition(assault, enemyDecompositionDuration);
+            hitTarget = assault;
+            return true;
+        }
+
+        var infected = _bunkerInfectedEnemies
+            .Where(target => target.Alive && DistanceToSegment(target.Position, from, to) <= radius + BunkerInfectedEnemy.Radius)
+            .OrderBy(target => Vector2.DistanceSquared(from, target.Position))
+            .FirstOrDefault();
+        if (infected is not null)
+        {
+            infected.ForceAggro(_player.Position);
+            infected.Damage(GetDamageAgainstTarget(infected, damage));
+            ApplyEnemyDecomposition(infected, enemyDecompositionDuration);
+            hitTarget = infected;
+            return true;
+        }
+
+        if (_bunkerTyrant is not null
+            && _bunkerTyrant.Alive
+            && DistanceToSegment(_bunkerTyrant.Position, from, to) <= radius + BunkerTyrant.Radius)
+        {
+            _bunkerTyrant.Damage(GetDamageAgainstTarget(_bunkerTyrant, damage));
+            ApplyEnemyDecomposition(_bunkerTyrant, enemyDecompositionDuration);
+            hitTarget = _bunkerTyrant;
+            return true;
+        }
+
+        return false;
+    }
+
     private void ExplodeProjectile(Projectile projectile)
     {
         _explosions.Add(new Explosion(projectile.Position, projectile.ExplosionRadius, projectile.Color, projectile.Kind == ProjectileKind.RamBlast));
@@ -3099,7 +3551,53 @@ public sealed partial class SciFiRogueGame : IDisposable
             zones.Add(new FreezeZone(projectile.Position));
         }
 
-        if (_inBunker) return;
+        if (_inBunker)
+        {
+            if (projectile.OwnerEnemy && Vector2.Distance(projectile.Position, _player.Position) <= projectile.ExplosionRadius + 16f)
+            {
+                _player.TakeDamage(projectile.ExplosionDamage, true);
+                if (projectile.PlayerPoisonDuration > 0f) _player.ApplyPoison(projectile.PlayerPoisonDuration);
+                if (projectile.PlayerDecompositionDuration > 0f) _player.ApplyRadioactiveDecomposition(projectile.PlayerDecompositionDuration);
+            }
+            else if (!projectile.OwnerEnemy)
+            {
+                foreach (var parasite in _bunkerParasites.Where(target => target.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, target.Position, 8f)))
+                {
+                    parasite.Damage(GetDamageAgainstTarget(parasite, projectile.ExplosionDamage));
+                    FreezeBunkerTargetIfNeeded(projectile, parasite);
+                }
+                foreach (var scrib in _bunkerScribs.Where(target => target.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, target.Position, BunkerScrib.Radius)))
+                {
+                    scrib.ForceAggro(_player.Position);
+                    if (scrib.Damage(GetDamageAgainstTarget(scrib, projectile.ExplosionDamage))) ExplodeBunkerScrib(scrib.Position);
+                    FreezeBunkerTargetIfNeeded(projectile, scrib);
+                }
+                foreach (var enemy in _bunkerSiegeEnemies.Where(target => target.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, target.Position, BunkerSiegeEnemy.Radius)))
+                {
+                    enemy.ForceAggro(_player.Position);
+                    enemy.Damage(GetDamageAgainstTarget(enemy, projectile.ExplosionDamage));
+                    FreezeBunkerTargetIfNeeded(projectile, enemy);
+                }
+                foreach (var enemy in _bunkerAssaultEnemies.Where(target => target.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, target.Position, BunkerAssaultEnemy.Radius)))
+                {
+                    enemy.ForceAggro(_player.Position);
+                    enemy.Damage(GetDamageAgainstTarget(enemy, projectile.ExplosionDamage));
+                    FreezeBunkerTargetIfNeeded(projectile, enemy);
+                }
+                foreach (var enemy in _bunkerInfectedEnemies.Where(target => target.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, target.Position, BunkerInfectedEnemy.Radius)))
+                {
+                    enemy.ForceAggro(_player.Position);
+                    enemy.Damage(GetDamageAgainstTarget(enemy, projectile.ExplosionDamage));
+                    FreezeBunkerTargetIfNeeded(projectile, enemy);
+                }
+                if (_bunkerTyrant is not null && IsInExplosion(projectile.Position, projectile.ExplosionRadius, _bunkerTyrant.Position, BunkerTyrant.Radius))
+                {
+                    _bunkerTyrant.Damage(GetDamageAgainstTarget(_bunkerTyrant, projectile.ExplosionDamage));
+                    FreezeBunkerTargetIfNeeded(projectile, _bunkerTyrant);
+                }
+            }
+            return;
+        }
 
         if (projectile.OwnerEnemy)
         {
@@ -3115,7 +3613,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         foreach (var enemy in _enemies.Where(e => e.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, e.Position, 16f)))
         {
-            enemy.Damage(projectile.ExplosionDamage);
+            enemy.Damage(GetDamageAgainstTarget(enemy, projectile.ExplosionDamage));
             if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[enemy] = FreezeZone.FreezeDuration;
             ApplyPlayerHitEffects(enemy, rangedWeaponEffects: false);
             aggroWitnesses |= enemy.ReactToShot(projectile.SourcePosition, _obstacles);
@@ -3123,7 +3621,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         foreach (var hex in _hexEnemies.Where(h => h.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, h.Position, 15f)))
         {
-            hex.Damage(projectile.ExplosionDamage);
+            hex.Damage(GetDamageAgainstTarget(hex, projectile.ExplosionDamage));
             if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[hex] = FreezeZone.FreezeDuration;
             ApplyPlayerHitEffects(hex, rangedWeaponEffects: false);
             aggroWitnesses = true;
@@ -3131,7 +3629,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         foreach (var turret in _turrets.Where(t => t.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, t.Position, 18f)))
         {
-            turret.Damage(projectile.ExplosionDamage);
+            turret.Damage(GetDamageAgainstTarget(turret, projectile.ExplosionDamage));
             if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[turret] = FreezeZone.FreezeDuration;
             ApplyPlayerHitEffects(turret, rangedWeaponEffects: false);
             aggroWitnesses |= turret.ReactToShot(projectile.SourcePosition, _player.Position, _obstacles);
@@ -3139,7 +3637,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         foreach (var miniBoss in _miniBosses.Where(b => b.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, b.Position, 21f)))
         {
-            miniBoss.Damage(projectile.ExplosionDamage);
+            miniBoss.Damage(GetDamageAgainstTarget(miniBoss, projectile.ExplosionDamage));
             if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[miniBoss] = FreezeZone.FreezeDuration;
             ApplyPlayerHitEffects(miniBoss, rangedWeaponEffects: false);
             aggroWitnesses |= miniBoss.ReactToShot(projectile.SourcePosition, _obstacles);
@@ -3147,7 +3645,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         foreach (var guard in _generatorGuards.Where(g => g.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, g.Position, 14f)))
         {
-            guard.Damage(projectile.ExplosionDamage);
+            guard.Damage(GetDamageAgainstTarget(guard, projectile.ExplosionDamage));
             if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[guard] = FreezeZone.FreezeDuration;
             ApplyPlayerHitEffects(guard, rangedWeaponEffects: false);
             aggroWitnesses |= guard.TryAggroFromPlayerHit(_player.Position);
@@ -3155,7 +3653,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         foreach (var toxic in _toxicEnemies.Where(e => e.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, e.Position, 12f)))
         {
-            toxic.Damage(projectile.ExplosionDamage);
+            toxic.Damage(GetDamageAgainstTarget(toxic, projectile.ExplosionDamage));
             if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[toxic] = FreezeZone.FreezeDuration;
             ApplyPlayerHitEffects(toxic, rangedWeaponEffects: false);
             aggroWitnesses |= toxic.ReactToShot(projectile.SourcePosition, _obstacles);
@@ -3168,7 +3666,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (_stationBoss is not null)
         {
-            _stationBoss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, projectile.ExplosionDamage);
+            _stationBoss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, GetDamageAgainstTarget(_stationBoss, projectile.ExplosionDamage));
             if (_stationBoss.IntersectsAnyHitZone(projectile.Position, projectile.ExplosionRadius))
             {
                 if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[_stationBoss] = FreezeZone.FreezeDuration;
@@ -3179,7 +3677,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         foreach (var boss in _pitStationBosses.Where(b => b.Alive))
         {
-            boss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, projectile.ExplosionDamage);
+            boss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, GetDamageAgainstTarget(boss, projectile.ExplosionDamage));
             if (boss.IntersectsAnyHitZone(projectile.Position, projectile.ExplosionRadius))
             {
                 if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[boss] = FreezeZone.FreezeDuration;
@@ -3190,7 +3688,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (_destroyerBoss is not null && _destroyerBoss.Alive)
         {
-            _destroyerBoss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, projectile.ExplosionDamage);
+            _destroyerBoss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, GetDamageAgainstTarget(_destroyerBoss, projectile.ExplosionDamage));
             if (_destroyerBoss.IntersectsAnyHitZone(projectile.Position, projectile.ExplosionRadius))
             {
                 if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[_destroyerBoss] = FreezeZone.FreezeDuration;
@@ -3212,6 +3710,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (rangedWeaponEffects && _player.StickyBulletsActive) enemy.ApplyStickySlow(_player.GetArcaneEffectMultiplier());
         if (rangedWeaponEffects && _player.TeslaBulletsActive) TriggerTeslaChain(enemy);
         if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
+        TrackEnemyEffectVisuals(enemy, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
     }
 
     private void ApplyPlayerHitEffects(HexEnemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f, bool rangedWeaponEffects = true)
@@ -3219,6 +3718,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (rangedWeaponEffects && _player.StickyBulletsActive) enemy.ApplyStickySlow(_player.GetArcaneEffectMultiplier());
         if (rangedWeaponEffects && _player.TeslaBulletsActive) TriggerTeslaChain(enemy);
         if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
+        TrackEnemyEffectVisuals(enemy, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
     }
 
     private void ApplyPlayerHitEffects(TurretEnemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f, bool rangedWeaponEffects = true)
@@ -3226,6 +3726,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (rangedWeaponEffects && _player.StickyBulletsActive) enemy.ApplyStickySlow(_player.GetArcaneEffectMultiplier());
         if (rangedWeaponEffects && _player.TeslaBulletsActive) TriggerTeslaChain(enemy);
         if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
+        TrackEnemyEffectVisuals(enemy, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
     }
 
     private void ApplyPlayerHitEffects(MiniBossEnemySquare enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f, bool rangedWeaponEffects = true)
@@ -3233,6 +3734,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (rangedWeaponEffects && _player.StickyBulletsActive) enemy.ApplyStickySlow(_player.GetArcaneEffectMultiplier());
         if (rangedWeaponEffects && _player.TeslaBulletsActive) TriggerTeslaChain(enemy);
         if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
+        TrackEnemyEffectVisuals(enemy, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
     }
 
     private void ApplyPlayerHitEffects(BossEnemyDestroyer enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f, bool rangedWeaponEffects = true)
@@ -3240,6 +3742,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (rangedWeaponEffects && _player.StickyBulletsActive) enemy.ApplyStickySlow(_player.GetArcaneEffectMultiplier());
         if (rangedWeaponEffects && _player.TeslaBulletsActive) TriggerTeslaChain(enemy);
         if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
+        TrackEnemyEffectVisuals(enemy, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
     }
 
     private void ApplyPlayerHitEffects(GeneratorGuardianEnemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f, bool rangedWeaponEffects = true)
@@ -3247,6 +3750,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (rangedWeaponEffects && _player.StickyBulletsActive) enemy.ApplyStickySlow(_player.GetArcaneEffectMultiplier());
         if (rangedWeaponEffects && _player.TeslaBulletsActive) TriggerTeslaChain(enemy);
         if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
+        TrackEnemyEffectVisuals(enemy, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
     }
 
     private void ApplyPlayerHitEffects(ToxicTriangleEnemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f, bool rangedWeaponEffects = true)
@@ -3254,6 +3758,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (rangedWeaponEffects && _player.StickyBulletsActive) enemy.ApplyStickySlow(_player.GetArcaneEffectMultiplier());
         if (rangedWeaponEffects && _player.TeslaBulletsActive) TriggerTeslaChain(enemy);
         if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
+        TrackEnemyEffectVisuals(enemy, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
     }
 
     private void ApplyPlayerHitEffects(StationBossEnemy enemy, float poisonDamagePerSecond = 0f, float poisonDuration = 0f, bool rangedWeaponEffects = true)
@@ -3261,6 +3766,21 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (rangedWeaponEffects && _player.StickyBulletsActive) enemy.ApplyStickySlow(_player.GetArcaneEffectMultiplier());
         if (rangedWeaponEffects && _player.TeslaBulletsActive) TriggerTeslaChain(enemy);
         if (poisonDamagePerSecond > 0f) enemy.ApplyPoison(poisonDamagePerSecond, poisonDuration);
+        TrackEnemyEffectVisuals(enemy, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
+    }
+
+    private void FreezeBunkerTargetIfNeeded(Projectile projectile, object target)
+    {
+        if (projectile.Kind == ProjectileKind.FreezeGrenade && IsTargetAlive(target))
+            _frozenTargets[target] = FreezeZone.FreezeDuration;
+    }
+
+    private void TrackEnemyEffectVisuals(object target, float poisonDamagePerSecond, float poisonDuration, bool rangedWeaponEffects)
+    {
+        if (rangedWeaponEffects && _player.StickyBulletsActive)
+            _slowVisualTargets[target] = MathF.Max(_slowVisualTargets.GetValueOrDefault(target), _player.GetArcaneEffectMultiplier());
+        if (poisonDamagePerSecond > 0f && poisonDuration > 0f)
+            _poisonVisualTargets[target] = MathF.Max(_poisonVisualTargets.GetValueOrDefault(target), poisonDuration);
     }
 
     private void TriggerTeslaChain(object firstTarget)
@@ -3288,7 +3808,22 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private IEnumerable<EnemyTarget> EnumerateEnemyTargets()
     {
-        if (_inBunker) yield break;
+        if (_inBunker)
+        {
+            foreach (var parasite in _bunkerParasites.Where(target => target.Alive))
+                yield return new EnemyTarget(parasite, parasite.Position, 8f);
+            foreach (var scrib in _bunkerScribs.Where(target => target.Alive && _revealedBunkerRooms.Contains(target.RoomId)))
+                yield return new EnemyTarget(scrib, scrib.Position, BunkerScrib.Radius);
+            foreach (var enemy in _bunkerSiegeEnemies.Where(target => target.Alive && _revealedBunkerRooms.Contains(target.RoomId)))
+                yield return new EnemyTarget(enemy, enemy.Position, BunkerSiegeEnemy.Radius);
+            foreach (var enemy in _bunkerAssaultEnemies.Where(target => target.Alive && _revealedBunkerRooms.Contains(target.RoomId)))
+                yield return new EnemyTarget(enemy, enemy.Position, BunkerAssaultEnemy.Radius);
+            foreach (var enemy in _bunkerInfectedEnemies.Where(target => target.Alive && _revealedBunkerRooms.Contains(target.RoomId)))
+                yield return new EnemyTarget(enemy, enemy.Position, BunkerInfectedEnemy.Radius);
+            if (_bunkerTyrant is not null && _bunkerTyrant.Alive)
+                yield return new EnemyTarget(_bunkerTyrant, _bunkerTyrant.Position, BunkerTyrant.Radius);
+            yield break;
+        }
 
         foreach (var enemy in _enemies.Where(e => e.Alive)) yield return new EnemyTarget(enemy, enemy.Position, 14f);
         foreach (var hex in _hexEnemies.Where(h => h.Alive)) yield return new EnemyTarget(hex, hex.Position, 16f);
@@ -3312,21 +3847,36 @@ public sealed partial class SciFiRogueGame : IDisposable
             ToxicTriangleEnemy toxic => toxic.Position,
             StationBossEnemy boss => boss.Position,
             BossEnemyDestroyer boss => boss.Position,
+            BunkerParasite parasite => parasite.Position,
+            BunkerScrib scrib => scrib.Position,
+            BunkerSiegeEnemy enemy => enemy.Position,
+            BunkerAssaultEnemy enemy => enemy.Position,
+            BunkerInfectedEnemy enemy => enemy.Position,
+            BunkerTyrant boss => boss.Position,
             _ => null
         };
 
-    private static void DamageTarget(object target, float damage)
+    private void DamageTarget(object target, float damage)
     {
         switch (target)
         {
-            case Enemy enemy: enemy.Damage(damage); break;
-            case HexEnemy hex: hex.Damage(damage); break;
-            case TurretEnemy turret: turret.Damage(damage); break;
-            case MiniBossEnemySquare boss: boss.Damage(damage); break;
-            case GeneratorGuardianEnemy guard: guard.Damage(damage); break;
-            case ToxicTriangleEnemy toxic: toxic.Damage(damage); break;
-            case StationBossEnemy boss: boss.Damage(damage); break;
-            case BossEnemyDestroyer boss: boss.Damage(damage); break;
+            case Enemy enemy: enemy.Damage(GetDamageAgainstTarget(enemy, damage)); break;
+            case HexEnemy hex: hex.Damage(GetDamageAgainstTarget(hex, damage)); break;
+            case TurretEnemy turret: turret.Damage(GetDamageAgainstTarget(turret, damage)); break;
+            case MiniBossEnemySquare boss: boss.Damage(GetDamageAgainstTarget(boss, damage)); break;
+            case GeneratorGuardianEnemy guard: guard.Damage(GetDamageAgainstTarget(guard, damage)); break;
+            case ToxicTriangleEnemy toxic: toxic.Damage(GetDamageAgainstTarget(toxic, damage)); break;
+            case StationBossEnemy boss: boss.Damage(GetDamageAgainstTarget(boss, damage)); break;
+            case BossEnemyDestroyer boss: boss.Damage(GetDamageAgainstTarget(boss, damage)); break;
+            case BunkerParasite parasite: parasite.Damage(GetDamageAgainstTarget(parasite, damage)); break;
+            case BunkerScrib scrib:
+                scrib.ForceAggro(_player.Position);
+                if (scrib.Damage(GetDamageAgainstTarget(scrib, damage))) ExplodeBunkerScrib(scrib.Position);
+                break;
+            case BunkerTyrant boss: boss.Damage(GetDamageAgainstTarget(boss, damage)); break;
+            case BunkerSiegeEnemy enemy: enemy.ForceAggro(_player.Position); enemy.Damage(GetDamageAgainstTarget(enemy, damage)); break;
+            case BunkerAssaultEnemy enemy: enemy.ForceAggro(_player.Position); enemy.Damage(GetDamageAgainstTarget(enemy, damage)); break;
+            case BunkerInfectedEnemy enemy: enemy.ForceAggro(_player.Position); enemy.Damage(GetDamageAgainstTarget(enemy, damage)); break;
         }
     }
 
@@ -3480,6 +4030,12 @@ public sealed partial class SciFiRogueGame : IDisposable
             ToxicTriangleEnemy toxic => toxic.Alive,
             StationBossEnemy boss => boss.Alive,
             BossEnemyDestroyer boss => boss.Alive,
+            BunkerParasite parasite => parasite.Alive,
+            BunkerScrib scrib => scrib.Alive,
+            BunkerTyrant boss => boss.Alive,
+            BunkerSiegeEnemy enemy => enemy.Alive,
+            BunkerAssaultEnemy enemy => enemy.Alive,
+            BunkerInfectedEnemy enemy => enemy.Alive,
             _ => false
         };
 
@@ -3495,6 +4051,11 @@ public sealed partial class SciFiRogueGame : IDisposable
             case ToxicTriangleEnemy toxic: toxic.ApplyFreezeChill(duration); break;
             case StationBossEnemy boss: boss.ApplyFreezeChill(duration); break;
             case BossEnemyDestroyer boss: boss.ApplyFreezeChill(duration); break;
+            case BunkerSiegeEnemy enemy: enemy.ApplyFreezeChill(duration); break;
+            case BunkerAssaultEnemy enemy: enemy.ApplyFreezeChill(duration); break;
+            case BunkerInfectedEnemy enemy: enemy.ApplyFreezeChill(duration); break;
+            case BunkerScrib scrib: scrib.ApplyFreezeChill(duration); break;
+            case BunkerParasite parasite: parasite.ApplyFreezeChill(duration); break;
         }
     }
 
@@ -3511,13 +4072,79 @@ public sealed partial class SciFiRogueGame : IDisposable
                 continue;
             }
 
+            if (_inBunker)
+            {
+                foreach (var parasite in _bunkerParasites.Where(target => target.Alive))
+                {
+                    var hit = s.IsLine
+                        ? DistanceToSegment(parasite.Position, s.LineStart, s.LineEnd) < 12f
+                        : IsInArc(parasite.Position, s, 8f);
+                    if (hit && s.TryRegisterHit(parasite)) parasite.Damage(GetDamageAgainstTarget(parasite, _player.GetMeleeDamage()));
+                }
+
+                foreach (var scrib in _bunkerScribs.Where(target => target.Alive))
+                {
+                    var hit = s.IsLine
+                        ? DistanceToSegment(scrib.Position, s.LineStart, s.LineEnd) < BunkerScrib.Radius + 4f
+                        : IsInArc(scrib.Position, s, BunkerScrib.Radius);
+                    if (hit && s.TryRegisterHit(scrib) && scrib.Damage(GetDamageAgainstTarget(scrib, _player.GetMeleeDamage())))
+                        ExplodeBunkerScrib(scrib.Position);
+                    if (hit) scrib.ForceAggro(_player.Position);
+                }
+
+                foreach (var enemy in _bunkerSiegeEnemies.Where(target => target.Alive))
+                {
+                    var hit = s.IsLine
+                        ? DistanceToSegment(enemy.Position, s.LineStart, s.LineEnd) < BunkerSiegeEnemy.Radius + 4f
+                        : IsInArc(enemy.Position, s, BunkerSiegeEnemy.Radius);
+                    if (hit && s.TryRegisterHit(enemy))
+                    {
+                        enemy.ForceAggro(_player.Position);
+                        enemy.Damage(GetDamageAgainstTarget(enemy, _player.GetMeleeDamage()));
+                    }
+                }
+
+                foreach (var enemy in _bunkerAssaultEnemies.Where(target => target.Alive))
+                {
+                    var hit = s.IsLine
+                        ? DistanceToSegment(enemy.Position, s.LineStart, s.LineEnd) < BunkerAssaultEnemy.Radius + 4f
+                        : IsInArc(enemy.Position, s, BunkerAssaultEnemy.Radius);
+                    if (hit && s.TryRegisterHit(enemy))
+                    {
+                        enemy.ForceAggro(_player.Position);
+                        enemy.Damage(GetDamageAgainstTarget(enemy, _player.GetMeleeDamage()));
+                    }
+                }
+
+                foreach (var enemy in _bunkerInfectedEnemies.Where(target => target.Alive))
+                {
+                    var hit = s.IsLine
+                        ? DistanceToSegment(enemy.Position, s.LineStart, s.LineEnd) < BunkerInfectedEnemy.Radius + 4f
+                        : IsInArc(enemy.Position, s, BunkerInfectedEnemy.Radius);
+                    if (hit && s.TryRegisterHit(enemy))
+                    {
+                        enemy.ForceAggro(_player.Position);
+                        enemy.Damage(GetDamageAgainstTarget(enemy, _player.GetMeleeDamage()));
+                    }
+                }
+
+                if (_bunkerTyrant is not null && _bunkerTyrant.Alive)
+                {
+                    var hit = s.IsLine
+                        ? DistanceToSegment(_bunkerTyrant.Position, s.LineStart, s.LineEnd) < BunkerTyrant.Radius + 4f
+                        : IsInArc(_bunkerTyrant.Position, s, BunkerTyrant.Radius);
+                    if (hit && s.TryRegisterHit(_bunkerTyrant)) _bunkerTyrant.Damage(GetDamageAgainstTarget(_bunkerTyrant, _player.GetMeleeDamage() * 0.75f));
+                }
+                continue;
+            }
+
             foreach (var e in _enemies.Where(x => x.Alive))
             {
                 var hit = s.IsLine
                     ? DistanceToSegment(e.Position, s.LineStart, s.LineEnd) < 16f
                     : IsInArc(e.Position, s, 8f);
                 if (!hit || !s.TryRegisterHit(e)) continue;
-                e.Damage(_player.GetMeleeDamage());
+                e.Damage(GetDamageAgainstTarget(e, _player.GetMeleeDamage()));
                 ApplyPlayerHitEffects(e, rangedWeaponEffects: false);
                 e.ForceAggro(_player.Position);
                 AggroWitnesses(e.Position, true);
@@ -3530,7 +4157,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                     : IsInArc(h.Position, s, 10f);
                 if (hit && s.TryRegisterHit(h))
                 {
-                    h.Damage(_player.GetMeleeDamage());
+                    h.Damage(GetDamageAgainstTarget(h, _player.GetMeleeDamage()));
                     ApplyPlayerHitEffects(h, rangedWeaponEffects: false);
                     AggroWitnesses(h.Position, true);
                 }
@@ -3543,7 +4170,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                     : IsInArc(t.Position, s, 14f);
                 if (hit && s.TryRegisterHit(t))
                 {
-                    t.Damage(_player.GetMeleeDamage());
+                    t.Damage(GetDamageAgainstTarget(t, _player.GetMeleeDamage()));
                     ApplyPlayerHitEffects(t, rangedWeaponEffects: false);
                     t.ForceAggro(_player.Position);
                     AggroWitnesses(t.Position, true);
@@ -3557,7 +4184,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                     : IsInArc(b.Position, s, 24f);
                 if (hit && s.TryRegisterHit(b))
                 {
-                    b.Damage(_player.GetMeleeDamage() * 0.75f);
+                    b.Damage(GetDamageAgainstTarget(b, _player.GetMeleeDamage() * 0.75f));
                     ApplyPlayerHitEffects(b, rangedWeaponEffects: false);
                     b.ForceAggro(_player.Position);
                     AggroWitnesses(b.Position, true);
@@ -3571,7 +4198,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                     : IsInArc(g.Position, s, 14f);
                 if (hit && s.TryRegisterHit(g))
                 {
-                    g.Damage(_player.GetMeleeDamage());
+                    g.Damage(GetDamageAgainstTarget(g, _player.GetMeleeDamage()));
                     ApplyPlayerHitEffects(g, rangedWeaponEffects: false);
                     g.ForceAggro(_player.Position);
                     AggroWitnesses(g.Position, true);
@@ -3585,7 +4212,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                     : IsInArc(toxic.Position, s, 12f);
                 if (hit && s.TryRegisterHit(toxic))
                 {
-                    toxic.Damage(_player.GetMeleeDamage());
+                    toxic.Damage(GetDamageAgainstTarget(toxic, _player.GetMeleeDamage()));
                     ApplyPlayerHitEffects(toxic, rangedWeaponEffects: false);
                     toxic.ForceAggro(_player.Position);
                     AggroWitnesses(toxic.Position, true);
@@ -3610,7 +4237,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                     : IsInArc(_stationBoss.Position, s, 30f);
                 if (hit && s.TryRegisterHit(_stationBoss))
                 {
-                    _stationBoss.Damage(_player.GetMeleeDamage() * 0.75f);
+                    _stationBoss.Damage(GetDamageAgainstTarget(_stationBoss, _player.GetMeleeDamage() * 0.75f));
                     ApplyPlayerHitEffects(_stationBoss, rangedWeaponEffects: false);
                     AggroWitnesses(_stationBoss.Position, true);
                 }
@@ -3623,7 +4250,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                     : IsInArc(_destroyerBoss.Position, s, 50f);
                 if (hit && s.TryRegisterHit(_destroyerBoss))
                 {
-                    _destroyerBoss.Damage(_player.GetMeleeDamage() * 0.75f);
+                    _destroyerBoss.Damage(GetDamageAgainstTarget(_destroyerBoss, _player.GetMeleeDamage() * 0.75f));
                     ApplyPlayerHitEffects(_destroyerBoss, rangedWeaponEffects: false);
                     _destroyerBoss.ForceAggro(_player.Position);
                     AggroWitnesses(_destroyerBoss.Position, true);
@@ -3664,6 +4291,15 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateEffects(float dt)
     {
+        foreach (var target in _radioactiveDecompositionTargets.Keys.ToArray())
+        {
+            var remaining = _radioactiveDecompositionTargets[target] - dt;
+            if (remaining <= 0f || !IsTargetAlive(target)) _radioactiveDecompositionTargets.Remove(target);
+            else _radioactiveDecompositionTargets[target] = remaining;
+        }
+        UpdateEnemyVisualEffectTimers(_poisonVisualTargets, dt);
+        UpdateEnemyVisualEffectTimers(_slowVisualTargets, dt);
+
         _player.TickEffects(dt);
         for (var i = _explosions.Count - 1; i >= 0; i--)
         {
@@ -3718,6 +4354,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         for (var i = 0; i < _chests.Count; i++)
         {
             var chest = _chests[i];
+            if (_inBunker != _bunkerChests.Contains(chest)) continue;
             if (chest.Items.Count == 0)
             {
                 if (_openedChestIndex == i)
@@ -3991,6 +4628,27 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
     }
 
+    private static void UpdateEnemyVisualEffectTimers(Dictionary<object, float> timers, float dt)
+    {
+        foreach (var target in timers.Keys.ToArray())
+        {
+            var remaining = timers[target] - dt;
+            if (remaining <= 0f || !IsTargetAlive(target)) timers.Remove(target);
+            else timers[target] = remaining;
+        }
+    }
+
+    private float GetDamageAgainstTarget(object target, float damage)
+        => damage * (_radioactiveDecompositionTargets.ContainsKey(target) ? 1.25f : 1f);
+
+    private void ApplyEnemyDecomposition(object target, float duration)
+    {
+        if (duration <= 0f) return;
+        _radioactiveDecompositionTargets[target] = MathF.Max(
+            _radioactiveDecompositionTargets.GetValueOrDefault(target),
+            duration);
+    }
+
     private void UpdateBunkerProtectiveDomes(float dt)
     {
         for (var i = _bunkerProtectiveDomes.Count - 1; i >= 0; i--)
@@ -4002,10 +4660,53 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateBunkerFreezeZones(float dt)
     {
+        var activeTargets = EnumerateEnemyTargets()
+            .Select(target => target.Target)
+            .ToHashSet(ReferenceEqualityComparer.Instance);
+
+        foreach (var target in _frozenTargets.Keys.Where(activeTargets.Contains).ToArray())
+        {
+            if (!IsTargetAlive(target))
+            {
+                _frozenTargets.Remove(target);
+                continue;
+            }
+
+            var left = _frozenTargets[target] - dt;
+            if (left <= 0f)
+            {
+                _frozenTargets.Remove(target);
+                _chilledTargets[target] = FreezeZone.ChillDuration;
+            }
+            else _frozenTargets[target] = left;
+        }
+
         for (var i = _bunkerFreezeZones.Count - 1; i >= 0; i--)
         {
-            _bunkerFreezeZones[i].Update(dt);
-            if (!_bunkerFreezeZones[i].Alive) _bunkerFreezeZones.RemoveAt(i);
+            var zone = _bunkerFreezeZones[i];
+            zone.Update(dt);
+            foreach (var target in EnumerateEnemyTargets())
+            {
+                if (_frozenTargets.ContainsKey(target.Target)) continue;
+                if (zone.Freezing && zone.Contains(target.Position, target.Radius))
+                    _chilledTargets[target.Target] = FreezeZone.ChillDuration;
+            }
+
+            if (!zone.Alive) _bunkerFreezeZones.RemoveAt(i);
+        }
+
+        foreach (var target in _chilledTargets.Keys.Where(activeTargets.Contains).ToArray())
+        {
+            if (!IsTargetAlive(target))
+            {
+                _chilledTargets.Remove(target);
+                continue;
+            }
+
+            ApplyFreezeChillToTarget(target, 0.12f);
+            var left = _chilledTargets[target] - dt;
+            if (left <= 0f) _chilledTargets.Remove(target);
+            else _chilledTargets[target] = left;
         }
     }
 
@@ -4013,8 +4714,38 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         for (var i = _bunkerMidaMiniTurrets.Count - 1; i >= 0; i--)
         {
-            _bunkerMidaMiniTurrets[i].Update(dt);
-            if (!_bunkerMidaMiniTurrets[i].Alive) _bunkerMidaMiniTurrets.RemoveAt(i);
+            var turret = _bunkerMidaMiniTurrets[i];
+            turret.Update(dt);
+            if (!turret.Alive)
+            {
+                _bunkerMidaMiniTurrets.RemoveAt(i);
+                continue;
+            }
+
+            var target = EnumerateEnemyTargets()
+                .Where(candidate => Vector2.Distance(candidate.Position, turret.Position) <= MidaMiniTurret.Range + candidate.Radius)
+                .OrderBy(candidate => Vector2.DistanceSquared(candidate.Position, turret.Position))
+                .FirstOrDefault();
+            if (target.Target is null) continue;
+
+            _beamEffects.Add(new BeamEffect(turret.Position, target.Position, Palette.C(255, 60, 60), 0.045f, 1.4f, false));
+            if (!turret.ReadyToShoot) continue;
+
+            var direction = target.Position - turret.Position;
+            if (direction.LengthSquared() <= 0.001f) direction = new Vector2(1f, 0f);
+            direction = Vector2.Normalize(direction);
+            _projectiles.Add(new Projectile(
+                turret.Position + direction * 14f,
+                direction,
+                1500f,
+                0.5f,
+                Palette.C(255, 225, 125),
+                false,
+                MidaMiniTurret.Damage,
+                drawRadius: 3f,
+                highlighted: true,
+                sourcePosition: turret.Position));
+            turret.MarkShot();
         }
     }
 
@@ -4941,6 +5672,12 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void FailRun(string header, string body)
     {
+        var retainedXp = 0;
+        if (!_challengeMode && header.Equals("You Died", StringComparison.OrdinalIgnoreCase))
+        {
+            retainedXp = _runScore / 2;
+            AddMetaScore(retainedXp);
+        }
         _extractPortals.Clear();
         _lastChanceActive = false;
         _lastChanceTimer = 0f;
@@ -4956,7 +5693,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _deathHeader = header;
         _deathBody = _challengeMode
             ? $"{body}\nEarned: {_pitRunXpEarned} XP, {_pitRunCoinsEarned} SynthCoins, {_pitRunTokensEarned} CryptoTokens."
-            : body;
+            : retainedXp > 0 ? $"{body}\nRetained XP: {retainedXp}." : body;
         _state = GameState.Death;
     }
 
@@ -5133,6 +5870,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (code == "TOBUNKER")
         {
             var result = ApplyToBunkerCode();
+            SetCodeStatus(result.Success, result.Message);
+            if (result.Success) _codeInput = string.Empty;
+            return;
+        }
+
+        if (code == "RT")
+        {
+            var result = ApplyTerrorCode();
             SetCodeStatus(result.Success, result.Message);
             if (result.Success) _codeInput = string.Empty;
             return;
@@ -5400,6 +6145,16 @@ public sealed partial class SciFiRogueGame : IDisposable
         RegisterPromoCodeUse(code, false);
         SavePersistentState();
         return (true, "Success: next expedition starts with 5 data fragments and revealed access code.");
+    }
+
+    private (bool Success, string Message) ApplyTerrorCode()
+    {
+        const string code = "RT";
+        if (!CanUsePromoCode(code, null, false, out var error)) return (false, error);
+        if (!_meta.AddToStorage(ItemStack.Terror())) return (false, "Storage is full.");
+        RegisterPromoCodeUse(code, false);
+        SavePersistentState();
+        return (true, "Success: Terror delivered to storage.");
     }
 
     private bool CanUsePromoCode(string code, int? maxUses, bool sessionOnly, out string error)
@@ -6266,6 +7021,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (_rng.NextSingle() < 0.025f) loot.Add(ItemStack.BossGrenadeLauncher());
         return loot;
     }
+
+    private ItemStack RollBunkerTyrantLoot()
+        => RollEquipmentOfRarity(ArmorRarity.Legendary);
 
     private List<ItemStack> RollStationBossLoot()
     {

@@ -4,7 +4,7 @@ using Raylib_cs;
 
 namespace Bungus.Game;
 
-public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life, Color color, bool ownerEnemy, float damage, ProjectileKind kind = ProjectileKind.Bullet, float explosionRadius = 0f, float explosionDamage = 0f, float drawRadius = 4f, bool highlighted = false, Vector2? sourcePosition = null, float poisonDamagePerSecond = 0f, float poisonDuration = 0f, float playerPoisonDuration = 0f, int ricochetRemaining = 0, object? ignoreTarget = null)
+public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life, Color color, bool ownerEnemy, float damage, ProjectileKind kind = ProjectileKind.Bullet, float explosionRadius = 0f, float explosionDamage = 0f, float drawRadius = 4f, bool highlighted = false, Vector2? sourcePosition = null, float poisonDamagePerSecond = 0f, float poisonDuration = 0f, float playerPoisonDuration = 0f, int ricochetRemaining = 0, object? ignoreTarget = null, float playerDecompositionDuration = 0f, float playerArmorPenetration = 0f, float enemyDecompositionDuration = 0f)
 {
     public Vector2 Position { get; private set; } = pos;
     public Vector2 PreviousPosition { get; private set; } = pos;
@@ -21,6 +21,9 @@ public sealed class Projectile(Vector2 pos, Vector2 dir, float speed, float life
     public float PoisonDamagePerSecond { get; } = poisonDamagePerSecond;
     public float PoisonDuration { get; } = poisonDuration;
     public float PlayerPoisonDuration { get; } = playerPoisonDuration;
+    public float PlayerDecompositionDuration { get; } = playerDecompositionDuration;
+    public float PlayerArmorPenetration { get; } = playerArmorPenetration;
+    public float EnemyDecompositionDuration { get; } = enemyDecompositionDuration;
     public int RicochetRemaining { get; } = ricochetRemaining;
     public object? IgnoreTarget { get; } = ignoreTarget;
     private float _life = life;

@@ -200,6 +200,7 @@ public sealed partial class SciFiRogueGame
 
         foreach (var chest in _chests)
         {
+            if (_bunkerChests.Contains(chest)) continue;
             var rect = new Rectangle(chest.Position.X - 14, chest.Position.Y - 10, 28, 20);
             var locked = chest.RequiresClear && chest.ZoneId is int zoneId && !IsZoneCleared(zoneId);
             var empty = chest.Items.Count == 0;
@@ -308,6 +309,7 @@ public sealed partial class SciFiRogueGame
         _stationBoss?.Draw();
         foreach (var boss in _pitStationBosses) boss.Draw();
         DrawFrozenTargetCrystals();
+        DrawEnemyDebuffIcons();
         foreach (var t in _turrets) t.DrawAimLine();
         DrawPlayerSniperAimLine();
         foreach (var beam in _beamEffects) beam.Draw();
@@ -367,6 +369,8 @@ public sealed partial class SciFiRogueGame
             Raylib.DrawRectangleRec(room.Rect, Palette.C(48, 50, 56));
         }
 
+        DrawBunkerTyrantTelegraphs();
+
         foreach (var obstacle in _bunkerObstacles)
         {
             var visible = _bunkerRooms.Any(room =>
@@ -411,6 +415,60 @@ public sealed partial class SciFiRogueGame
             {
                 Raylib.DrawText("F", (int)hatch.X + 31, (int)hatch.Y - 20, 18, Palette.C(220, 225, 235));
             }
+        }
+
+        if (_revealedBunkerRooms.Contains(19))
+        {
+            Raylib.DrawRectangle(1000, 3200, 200, 200, Palette.C(80, 16, 42, 150));
+            Raylib.DrawCircleV(BunkerTyrantLeftSpawn, 62f, Palette.C(116, 24, 62, 190));
+            Raylib.DrawRectangle(3000, 3200, 200, 200, Palette.C(80, 16, 42, 150));
+            Raylib.DrawCircleV(BunkerTyrantRightSpawn, 62f, Palette.C(116, 24, 62, 190));
+
+            for (var i = 0; i < BunkerTyrantSwitchPositions.Length; i++)
+            {
+                var position = BunkerTyrantSwitchPositions[i];
+                var active = _bunkerTyrantSwitches[i];
+                var rect = new Rectangle(position.X - 16f, position.Y - 16f, 32f, 32f);
+                Raylib.DrawRectangleRec(rect, active ? Palette.C(55, 180, 80) : Palette.C(180, 42, 48));
+                Raylib.DrawRectangleLinesEx(rect, 2f, active ? Palette.C(120, 255, 145) : Palette.C(245, 100, 105));
+                if (!active && _bunkerTyrant?.Invulnerable == true && Vector2.Distance(_player.Position, position) <= 38f)
+                    Raylib.DrawText("F", (int)position.X - 5, (int)position.Y - 38, 18, Color.White);
+            }
+        }
+
+        foreach (var cloud in _bunkerToxicClouds) cloud.Draw();
+        foreach (var cloud in _bunkerInfectedClouds) cloud.Draw();
+        foreach (var enemy in _bunkerSiegeEnemies.Where(enemy => enemy.Alive && _revealedBunkerRooms.Contains(enemy.RoomId))) enemy.Draw();
+        foreach (var enemy in _bunkerAssaultEnemies.Where(enemy => enemy.Alive && _revealedBunkerRooms.Contains(enemy.RoomId))) enemy.Draw();
+        foreach (var enemy in _bunkerInfectedEnemies.Where(enemy => enemy.Alive && _revealedBunkerRooms.Contains(enemy.RoomId)))
+        {
+            Raylib.DrawCircleV(enemy.Position, 75f, Palette.C(46, 78, 42));
+            enemy.Draw();
+        }
+        foreach (var chest in _bunkerChests)
+        {
+            var visibleRoom = _bunkerRooms.FirstOrDefault(room =>
+                _revealedBunkerRooms.Contains(room.Id) && Raylib.CheckCollisionPointRec(chest.Position, room.Rect));
+            if (visibleRoom.Id == 0) continue;
+            var rect = new Rectangle(chest.Position.X - 14f, chest.Position.Y - 10f, 28f, 20f);
+            Raylib.DrawRectangleRec(rect, chest.Items.Count == 0 ? Palette.C(65, 65, 65) : Palette.C(92, 76, 58));
+            Raylib.DrawRectangleLinesEx(rect, 2f, Palette.C(230, 190, 80));
+            if (Vector2.Distance(_player.Position, chest.Position) <= 34f)
+                Raylib.DrawText("F", (int)rect.X + 9, (int)rect.Y - 18, 18, Color.White);
+        }
+        foreach (var scrib in _bunkerScribs.Where(scrib => _revealedBunkerRooms.Contains(scrib.RoomId))) scrib.Draw();
+        foreach (var parasite in _bunkerParasites) parasite.Draw();
+        var hasTyrantTexture = TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "tyrant.png"), out var tyrantTexture);
+        _bunkerTyrant?.Draw(hasTyrantTexture ? tyrantTexture : null);
+        DrawEnemyDebuffIcons();
+
+        if (_bunkerTyrantDrop is not null && _bunkerTyrant is not null)
+        {
+            var drop = new Rectangle(_bunkerTyrant.Position.X - 14f, _bunkerTyrant.Position.Y - 14f, 28f, 28f);
+            Raylib.DrawRectangleRec(drop, Palette.C(245, 190, 45));
+            Raylib.DrawRectangleLinesEx(drop, 2f, Palette.C(255, 235, 130));
+            if (Vector2.Distance(_player.Position, _bunkerTyrant.Position) <= 34f)
+                Raylib.DrawText("F", (int)drop.X + 9, (int)drop.Y - 20, 18, Color.White);
         }
 
         foreach (var dome in _bunkerProtectiveDomes)
@@ -486,6 +544,48 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawCircleV(_player.Position, 16f, Theme.Player);
         Raylib.DrawRectangleLinesEx(new Rectangle(0, 0, BunkerWorldSize, BunkerWorldSize), 6f, Palette.C(120, 124, 136));
         Raylib.EndMode2D();
+    }
+
+    private void DrawBunkerTyrantTelegraphs()
+    {
+        if (_bunkerTyrant is null || !_bunkerTyrant.Alive || !_bunkerTyrant.Active) return;
+
+        if (!_bunkerTyrant.Resting && _bunkerTyrant.WakeTimer <= 0f && _bunkerTyrant.Mode == TyrantMode.MachineGun)
+        {
+            var direction = _player.Position - _bunkerTyrant.Position;
+            var centerAngle = MathF.Atan2(direction.Y, direction.X);
+            const int segments = 20;
+            const float halfAngle = 10f * MathF.PI / 180f;
+            var color = Palette.C(235, 38, 48, 82);
+            for (var i = 0; i < segments; i++)
+            {
+                var angleA = centerAngle - halfAngle + i / (float)segments * halfAngle * 2f;
+                var angleB = centerAngle - halfAngle + (i + 1) / (float)segments * halfAngle * 2f;
+                var pointA = ClipBunkerTyrantRay(_bunkerTyrant.Position, angleA, 2000f);
+                var pointB = ClipBunkerTyrantRay(_bunkerTyrant.Position, angleB, 2000f);
+                Raylib.DrawTriangle(_bunkerTyrant.Position, pointB, pointA, color);
+            }
+        }
+
+        foreach (var warning in _bunkerTyrant.GrenadeWarnings)
+        {
+            var pulse = 0.55f + MathF.Sin((float)Raylib.GetTime() * 18f) * 0.18f;
+            Raylib.DrawCircleV(warning.Position, 150f, WithAlpha(Palette.C(230, 45, 55), pulse * 0.25f));
+            Raylib.DrawCircleLines((int)warning.Position.X, (int)warning.Position.Y, 150f, Palette.C(245, 75, 75, 190));
+        }
+    }
+
+    private Vector2 ClipBunkerTyrantRay(Vector2 start, float angle, float maxDistance)
+    {
+        var direction = new Vector2(MathF.Cos(angle), MathF.Sin(angle));
+        for (var distance = 8f; distance <= maxDistance; distance += 8f)
+        {
+            var point = start + direction * distance;
+            if (MovementUtils.CircleHitsObstacle(point, 2f, _bunkerObstacles))
+                return start + direction * MathF.Max(0f, distance - 8f);
+        }
+
+        return start + direction * maxDistance;
     }
 
     private Camera2D GetRenderCamera()
@@ -768,6 +868,12 @@ public sealed partial class SciFiRogueGame
             {
                 DrawCircularProgressFrame(mouse, 22f, _player.LinearRifleChargeProgress, Palette.C(130, 230, 255));
             }
+            else if (_player.IsTerrorEquipped)
+            {
+                var progress = _player.TerrorSpinProgress;
+                var spinColor = Mix(Palette.C(90, 175, 255), Palette.C(245, 55, 65), progress);
+                DrawCircularProgressFrame(mouse, 22f, progress, spinColor);
+            }
 
             return;
         }
@@ -954,6 +1060,12 @@ public sealed partial class SciFiRogueGame
             y += 46f;
         }
 
+        if (_player.RadioactiveDecompositionActive)
+        {
+            DrawStatusEffectIcon(new Vector2(x, y), Palette.C(145, 38, 82), "R", _player.RadioactiveDecompositionProgress);
+            y += 46f;
+        }
+
         if (_player.StickyBulletsActive)
         {
             DrawStatusEffectIcon(new Vector2(x, y), Palette.C(120, 120, 120), "B", _player.StickyBulletsEffectProgress);
@@ -1011,6 +1123,33 @@ public sealed partial class SciFiRogueGame
                         position + new Vector2(6f, 4f),
                         color);
                 }
+            }
+        }
+    }
+
+    private void DrawEnemyDebuffIcons()
+    {
+        foreach (var target in EnumerateEnemyTargets())
+        {
+            var icons = new List<(Color Fill, Color Border)>(4);
+            if (_slowVisualTargets.ContainsKey(target.Target) || _chilledTargets.ContainsKey(target.Target))
+                icons.Add((Palette.C(125, 125, 130), Palette.C(175, 175, 180)));
+            if (_poisonVisualTargets.ContainsKey(target.Target))
+                icons.Add((Palette.C(70, 185, 75), Palette.C(115, 235, 120)));
+            if (_radioactiveDecompositionTargets.ContainsKey(target.Target))
+                icons.Add((Palette.C(110, 110, 115), Palette.C(90, 235, 90)));
+            if (_frozenTargets.ContainsKey(target.Target))
+                icons.Add((Palette.C(105, 210, 245), Palette.C(175, 245, 255)));
+            if (icons.Count == 0) continue;
+
+            const float spacing = 13f;
+            var y = target.Position.Y - target.Radius - 14f;
+            var startX = target.Position.X - (icons.Count - 1) * spacing * 0.5f;
+            for (var i = 0; i < icons.Count; i++)
+            {
+                var center = new Vector2(startX + i * spacing, y);
+                Raylib.DrawCircleV(center, 5f, icons[i].Fill);
+                Raylib.DrawCircleLinesV(center, 5f, icons[i].Border);
             }
         }
     }
@@ -1418,6 +1557,7 @@ public sealed partial class SciFiRogueGame
         TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "base_enemy_enhanced.png"), out _);
         TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "triangle.png"), out _);
         TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "triangle_enhanced.png"), out _);
+        TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "tyrant.png"), out _);
     }
 
     private TextureFilter GetRaylibTextureFilter()
@@ -1459,6 +1599,8 @@ public sealed partial class SciFiRogueGame
         }
         if (item.IsStationKey) return Path.Combine("Assets", "Icons", "KeyItems", "station_key.png");
         if (item.IsDeviceDataFragment) return Path.Combine("Assets", "Icons", "KeyItems", "device's_data_fragment.png");
+        if (item.IsVexEye) return Path.Combine("Assets", "Icons", "KeyItems", "vex's_eye.png");
+        if (item.IsInfectedExemplar) return Path.Combine("Assets", "Icons", "KeyItems", "infected_exemplar.png");
         if (item.IsHeavyAmmo) return Path.Combine("Assets", "Icons", "Consumables", "heavy_ammo.png");
 
         if (item.Type == ItemType.Consumable)
@@ -1492,6 +1634,7 @@ public sealed partial class SciFiRogueGame
             WeaponPattern.RamBomber => "ram.png",
             WeaponPattern.AutoRifle => "auto_rifle.png",
             WeaponPattern.RocketPulseRifle => "rocket_pulse_rifle.png",
+            WeaponPattern.Terror => "terror.png",
             WeaponPattern.SniperRifle => "sniper_rifle.png",
             WeaponPattern.Toxikus => "toxikus.png",
             WeaponPattern.PulseRifle => "pulse_rifle.png",
@@ -2042,6 +2185,7 @@ public sealed partial class SciFiRogueGame
             WeaponPattern.TraceRifle => 820f,
             WeaponPattern.Pulsar => 600f,
             WeaponPattern.Toxikus => 625f,
+            WeaponPattern.Terror => 800f,
             WeaponPattern.EnergySpear => item.Rarity == ArmorRarity.Legendary ? 150f : 125f,
             WeaponPattern.Lancelot => 150f,
             WeaponPattern.Standard when item.WeaponKind == WeaponClass.Melee => 75f,
@@ -2100,6 +2244,13 @@ public sealed partial class SciFiRogueGame
             lines.Add(("Charged damage: x20.8125 after standing", Palette.C(176, 92, 255)));
         }
 
+        if (item.Pattern == WeaponPattern.Terror)
+        {
+            lines.Add(("Spin-up: 6.0s", Palette.C(110, 185, 255)));
+            lines.Add(("Fire rate: 2-15/sec", Palette.C(245, 90, 95)));
+            lines.Add(("Radioactive decomposition: +25% damage for 5s", Palette.C(190, 85, 135)));
+        }
+
         return lines;
     }
 
@@ -2115,6 +2266,7 @@ public sealed partial class SciFiRogueGame
         if (item.Pattern == WeaponPattern.TraceRifle) return 1000f;
         if (item.Pattern == WeaponPattern.LinearRifle) return (1f / GetWeaponCooldown(item)) * 60f;
         if (item.Pattern == WeaponPattern.Pulsar) return 3f * 60f;
+        if (item.Pattern == WeaponPattern.Terror) return 15f * 60f;
         if (item.Pattern == WeaponPattern.PulseRifle)
         {
             var shots = item.Rarity == ArmorRarity.Legendary ? 4 : 3;

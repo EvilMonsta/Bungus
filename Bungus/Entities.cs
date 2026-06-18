@@ -111,6 +111,9 @@ public sealed class Player
     private float _stickyBulletsTimer;
     private float _teslaBulletsTimer;
     private float _poisonDurationMax;
+    private float _radioactiveDecompositionTimer;
+    private float _movementSlowTimer;
+    private float _terrorSpin;
 
     public Vector2 Position { get; private set; }
     public float Health { get; private set; }
@@ -124,6 +127,8 @@ public sealed class Player
     public bool TeslaBulletsActive => _teslaBulletsTimer > 0f;
     public bool StimActive => _stim > 0f;
     public bool Poisoned => _poison > 0f;
+    public bool RadioactiveDecompositionActive => _radioactiveDecompositionTimer > 0f;
+    public float RadioactiveDecompositionProgress => Math.Clamp(_radioactiveDecompositionTimer / 10f, 0f, 1f);
     public float StimEffectProgress => Math.Clamp(_stim / 6f, 0f, 1f);
     public float StickyBulletsEffectProgress => Math.Clamp(_stickyBulletsTimer / StickyBulletsDuration, 0f, 1f);
     public float TeslaBulletsEffectProgress => Math.Clamp(_teslaBulletsTimer / TeslaBulletsDuration, 0f, 1f);
@@ -132,6 +137,8 @@ public sealed class Player
     public bool IsSniperEquipped => ActiveWeaponClass == WeaponClass.Ranged && ActiveWeapon?.Pattern == WeaponPattern.SniperRifle;
     public bool IsLegendarySniperEquipped => IsSniperEquipped && ActiveWeapon?.Rarity == ArmorRarity.Legendary;
     public bool IsLinearRifleEquipped => ActiveWeaponClass == WeaponClass.Ranged && ActiveWeapon?.Pattern == WeaponPattern.LinearRifle;
+    public bool IsTerrorEquipped => ActiveWeaponClass == WeaponClass.Ranged && ActiveWeapon?.Pattern == WeaponPattern.Terror;
+    public float TerrorSpinProgress => Math.Clamp(_terrorSpin / 6f, 0f, 1f);
     public bool IsLegendaryRocketPulseRifleEquipped => ActiveWeaponClass == WeaponClass.Ranged && ActiveWeapon?.Pattern == WeaponPattern.RocketPulseRifle && ActiveWeapon.Rarity == ArmorRarity.Legendary;
     public bool RocketPulseBurstMode => IsLegendaryRocketPulseRifleEquipped && _rocketPulseBurstMode;
     public float LinearRifleChargeProgress => Math.Clamp(_linearRifleCharge / GetLinearRifleChargeDuration(), 0f, 1f);
@@ -208,8 +215,14 @@ public sealed class Player
         _stim -= dt;
         _stickyBulletsTimer = MathF.Max(0f, _stickyBulletsTimer - dt);
         _teslaBulletsTimer = MathF.Max(0f, _teslaBulletsTimer - dt);
+        _radioactiveDecompositionTimer = MathF.Max(0f, _radioactiveDecompositionTimer - dt);
+        _movementSlowTimer = MathF.Max(0f, _movementSlowTimer - dt);
         _timeSinceLastDamage += dt;
         UpdateLinearRifleCharge(dt);
+        if (IsTerrorEquipped && !InventoryOpen && Raylib.IsMouseButtonDown(MouseButton.Left))
+            _terrorSpin = MathF.Min(6f, _terrorSpin + dt);
+        else
+            _terrorSpin = MathF.Max(0f, _terrorSpin - dt);
 
         if (_bleed > 0 && !Invulnerable)
         {
@@ -260,6 +273,7 @@ public sealed class Player
         if (d != Vector2.Zero)
         {
             var speed = BaseMoveSpeed * SpeedMultiplier;
+            if (_movementSlowTimer > 0f) speed *= 0.5f;
             if (_stim > 0) speed *= 1f + 0.25f * GetArcaneEffectMultiplier();
             if (IsLinearRifleEquipped && Raylib.IsMouseButtonDown(MouseButton.Left) && _attackCd <= 0f && _linearRifleCharge > 0f) speed *= 0.6f;
             var delta = Vector2.Normalize(d) * speed * dt;
@@ -336,6 +350,28 @@ public sealed class Player
         if (ActiveWeaponClass == WeaponClass.Ranged)
         {
             var damage = GetWeaponDamage(weapon);
+            if (weapon.Pattern == WeaponPattern.Terror)
+            {
+                if (!TryConsumeHeavyAmmo(weapon)) return false;
+                var spread = (Random.Shared.NextSingle() * 5f - 2.5f) * MathF.PI / 180f;
+                dir = VisibilityUtils.Rotate(dir, spread);
+                const float projectileSpeed = 1000f;
+                projectiles.Add(new Projectile(
+                    Position + dir * 20f,
+                    dir,
+                    projectileSpeed,
+                    800f / projectileSpeed,
+                    Palette.C(110, 238, 58),
+                    false,
+                    damage,
+                    drawRadius: 4.5f,
+                    highlighted: true,
+                    sourcePosition: Position,
+                    enemyDecompositionDuration: 5f));
+                var fireRate = 2f + TerrorSpinProgress * 13f;
+                _attackCd = 1f / fireRate;
+                return true;
+            }
             if (weapon.Pattern == WeaponPattern.RamBomber)
             {
                 var (blastDamage, blastColor) = RollRamBomberBlast();
@@ -893,9 +929,13 @@ public sealed class Player
         if (duration >= _poison) _poisonDurationMax = duration;
         _poison = MathF.Max(_poison, duration);
     }
+    public void ApplyRadioactiveDecomposition(float duration = 10f)
+        => _radioactiveDecompositionTimer = MathF.Max(_radioactiveDecompositionTimer, duration);
+    public void ApplyMovementSlow(float duration)
+        => _movementSlowTimer = MathF.Max(_movementSlowTimer, duration);
     public void TickEffects(float dt) { }
 
-    public void TakeDamage(float value, bool isExplosion = false)
+    public void TakeDamage(float value, bool isExplosion = false, float armorPenetration = 0f)
     {
         if (Invulnerable) return;
         if (value <= 0f) return;
@@ -904,15 +944,39 @@ public sealed class Player
         _timeSinceLastDamage = 0f;
         _regenTickTimer = 0f;
 
+        value *= RadioactiveDecompositionActive ? 1.25f : 1f;
         var remainingDamage = ApplyShieldDamage(value);
         if (remainingDamage <= 0f) return;
 
         var resilience = Armor?.ResiliencePercent ?? 0f;
         var explosionResistance = isExplosion ? Armor?.ExplosionResistancePercent ?? 0f : 0f;
         var armor = Armor?.Defense ?? 0f;
-        var reduced = remainingDamage * (1f - resilience) * (1f - explosionResistance) - armor;
+        var effectiveArmor = armor * (1f - Math.Clamp(armorPenetration, 0f, 1f));
+        var reduced = armorPenetration > 0f
+            ? (remainingDamage - effectiveArmor) * (1f - resilience) * (1f - explosionResistance)
+            : remainingDamage * (1f - resilience) * (1f - explosionResistance) - effectiveArmor;
         reduced = MathF.Max(1f, reduced);
         Health = MathF.Max(0f, Health - reduced);
+    }
+
+    public bool ApplyKnockback(Vector2 direction, float distance, List<Obstacle> obstacles, int worldSize)
+    {
+        if (direction.LengthSquared() <= 0.001f) return false;
+        direction = Vector2.Normalize(direction);
+        var hitWall = false;
+        for (var moved = 0f; moved < distance; moved += 4f)
+        {
+            var candidate = Position + direction * MathF.Min(4f, distance - moved);
+            if (MovementUtils.CircleHitsObstacle(candidate, 16f, obstacles)
+                || candidate.X < 16f || candidate.Y < 16f
+                || candidate.X > worldSize - 16f || candidate.Y > worldSize - 16f)
+            {
+                hitWall = true;
+                break;
+            }
+            Position = candidate;
+        }
+        return hitWall;
     }
 
     public void RegisterKill(int points = 1)

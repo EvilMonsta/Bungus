@@ -312,6 +312,7 @@ public sealed class BunkerScrib(Vector2 position, int roomId = 19, Rectangle? pa
     public float Health { get; private set; } = MaxHealth;
     public bool Alive => Health > 0f && !_exploded;
     public bool Exploded => _exploded;
+    public bool KillAwarded { get; set; }
     private bool _armed;
     private bool _exploded;
     private float _fuse = 0.5f;

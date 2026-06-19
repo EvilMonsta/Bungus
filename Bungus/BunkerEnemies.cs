@@ -118,8 +118,9 @@ public sealed class BunkerSiegeEnemy(int roomId, Rectangle room, Vector2 positio
     public const float Radius = 16f;
     public int RoomId { get; } = roomId;
     public Vector2 Position { get; private set; } = position;
-    public float Health { get; private set; } = 400f;
+    public float Health { get; private set; } = 200f;
     public bool Alive => Health > 0f;
+    public bool KillAwarded { get; set; }
     private readonly BunkerNavigator _navigator = new(Radius);
     private float _burstCooldown;
     private int _burstShots;
@@ -206,7 +207,7 @@ public sealed class BunkerSiegeEnemy(int roomId, Rectangle room, Vector2 positio
     public void Damage(float amount) => Health = MathF.Max(0f, Health - amount);
     public void ApplyFreezeChill(float duration) => _freezeChillTimer = MathF.Max(_freezeChillTimer, duration);
     public void ForceAggro(Vector2 playerPosition) => _awareness.ForceAggro(Position, playerPosition);
-    public void Draw() => DrawBody(Palette.C(150, 105, 58), Health / 400f);
+    public void Draw() => DrawBody(Palette.C(150, 105, 58), Health / 200f);
 
     private void DrawBody(Color color, float ratio)
     {
@@ -228,8 +229,9 @@ public sealed class BunkerAssaultEnemy(int roomId, Rectangle room, Vector2 posit
     public const float Radius = 16f;
     public int RoomId { get; } = roomId;
     public Vector2 Position { get; private set; } = position;
-    public float Health { get; private set; } = 300f;
+    public float Health { get; private set; } = 250f;
     public bool Alive => Health > 0f;
+    public bool KillAwarded { get; set; }
     private readonly BunkerNavigator _navigator = new(Radius);
     private float _abilityCooldown;
     private float _shotCooldown;
@@ -293,7 +295,7 @@ public sealed class BunkerAssaultEnemy(int roomId, Rectangle room, Vector2 posit
             var angle = MathF.Atan2(_facing.Y, _facing.X) * 180f / MathF.PI;
             Raylib.DrawCircleSector(Position, 100f, angle - 90f, angle + 90f, 24, Palette.C(145, 105, 20, 82));
         }
-        BunkerSiegeEnemy.DrawHealthBar(Position, Health / 300f, 34f, 24f, Palette.C(235, 72, 62));
+        BunkerSiegeEnemy.DrawHealthBar(Position, Health / 250f, 34f, 24f, Palette.C(235, 72, 62));
     }
 }
 
@@ -304,6 +306,7 @@ public sealed class BunkerInfectedEnemy(int roomId, Rectangle room, Vector2 posi
     public Vector2 Position { get; private set; } = position;
     public float Health { get; private set; } = 250f;
     public bool Alive => Health > 0f;
+    public bool KillAwarded { get; set; }
     public float AttackVisualTimer { get; private set; }
     private readonly BunkerNavigator _navigator = new(Radius);
     private float _attackCooldown;

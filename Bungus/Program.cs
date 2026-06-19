@@ -1465,20 +1465,35 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateBunkerRoomEnemies(float dt)
     {
-        foreach (var enemy in _bunkerSiegeEnemies.Where(enemy => enemy.Alive && _revealedBunkerRooms.Contains(enemy.RoomId)))
+        foreach (var enemy in _bunkerSiegeEnemies.Where(enemy => _revealedBunkerRooms.Contains(enemy.RoomId)))
         {
+            if (!enemy.Alive)
+            {
+                AwardBunkerEnemyKill(enemy, 3);
+                continue;
+            }
             if (IsFrozenTarget(enemy)) continue;
             enemy.Update(dt, _player.Position, _bunkerObstacles, _projectiles);
         }
 
-        foreach (var enemy in _bunkerAssaultEnemies.Where(enemy => enemy.Alive && _revealedBunkerRooms.Contains(enemy.RoomId)))
+        foreach (var enemy in _bunkerAssaultEnemies.Where(enemy => _revealedBunkerRooms.Contains(enemy.RoomId)))
         {
+            if (!enemy.Alive)
+            {
+                AwardBunkerEnemyKill(enemy, 3);
+                continue;
+            }
             if (IsFrozenTarget(enemy)) continue;
             enemy.Update(dt, _player, _bunkerObstacles, _projectiles);
         }
 
-        foreach (var enemy in _bunkerInfectedEnemies.Where(enemy => enemy.Alive && _revealedBunkerRooms.Contains(enemy.RoomId)))
+        foreach (var enemy in _bunkerInfectedEnemies.Where(enemy => _revealedBunkerRooms.Contains(enemy.RoomId)))
         {
+            if (!enemy.Alive)
+            {
+                AwardBunkerEnemyKill(enemy, 2);
+                continue;
+            }
             if (IsFrozenTarget(enemy)) continue;
             enemy.Update(dt, _player, _bunkerObstacles, _bunkerInfectedClouds);
             if (Vector2.Distance(_player.Position, enemy.Position) <= 75f + 16f)
@@ -1492,9 +1507,19 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var scrib = _bunkerScribs[i];
             if (!_revealedBunkerRooms.Contains(scrib.RoomId)) continue;
+            if (!scrib.Alive)
+            {
+                AwardBunkerEnemyKill(scrib, 1);
+                _bunkerScribs.RemoveAt(i);
+                continue;
+            }
             if (IsFrozenTarget(scrib)) continue;
             if (scrib.Update(dt, _player.Position, _bunkerObstacles)) ExplodeBunkerScrib(scrib.Position);
-            if (!scrib.Alive) _bunkerScribs.RemoveAt(i);
+            if (!scrib.Alive)
+            {
+                AwardBunkerEnemyKill(scrib, 1);
+                _bunkerScribs.RemoveAt(i);
+            }
         }
 
         for (var i = _bunkerInfectedClouds.Count - 1; i >= 0; i--)
@@ -1572,6 +1597,12 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (_bunkerTyrant.Alive || _bunkerTyrantRewardDropped) return;
         _bunkerTyrantRewardDropped = true;
+        if (!_bunkerTyrant.KillAwarded)
+        {
+            _bunkerTyrant.KillAwarded = true;
+            _player.RegisterKill(20);
+            AddRunScore(20);
+        }
         _bunkerTyrantDoorSealTimer = -1f;
         SetBunkerDoorOpen(18, 19, true);
         SetBunkerDoorOpen(19, 20, true);
@@ -1628,13 +1659,45 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         const float explosionRadius = 112.5f;
         _explosions.Add(new Explosion(position, explosionRadius, Palette.C(116, 185, 72), true));
-        _bunkerToxicClouds.Add(new BunkerToxicCloud(position, 5f));
+        _bunkerInfectedClouds.Add(new BunkerInfectedCloud(position, explosionRadius, 5f));
         if (Vector2.Distance(_player.Position, position) <= explosionRadius + 16f)
         {
             _player.TakeDamage(50f, true);
             _player.ApplyPoison(2f);
             _player.ApplyRadioactiveDecomposition(10f);
         }
+    }
+
+    private void AwardBunkerEnemyKill(BunkerSiegeEnemy enemy, int experience)
+    {
+        if (enemy.KillAwarded) return;
+        enemy.KillAwarded = true;
+        _player.RegisterKill(experience);
+        AddRunScore(experience);
+    }
+
+    private void AwardBunkerEnemyKill(BunkerAssaultEnemy enemy, int experience)
+    {
+        if (enemy.KillAwarded) return;
+        enemy.KillAwarded = true;
+        _player.RegisterKill(experience);
+        AddRunScore(experience);
+    }
+
+    private void AwardBunkerEnemyKill(BunkerInfectedEnemy enemy, int experience)
+    {
+        if (enemy.KillAwarded) return;
+        enemy.KillAwarded = true;
+        _player.RegisterKill(experience);
+        AddRunScore(experience);
+    }
+
+    private void AwardBunkerEnemyKill(BunkerScrib enemy, int experience)
+    {
+        if (enemy.KillAwarded) return;
+        enemy.KillAwarded = true;
+        _player.RegisterKill(experience);
+        AddRunScore(experience);
     }
 
     private bool TryActivateBunkerTyrantSwitch()

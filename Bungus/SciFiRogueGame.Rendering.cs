@@ -456,10 +456,13 @@ public sealed partial class SciFiRogueGame
             if (Vector2.Distance(_player.Position, chest.Position) <= 34f)
                 Raylib.DrawText("F", (int)rect.X + 9, (int)rect.Y - 18, 18, Color.White);
         }
-        foreach (var scrib in _bunkerScribs.Where(scrib => _revealedBunkerRooms.Contains(scrib.RoomId))) scrib.Draw();
-        foreach (var parasite in _bunkerParasites) parasite.Draw();
-        var hasTyrantTexture = TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "tyrant.png"), out var tyrantTexture);
-        _bunkerTyrant?.Draw(hasTyrantTexture ? tyrantTexture : null);
+        foreach (var scrib in _bunkerScribs.Where(scrib => scrib.Alive && _revealedBunkerRooms.Contains(scrib.RoomId))) scrib.Draw();
+        foreach (var parasite in _bunkerParasites.Where(parasite => parasite.Alive)) parasite.Draw();
+        if (_bunkerTyrant?.Alive == true)
+        {
+            var hasTyrantTexture = TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "tyrant.png"), out var tyrantTexture);
+            _bunkerTyrant.Draw(hasTyrantTexture ? tyrantTexture : null);
+        }
         DrawEnemyDebuffIcons();
 
         if (_bunkerTyrantDrop is not null && _bunkerTyrant is not null)

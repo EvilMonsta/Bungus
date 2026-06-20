@@ -54,7 +54,6 @@ internal sealed class BunkerNavigator(float radius)
 internal sealed class BunkerAwareness(Rectangle room, bool aggroed = false)
 {
     private const float ViewDistance = 450f;
-    private const float AggroDistance = 750f;
     private const float HalfViewAngleCos = 0.5f;
     private Vector2 _patrolTarget = RandomPoint(room);
     private float _patrolWait;
@@ -65,7 +64,6 @@ internal sealed class BunkerAwareness(Rectangle room, bool aggroed = false)
     {
         if (Aggroed)
         {
-            if (Vector2.Distance(position, playerPosition) > AggroDistance) Aggroed = false;
             return;
         }
 
@@ -107,6 +105,8 @@ internal sealed class BunkerAwareness(Rectangle room, bool aggroed = false)
         if (direction.LengthSquared() > 0.001f) Facing = Vector2.Normalize(direction);
     }
 
+    public void ResetAggro() => Aggroed = false;
+
     private static Vector2 RandomPoint(Rectangle room)
         => new(
             room.X + 34f + Random.Shared.NextSingle() * MathF.Max(1f, room.Width - 68f),
@@ -136,7 +136,6 @@ public sealed class BunkerSiegeEnemy(int roomId, Rectangle room, Vector2 positio
     public void Update(float dt, Vector2 playerPosition, List<Obstacle> obstacles, List<Projectile> projectiles)
     {
         if (!Alive) return;
-        FacePlayer(playerPosition);
         _freezeChillTimer = MathF.Max(0f, _freezeChillTimer - dt);
         var moveMultiplier = _freezeChillTimer > 0f ? 0.75f : 1f;
         _awareness.Update(Position, playerPosition, obstacles, dt);
@@ -145,6 +144,7 @@ public sealed class BunkerSiegeEnemy(int roomId, Rectangle room, Vector2 positio
             var before = Position;
             Position = _navigator.Move(Position, _awareness.GetPatrolTarget(Position), 27f * moveMultiplier, dt, obstacles);
             _awareness.ObserveMovement(before, Position);
+            Facing = _awareness.Facing;
             return;
         }
 
@@ -152,6 +152,7 @@ public sealed class BunkerSiegeEnemy(int roomId, Rectangle room, Vector2 positio
         var toPlayer = playerPosition - Position;
         var distance = toPlayer.Length();
         var direction = distance <= 0.001f ? new Vector2(1f, 0f) : toPlayer / distance;
+        Facing = direction;
 
         var dangerousProjectile = projectiles.FirstOrDefault(projectile =>
             !projectile.OwnerEnemy
@@ -210,7 +211,12 @@ public sealed class BunkerSiegeEnemy(int roomId, Rectangle room, Vector2 positio
 
     public void Damage(float amount) => Health = MathF.Max(0f, Health - amount);
     public void ApplyFreezeChill(float duration) => _freezeChillTimer = MathF.Max(_freezeChillTimer, duration);
-    public void ForceAggro(Vector2 playerPosition) => _awareness.ForceAggro(Position, playerPosition);
+    public void ForceAggro(Vector2 playerPosition)
+    {
+        _awareness.ForceAggro(Position, playerPosition);
+        FacePlayer(playerPosition);
+    }
+    public void ResetAggro() => _awareness.ResetAggro();
     public void FacePlayer(Vector2 playerPosition)
     {
         var direction = playerPosition - Position;
@@ -309,7 +315,6 @@ public sealed class BunkerAssaultEnemy(int roomId, Rectangle room, Vector2 posit
     public void Update(float dt, Player player, List<Obstacle> obstacles, List<Projectile> projectiles)
     {
         if (!Alive) return;
-        FacePlayer(player.Position);
         _freezeChillTimer = MathF.Max(0f, _freezeChillTimer - dt);
         var moveMultiplier = _freezeChillTimer > 0f ? 0.75f : 1f;
         _attackVisualTimer = MathF.Max(0f, _attackVisualTimer - dt);
@@ -319,6 +324,7 @@ public sealed class BunkerAssaultEnemy(int roomId, Rectangle room, Vector2 posit
             var before = Position;
             Position = _navigator.Move(Position, _awareness.GetPatrolTarget(Position), 72f * moveMultiplier, dt, obstacles);
             _awareness.ObserveMovement(before, Position);
+            _facing = _awareness.Facing;
             return;
         }
 
@@ -352,7 +358,12 @@ public sealed class BunkerAssaultEnemy(int roomId, Rectangle room, Vector2 posit
 
     public void Damage(float amount) => Health = MathF.Max(0f, Health - amount);
     public void ApplyFreezeChill(float duration) => _freezeChillTimer = MathF.Max(_freezeChillTimer, duration);
-    public void ForceAggro(Vector2 playerPosition) => _awareness.ForceAggro(Position, playerPosition);
+    public void ForceAggro(Vector2 playerPosition)
+    {
+        _awareness.ForceAggro(Position, playerPosition);
+        FacePlayer(playerPosition);
+    }
+    public void ResetAggro() => _awareness.ResetAggro();
     public void FacePlayer(Vector2 playerPosition)
     {
         var direction = playerPosition - Position;
@@ -436,6 +447,7 @@ public sealed class BunkerInfectedEnemy(int roomId, Rectangle room, Vector2 posi
     public void Damage(float amount) => Health = MathF.Max(0f, Health - amount);
     public void ApplyFreezeChill(float duration) => _freezeChillTimer = MathF.Max(_freezeChillTimer, duration);
     public void ForceAggro(Vector2 playerPosition) => _awareness.ForceAggro(Position, playerPosition);
+    public void ResetAggro() => _awareness.ResetAggro();
     public void Draw()
     {
         Raylib.DrawCircleV(Position, Radius, Palette.C(78, 142, 54));

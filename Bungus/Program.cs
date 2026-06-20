@@ -1467,7 +1467,6 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         foreach (var enemy in _bunkerSiegeEnemies.Where(enemy => _revealedBunkerRooms.Contains(enemy.RoomId)))
         {
-            enemy.FacePlayer(_player.Position);
             if (!enemy.Alive)
             {
                 AwardBunkerEnemyKill(enemy, 3);
@@ -1479,7 +1478,6 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         foreach (var enemy in _bunkerAssaultEnemies.Where(enemy => _revealedBunkerRooms.Contains(enemy.RoomId)))
         {
-            enemy.FacePlayer(_player.Position);
             if (!enemy.Alive)
             {
                 AwardBunkerEnemyKill(enemy, 3);
@@ -1765,6 +1763,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _surfaceReturnPosition = fromSecondaryHatch
             ? _secondaryBunkerHatchPosition + new Vector2(0f, 72f)
             : _securedTerminalZone.HatchPosition + new Vector2(0f, 72f);
+        ResetBunkerEnemyAggro();
         _inBunker = true;
         _player.PlaceAt(fromSecondaryHatch ? BunkerSecondarySpawnPosition : BunkerSpawnPosition);
         _camera.Target = _player.Position;
@@ -1777,6 +1776,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         ResetInventoryUseHold();
         ClearTransitionEffects();
         StartRunIntro();
+    }
+
+    private void ResetBunkerEnemyAggro()
+    {
+        foreach (var enemy in _bunkerSiegeEnemies) enemy.ResetAggro();
+        foreach (var enemy in _bunkerAssaultEnemies) enemy.ResetAggro();
+        foreach (var enemy in _bunkerInfectedEnemies) enemy.ResetAggro();
+        foreach (var scrib in _bunkerScribs) scrib.ResetAggro();
     }
 
     private void ExitBunkerToSurface(Vector2 surfacePosition)

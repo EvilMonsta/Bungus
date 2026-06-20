@@ -410,6 +410,7 @@ public sealed class BunkerScrib(Vector2 position, int roomId = 19, Rectangle? pa
     }
 
     public void ForceAggro(Vector2 playerPosition) => _awareness.ForceAggro(Position, playerPosition);
+    public void ResetAggro() => _awareness.ResetAggro();
     public void ApplyFreezeChill(float duration) => _freezeChillTimer = MathF.Max(_freezeChillTimer, duration);
 
     public void Draw()

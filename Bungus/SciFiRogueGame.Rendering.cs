@@ -2424,9 +2424,11 @@ public sealed partial class SciFiRogueGame
         DrawButton(MainMenuButtonRect(4), "Settings");
         DrawButton(MainMenuButtonRect(5), "Exit");
         DrawButton(MainMenuCodesButtonRect(), "Codes");
+        DrawButton(MainMenuChangelogButtonRect(), "Changelog");
         DrawButton(MainMenuAboutButtonRect(), "About");
 
         if (_codesPopupOpen) DrawCodesPopup();
+        if (_changelogPopupOpen) DrawChangelogPopup();
         if (_aboutPopupOpen) DrawAboutPopup();
     }
 
@@ -2867,6 +2869,62 @@ public sealed partial class SciFiRogueGame
             Raylib.DrawText(line, (int)(popup.X + popup.Width / 2f - width / 2f), (int)y, fontSize, string.IsNullOrEmpty(line) ? Color.White : Color.LightGray);
             y += lineStep;
         }
+    }
+
+    private void DrawChangelogPopup()
+    {
+        Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(0, 0, 0, 175));
+
+        var popup = ChangelogPopupRect();
+        var content = ChangelogContentRect();
+        var close = ChangelogPopupCloseRect();
+
+        Raylib.DrawRectangleRec(popup, Palette.C(10, 18, 30, 248));
+        Raylib.DrawRectangleLinesEx(popup, 2f, Palette.C(108, 170, 228));
+        Raylib.DrawText("Changelog", (int)popup.X + 28, (int)popup.Y + 22, 32, Color.White);
+
+        Raylib.DrawRectangleRec(close, Palette.C(36, 56, 90));
+        Raylib.DrawRectangleLinesEx(close, 2f, Color.White);
+        Raylib.DrawText("X", (int)close.X + 9, (int)close.Y + 4, 22, Color.White);
+
+        Raylib.DrawRectangleRec(content, Palette.C(6, 12, 22, 235));
+        Raylib.DrawRectangleLinesEx(content, 1f, Palette.C(68, 104, 145));
+
+        BeginUiScissor(content);
+        const float lineStep = 27f;
+        var y = content.Y + 10f - _changelogScroll;
+        foreach (var line in _changelogLines)
+        {
+            if (y + lineStep >= content.Y && y <= content.Y + content.Height)
+            {
+                var color = line.Version ? Palette.C(110, 210, 255) : Color.LightGray;
+                Raylib.DrawText(line.Text, (int)content.X + 14, (int)y, 20, color);
+            }
+            y += lineStep;
+        }
+        Raylib.EndScissorMode();
+
+        var totalHeight = _changelogLines.Count * lineStep;
+        if (totalHeight > content.Height)
+        {
+            var track = new Rectangle(content.X + content.Width + 9f, content.Y, 7f, content.Height);
+            var thumbHeight = MathF.Max(44f, track.Height * content.Height / totalHeight);
+            var maxScroll = totalHeight - content.Height + 12f;
+            var thumbY = track.Y + (track.Height - thumbHeight) * (_changelogScroll / MathF.Max(1f, maxScroll));
+            Raylib.DrawRectangleRec(track, Palette.C(18, 28, 44));
+            Raylib.DrawRectangleRec(new Rectangle(track.X, thumbY, track.Width, thumbHeight), Palette.C(108, 170, 228));
+        }
+    }
+
+    private static void BeginUiScissor(Rectangle rect)
+    {
+        var scale = GetUiScale();
+        var offset = GetUiOffset();
+        Raylib.BeginScissorMode(
+            (int)(offset.X + rect.X * scale),
+            (int)(offset.Y + rect.Y * scale),
+            Math.Max(1, (int)(rect.Width * scale)),
+            Math.Max(1, (int)(rect.Height * scale)));
     }
 
     private void DrawMapSelect()
@@ -3918,6 +3976,12 @@ public sealed partial class SciFiRogueGame
 
     private Rectangle MainMenuCodesButtonRect()
     {
+        var cradle = MainMenuButtonRect(3);
+        return new Rectangle(GetUiScreenWidth() - 290, cradle.Y, 220, 48);
+    }
+
+    private Rectangle MainMenuChangelogButtonRect()
+    {
         var settings = MainMenuButtonRect(4);
         return new Rectangle(GetUiScreenWidth() - 290, settings.Y, 220, 48);
     }
@@ -4023,6 +4087,15 @@ public sealed partial class SciFiRogueGame
     private static Rectangle AboutPopupRect()
          => new((GetUiScreenWidth() - 640) / 2f, (GetUiScreenHeight() - 500) / 2f, 640, 500);
 
+    private static Rectangle ChangelogPopupRect()
+         => new((GetUiScreenWidth() - 1040) / 2f, (GetUiScreenHeight() - 760) / 2f, 1040, 760);
+
+    private static Rectangle ChangelogContentRect()
+    {
+        var popup = ChangelogPopupRect();
+        return new Rectangle(popup.X + 28, popup.Y + 78, popup.Width - 74, popup.Height - 108);
+    }
+
     private static Rectangle CodesPopupInputRect()
     {
         var popup = CodesPopupRect();
@@ -4045,6 +4118,12 @@ public sealed partial class SciFiRogueGame
     {
         var popup = AboutPopupRect();
         return new Rectangle(popup.X + popup.Width - 46, popup.Y + 14, 32, 32);
+    }
+
+    private static Rectangle ChangelogPopupCloseRect()
+    {
+        var popup = ChangelogPopupRect();
+        return new Rectangle(popup.X + popup.Width - 48, popup.Y + 16, 32, 32);
     }
 
     private static Rectangle TerminalPanelRect()

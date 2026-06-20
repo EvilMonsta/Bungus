@@ -1,0 +1,531 @@
+a0.3.8 — June 20, 2026
+----------------------
+
+Major world, AI, and visual design update.
+
+Added:
+- A large new underground location — the Bunker, consisting of interconnected rooms, doors, and distinct areas.
+- Two Bunker entrances, a dedicated floor map, a room discovery system, and a way back to the surface.
+- Bunker lighting, darkness in unexplored rooms, and special visual effects.
+- New Bunker enemies: Siege, Assault, Infected, Scrib, and Parasite.
+- A new boss, the Bunker Tyrant, with multiple attack modes, grenades, beams, a shockwave, vulnerability phases, and parasite summons.
+- A new heavy weapon, Terror, with its own spin-up mechanic and a radioactive decomposition effect.
+- New key items: Device Data Fragments, Vex's Eye, and Infected Exemplar.
+- Identical key items can now stack in one slot with a visible quantity counter.
+- Secured terminals, numeric passwords, and notes containing parts of the code.
+- Dedicated Bunker chests, enemy caches, and rewards.
+- An intro screen and smooth loading transition when starting a run or moving between locations.
+- Quality settings: MSAA x4, VSync, texture filtering, and an FPS limit.
+- New and updated icons for weapons, armor, consumables, key items, and enemies.
+- New armor variants and artwork for Nezarec's Path and Nezarec's Sin.
+- Multi-select in Storage with Shift+click and bulk selling.
+- Visual indicators for slow, poison, and radioactive decomposition effects on enemies.
+
+Changed:
+- Regular enemies now use pathfinding to navigate around obstacles instead of trying to move directly through them.
+- Player detection, fields of view, alert propagation, and enemy returns to patrol have been reworked.
+- Fixed enemies becoming alerted through walls or from excessively distant areas.
+- Improved player and enemy placement during world generation; increased the safe distance around the initial spawn.
+- Tesla Bullets, Freeze Grenade, HE Grenade, Protective Dome, and MIDA Mini-Turret now work inside the Bunker.
+- Reworked menu themes, the main menu background, and panel styling.
+- Updated enemy rendering with new textures and facing directions.
+- Optimized collision checks using a spatial obstacle index.
+- Optimized enemy updates and route searching.
+- The application now runs as a WinExe, so a console window no longer opens on launch.
+- Expanded save data to support quality settings, Bunker items, and new persistent data.
+
+Fixed:
+- Player and enemy spawning inside obstacles.
+- Enemy aggro, patrol, and stuck-state issues.
+- Theme behavior, texture filtering, and several visual effects.
+- Various issues with Bunker doors, transitions, combat, and rewards.
+
+
+a0.3.7 — June 7, 2026
+---------------------
+
+Consumables and armor update.
+
+Added:
+- Four new consumables:
+  - Tesla Bullets — adds chain lightning to ranged hits for 15 seconds.
+  - Freeze Grenade — deals damage, completely freezes enemies, and then slows them.
+  - HE Grenade — a powerful high-explosive grenade with a large blast radius.
+  - MIDA Mini-Turret — a temporary automated turret that attacks the nearest enemy.
+- Lightning effects, an ice zone, freeze crystals, and mini-turret visuals.
+- Light and Heavy armor variants.
+- New armor modifiers: movement spread and dash distance.
+- A dedicated armor sorting option in Storage.
+- An About window with information about the developer, tester, and contributors.
+- A dedicated row of consumables in the store.
+
+Changed:
+- The regular store now contains 18 offers.
+- All eight consumables now have an equal chance to appear.
+- Added separate sell prices for the new consumables.
+- Reduced the experience requirements for subsequent general levels.
+- Reduced the regular promo-code reward from 5,250 to 3,000 experience.
+- Updated the stats and modifier pools of different armor types.
+
+
+a0.3.6 — June 6, 2026
+---------------------
+
+Major visual interface update.
+
+Added:
+- An animated 3D main menu background with a sky, grid, hills, and monolith.
+- New designs for expedition and challenge cards.
+- Button highlighting and hover animations.
+- Animated item frames and improved equipment comparison markers.
+- A clearer presentation of Cradle tracks and bonuses.
+
+Changed:
+- The interface now uses a unified 1920x1080 virtual resolution.
+- Fixed UI scaling and positioning in windowed and fullscreen modes.
+- Reworked the layout of the main menu, Cradle, and level-selection screens.
+- Improved the readability of item rarity, stats, and comparisons.
+
+
+a0.3.5 — June 5, 2026
+---------------------
+
+Weapons and persistent character progression update.
+
+Added:
+- Auto Rifle — a rapid-fire automatic rifle.
+- Rocket Pulse Rifle — a heavy pulse rifle that fires rocket charges.
+- Legendary Rocket Pulse Rifles can switch between normal and burst-fire modes.
+- Ram Bomber — a special close-range heavy weapon with an impact explosion.
+- Projectile ricochets for selected weapon variants.
+- The Cradle system, replacing the previous Character screen.
+- Eight permanent Cradle upgrade tracks:
+  - health;
+  - speed;
+  - melee attack speed;
+  - dash recovery;
+  - stability;
+  - Gunsmith;
+  - Fighter;
+  - Arcane.
+- Persistent Cradle point allocation and a display of the resulting bonuses.
+- New Auto Rifle, Rocket Pulse Rifle, and Ram Bomber icons.
+
+Changed:
+- Reworked the distribution of weapons between primary and heavy slots.
+- Updated damage, range, fire-rate, and DPS formulas for most weapon types.
+- Reworked the unique properties of legendary weapon variants.
+- Sticky Bullets and Toxikus effects now benefit from Arcane progression.
+
+Fixed:
+- Weapon comparison and displayed DPS calculation errors.
+- Several issues with weapon switching and heavy-ammo consumption.
+
+
+a0.3.4 — June 4, 2026
+---------------------
+
+Added a harder variant of the Pit challenge.
+
+Added:
+- Pit (Nightmare), which uses the player's equipment from Storage.
+- An information window explaining Nightmare rules.
+- Stacking enemy health, speed, and damage modifiers.
+- A random selection of the next modifier between waves.
+- A dedicated modifier-result panel.
+- An exit portal that can be activated after completing waves.
+
+Changed:
+- Enemies now have separate stat multipliers for challenges.
+- The challenge-selection screen now separates the regular Pit from Pit (Nightmare).
+- Nightmare run completion, rewards, and equipment return rules have been reworked.
+
+
+a0.3.3 — June 4, 2026
+---------------------
+
+Storage, store, and Linear Rifle update.
+
+Added:
+- Storage sorting buttons for general order, primary weapons, heavy weapons, melee weapons, consumables, keys, and ammunition.
+- Items outside the selected category are now dimmed.
+- Failed runs are now tracked when determining store stock refreshes.
+- A dedicated heavy-weapon selection in Pit rewards.
+
+Changed:
+- The store now guarantees that heavy ammunition and consumable offers remain available.
+- Store stock refreshes automatically after several failed runs.
+- The Linear Rifle now fires after the attack button is held and released.
+- Legendary Linear Rifles charge faster than regular ones.
+- Updated the Linear Rifle's description, damage, charge time, and displayed DPS.
+
+
+a0.3.2 — June 3, 2026
+---------------------
+
+Added a second store and a new currency.
+
+Added:
+- Crypto Tokens currency.
+- Separate Token Store offers featuring rare heavy weapons.
+- Random discounts for Token Store offers.
+- Saving of token balances, offer contents, discounts, and purchase states.
+- Crypto Tokens can now be earned through game progression.
+- A guaranteed consumable offer in the regular store.
+
+Changed:
+- Reworked the Armory screen so regular items and the Token Store are displayed together.
+- Rare weapons now have separate Crypto Token prices.
+- Improved Protective Dome behavior and its interaction with enemies and projectiles.
+- Updated enemy aggro behavior when hit.
+
+
+a0.3.1 — June 3, 2026
+---------------------
+
+Added a complete heavy-weapon category.
+
+Added:
+- A separate Heavy Weapon slot.
+- Switching between melee, primary, and heavy weapons with the 1, 2, and 3 keys.
+- Heavy ammunition as a separate item type.
+- Percentage-based heavy-ammo reserves stored in the backpack.
+- Different ammunition consumption rates for different heavy weapons.
+- Remaining heavy-weapon shots displayed in the HUD.
+- Purchasing, storing, moving, and saving heavy ammunition.
+- A fourth reward in the Pit reward window.
+- A heavy-ammunition icon.
+
+Changed:
+- Weapons are now divided into primary and heavy categories.
+- Reworked the equipment screen and item comparisons to support the new slot.
+- Rebalanced the Sniper Rifle, Linear Rifle, Rocket Launcher, Grenade Launcher, Pulsar, Toxikus, and melee weapons.
+- Updated projectile speed, range, and lifetime.
+
+
+a0.3.0 — June 2, 2026
+---------------------
+
+Major item-interface update.
+
+Added:
+- Proper graphical icons for weapons, armor, consumables, and the Station Key.
+- Automatic loading and caching of item textures.
+- A Storage scrollbar and mouse-wheel scrolling.
+- A display showing the currently visible range of Storage slots.
+
+Changed:
+- Increased slot sizes and completely redesigned the inventory layout.
+- The Storage screen is now divided into Loadout, Run Backpack, and a scrollable Stash.
+- Updated item rendering in the inventory, store, rewards, and tooltips.
+- Improved rarity frames and armor-modifier displays.
+- Assets are now copied automatically during builds and publishing.
+
+
+a0.2.5 — June 2, 2026
+---------------------
+
+Major weapons update.
+
+Added:
+- Trace Rifle — a rapid-fire beam weapon.
+- Linear Rifle — a charge rifle with a powerful linear shot.
+- Rocket Launcher — a heavy explosive weapon.
+- Pulsar — a weapon that fires pulse charges and additional microcharges.
+- New projectile types: Trace Beam, Linear Shot, Pulsar Bolt, and Micro Charge.
+- Beam effects and a Linear Rifle charge indicator.
+- Unique red variants of the new weapons.
+- Dedicated drawn icons for the new weapon types.
+
+Changed:
+- Expanded the attack system to support beams, charging, rockets, and secondary explosions.
+- Item tooltips can now calculate the fire rate and DPS of the new weapons.
+- Added the new weapons to loot and reward generation.
+
+
+a0.2.4 — June 1, 2026
+---------------------
+
+Item information and Pit mode update.
+
+Added:
+- Detailed DPS and fire-rate calculations in weapon tooltips.
+- Color-coded DPS comparisons between equipped and inspected weapons.
+- Separate calculations for bursts, poison, explosions, sniper shots, and melee weapons.
+- A fast variant of the square miniboss with altered attacks and visual chevrons.
+- The ISFUNNY promo code, which starts the next run with 250 additional levels.
+
+Changed:
+- Reworked the display of allocated and available stat points.
+- Improved inventory tooltips.
+- Fixed Pit wave-completion detection and reward distribution.
+- Rebalanced selected weapons and the fast miniboss.
+
+
+a0.2.3 — May 29, 2026
+---------------------
+
+Added a new game mode.
+
+Added:
+- A Challenges section on the deployment-selection screen.
+- The Pit challenge with consecutive enemy waves.
+- A wave timer and completed-wave counter.
+- Animated item rewards between waves.
+- The ability to take up to three rewards or skip the offer.
+- Separate death, completion, and reward-retention rules for the Pit.
+- Movement trails and fading silhouettes for the player and enemies.
+- Multiple trail shapes for different enemy types.
+
+Changed:
+- The deployment-selection screen can now switch between Expeditions and Challenges.
+- Adapted the HUD for challenges.
+- Red rarity is now limited to weapons and no longer appears on regular armor.
+- Fixed pausing, map opening, and interactions with reward windows.
+
+
+a0.2.2 — May 14, 2026
+---------------------
+
+Added the store, currency, and Station key item.
+
+Added:
+- The Armory screen.
+- SynthCoins currency.
+- Purchasing weapons, armor, and consumables.
+- Store stock that refreshes after a run.
+- Selling Storage items by holding X.
+- The Station Key as a separate key item.
+- Saving currency, the key, and store offers.
+- Prices, purchase states, and item modifiers displayed in the Armory.
+
+Changed:
+- Added a separate Store button to the main menu.
+- Added the Key Item category to the inventory.
+- Reworked access to the Station.
+- Rebalanced the Grenade Launcher, Toxikus, projectile ranges, and several enemies.
+- Improved Generator Guardian aggro behavior.
+
+
+a0.2.1 — May 13, 2026
+---------------------
+
+Station boss and status-effect update.
+
+Added:
+- Active-effect icons for Stim, Sticky Bullets, and Poison with circular timers.
+- The Station arena now seals when the boss fight begins.
+- The arena reopens after victory.
+- An improved second phase for the Station boss.
+- New dashes, a radial burst, and wall collisions for the boss.
+- RAMGUNGUS and RAMARMORGUS promo codes.
+
+Changed:
+- Rebalanced the health and behavior of several enemies and bosses.
+- Improved enemy reactions to gunfire.
+- Player poison now has a correct timer for its visual indicator.
+- Fixed player placement when entering the Station arena.
+
+
+a0.2.0 — May 12, 2026
+---------------------
+
+Major map and high-level content update.
+
+Added:
+- Multiple expedition variants with different world sizes, difficulties, and rewards.
+- New zone types: Generator, Hangar, and Station.
+- Generators that must be defended and destroyed in the correct sequence.
+- Generator Guardian — a dedicated enemy with a golden spear and dashes.
+- Toxic Triangle — a poison-based enemy.
+- Station Boss with multiple hit zones and its own set of attacks.
+- Toxic pools and poison damage.
+- A fullscreen map showing the player, zones, portals, and a custom marker.
+- The ability to place and remove a custom map marker.
+- The red Toxikus weapon with poisonous bursts.
+- The red Lancelot weapon with a special spear attack.
+- Consumables can now be used directly from the inventory by holding the button.
+
+Changed:
+- Expanded world generation to support new zone types and map sizes.
+- Reworked loot generation in cities, outposts, hangars, generator areas, and the Station.
+- Expanded the projectile system to support poison damage.
+- Improved weapon tooltips and expedition cards.
+- Rebalanced bosses, enemies, weapons, and loot distribution.
+
+
+a0.1.6 — May 8, 2026
+--------------------
+
+Major armor, consumables, and enemy-behavior update.
+
+Added:
+- Protective Dome — a defensive dome that blocks enemy projectiles and absorbs damage.
+- Sticky Bullets — a temporary effect that slows enemies when they are hit.
+- New armor modifiers:
+  - damage resilience;
+  - movement speed;
+  - explosion resistance;
+  - increased healing;
+  - faster dash recovery;
+  - energy shield;
+  - health regeneration.
+- An energy shield with a recharge delay and gradual recovery.
+- Passive health regeneration for suitable armor.
+- Comparison between inspected items and currently equipped gear.
+- An indicator showing when a level-up is available.
+
+Changed:
+- Reworked Q/R quick-slot usage and automatic consumable assignment.
+- Improved enemy player detection and alert propagation after gunfire.
+- Turrets now scan a sector and react to the player more consistently.
+- Rebalanced the Sniper Rifle, Pulse Rifle, boss, and enemy movement speed.
+- Armor tooltips now display all additional properties.
+
+
+a0.1.5 — May 8, 2026
+--------------------
+
+Added the Sniper Rifle and improved the combat interface.
+
+Added:
+- Sniper Rifle.
+- An empowered shot for legendary Sniper Rifles after remaining stationary.
+- A Sniper Rifle aiming line.
+- An empowered-shot charge indicator.
+- Health and dash-readiness bars.
+- Enemy health and shield displays.
+- A promo-code input window.
+- A legendary weapon bundle granted by a special promo code.
+
+Changed:
+- Corrected the formulas for STR, DEX, SPD, and GUN.
+- Moving while firing now adds spread to ranged weapons.
+- Melee attack speed now depends on player stats.
+- Improved enemy fields of view and witness reactions to combat.
+- Improved safe spawn-point generation.
+- Updated weapon and consumable icons.
+
+
+a0.1.4 — March 27, 2026
+-----------------------
+
+Extraction, Run Backpack, and loot-handling update.
+
+Added:
+- A final extraction chance after the regular portals close.
+- A final portal that opens during the last ten seconds.
+- An additional enemy wave near the final portal.
+- Run Backpack support in persistent Storage.
+- The ability to move equipment between the Loadout, Stash, and Run Backpack.
+- A Take All button for quickly transferring chest contents.
+- Dedicated miniboss loot.
+- A red low-health effect around the screen edges.
+- Drawn identifiers for different weapon, armor, and consumable types.
+- Tooltips explaining the effects of STR, DEX, SPD, and GUN.
+
+Changed:
+- Increased the lifetime of regular portals.
+- Reworked item loss on failure and loot return after extraction.
+- Updated the Storage layout.
+- Improved directional indicators for important objects.
+- Rebalanced bosses and the amount of consumables found in loot.
+
+
+a0.1.3 — March 26, 2026
+-----------------------
+
+Weapon attacks and combat visual-effects update.
+
+Added:
+- Fading trails after dashing.
+- A complete arcing blade-swing animation.
+- A spear-thrust animation.
+- Protection against a single melee attack damaging the same target multiple times.
+- Differences between regular and legendary weapon variants.
+- Twin shots for legendary standard ranged weapons.
+- An additional projectile for legendary Pulse Rifles.
+- Increased legendary spear length.
+
+Changed:
+- Increased SPD's effect on movement speed.
+- Reworked melee damage, range, and attack geometry.
+- Changed Pulse Rifle burst behavior.
+- Rebalanced the Grenade Launcher.
+- Improved explosions, attacks, and movement-trail rendering.
+
+
+a0.1.2 — March 26, 2026
+-----------------------
+
+Reworked the stat system and the project's internal structure.
+
+Added:
+- Four character stats: STR, DEX, SPD, and GUN.
+- Stat points earned from leveling during a run.
+- Staged stat allocation with confirmation or reset.
+- Base stats that persist between runs.
+- Loot crates in cities and outposts.
+- A distinction between chests and regular crates.
+- More detailed information about weapon base and bonus damage.
+
+Changed:
+- Maximum health now depends on STR.
+- Movement speed now depends on SPD.
+- Melee damage now depends on STR and DEX.
+- Ranged damage now depends on GUN.
+- Reworked kill requirements for subsequent levels.
+- Updated weapon-damage and armor formulas.
+- Split the large Program.cs file into entity, type, world-model, inventory, persistence, and rendering files.
+- Improved persistence of base stats and equipment.
+
+
+a0.1.1 — March 26, 2026
+-----------------------
+
+Improved the interface, saves, and window settings.
+
+Added:
+- Switching between windowed and fullscreen modes.
+- A protected save format with encryption and signature verification.
+- Automatic migration of legacy saves.
+- Detection of corrupted or modified save files.
+- A shared profile-progress bar at the top of the menu.
+- More accurate previews of actual equipment stats before deployment.
+- A dedicated Trash area and right-click item transfer to it.
+
+Changed:
+- Rebalanced persistent health and damage bonuses from the general level.
+- Improved miniboss placement at safe points.
+- Changed the Destroyer's second-phase speed.
+- Fixed displayed weapon-damage calculations.
+- Updated the main menu, Character, Storage, and Settings screens.
+
+
+a0.1.0 — March 25, 2026
+-----------------------
+
+The first designated alpha version and the foundation of the game.
+
+Added:
+- The Baselands map with cities, outposts, obstacles, and hostile zones.
+- WASD movement, dashing, ranged combat, and melee combat.
+- Regular enemies, turrets, enhanced enemies, minibosses, and the central Destroyer boss.
+- Melee and ranged weapons, armor, and the Medkit and Stim consumables.
+- Multiple item rarities, including damaged, legendary, and red items.
+- Pulse Rifle, Energy Spear, and Grenade Launcher alongside the basic weapons.
+- Chests, loot, a backpack, equipment, and Q/R quick slots.
+- Persistent Storage between runs.
+- Extraction portals with a limited active duration.
+- Carried loot is lost on death or failed extraction.
+- Character levels during runs and a general profile level.
+- Main menu, map selection, Storage, Character, Settings, Pause, and death screens.
+- Multiple visual interface themes.
+- Saving progress, equipment, Storage contents, and settings.
+
+Changed and fixed before the first release:
+- Initial balancing of health, damage, movement speed, and loot.
+- Fixed chest interactions.
+- Fixed an exception when closing the game.
+- Improved the interface and game-state management.
+- Added and refined the central boss fight.

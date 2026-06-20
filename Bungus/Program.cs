@@ -190,6 +190,9 @@ public sealed partial class SciFiRogueGame : IDisposable
     private bool _isFunnyNextRun;
     private bool _codesPopupOpen;
     private bool _aboutPopupOpen;
+    private bool _changelogPopupOpen;
+    private float _changelogScroll;
+    private readonly List<(string Text, bool Version)> _changelogLines = [];
     private string _codeInput = string.Empty;
     private string _codeStatusText = string.Empty;
     private bool _codeStatusSuccess;
@@ -646,6 +649,12 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateMainMenu()
     {
+        if (_changelogPopupOpen)
+        {
+            UpdateChangelogPopup();
+            return;
+        }
+
         if (_aboutPopupOpen)
         {
             UpdateAboutPopup();
@@ -664,6 +673,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (Clicked(MainMenuButtonRect(3))) { ClearUiInteraction(); _state = GameState.Cradle; }
         if (Clicked(MainMenuButtonRect(4))) { ClearUiInteraction(); _state = GameState.Settings; }
         if (Clicked(MainMenuCodesButtonRect())) OpenCodesPopup();
+        if (Clicked(MainMenuChangelogButtonRect())) OpenChangelogPopup();
         if (Clicked(MainMenuAboutButtonRect())) OpenAboutPopup();
         if (Clicked(MainMenuButtonRect(5))) _requestExit = true;
     }
@@ -5808,6 +5818,73 @@ public sealed partial class SciFiRogueGame : IDisposable
     private void CloseAboutPopup()
     {
         _aboutPopupOpen = false;
+    }
+
+    private void OpenChangelogPopup()
+    {
+        _changelogPopupOpen = true;
+        _changelogScroll = 0f;
+        _changelogLines.Clear();
+
+        var path = ResolveReleaseNotesPath();
+        if (path is null)
+        {
+            _changelogLines.Add(("release_notes_en.txt was not found.", false));
+            return;
+        }
+
+        foreach (var line in File.ReadLines(path))
+        {
+            var version = IsReleaseVersionLine(line);
+            var displayLine = line.Replace('—', '-');
+            foreach (var wrapped in WrapText(displayLine, 20, (int)ChangelogContentRect().Width - 34))
+                _changelogLines.Add((wrapped, version));
+        }
+    }
+
+    private void CloseChangelogPopup()
+    {
+        _changelogPopupOpen = false;
+        _changelogScroll = 0f;
+    }
+
+    private void UpdateChangelogPopup()
+    {
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Clicked(ChangelogPopupCloseRect()))
+        {
+            CloseChangelogPopup();
+            return;
+        }
+
+        var wheel = Raylib.GetMouseWheelMove();
+        if (Raylib.CheckCollisionPointRec(GetUiMousePosition(), ChangelogContentRect()))
+            _changelogScroll -= wheel * 72f;
+        if (Raylib.IsKeyDown(KeyboardKey.Down)) _changelogScroll += 360f * Raylib.GetFrameTime();
+        if (Raylib.IsKeyDown(KeyboardKey.Up)) _changelogScroll -= 360f * Raylib.GetFrameTime();
+        if (Raylib.IsKeyPressed(KeyboardKey.PageDown)) _changelogScroll += ChangelogContentRect().Height * 0.8f;
+        if (Raylib.IsKeyPressed(KeyboardKey.PageUp)) _changelogScroll -= ChangelogContentRect().Height * 0.8f;
+
+        const float lineStep = 27f;
+        var maxScroll = MathF.Max(0f, _changelogLines.Count * lineStep - ChangelogContentRect().Height + 12f);
+        _changelogScroll = Math.Clamp(_changelogScroll, 0f, maxScroll);
+    }
+
+    private static string? ResolveReleaseNotesPath()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "release_notes_en.txt"),
+            Path.Combine(Environment.CurrentDirectory, "release_notes_en.txt")
+        };
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private static bool IsReleaseVersionLine(string line)
+    {
+        var token = line.TrimStart().Split([' ', '\t', '—', '-'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        if (string.IsNullOrEmpty(token) || token.Length < 6 || char.ToLowerInvariant(token[0]) != 'a') return false;
+        var parts = token[1..].Split('.');
+        return parts.Length == 3 && parts.All(part => int.TryParse(part, out _));
     }
 
     private void UpdateAboutPopup()

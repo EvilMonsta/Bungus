@@ -131,13 +131,21 @@ public sealed class BunkerSiegeEnemy(int roomId, Rectangle room, Vector2 positio
     private float _dodgeCooldown;
     private float _strafeSign = 1f;
     private float _freezeChillTimer;
+    private float _stickySlowTimer;
+    private float _freezeChillSpeedMultiplier = 0.75f;
+    private float _stickySlowSpeedMultiplier = 0.7f;
+    private float _poisonTimer;
+    private float _poisonDamagePerSecond;
     private readonly BunkerAwareness _awareness = new(room);
 
     public void Update(float dt, Vector2 playerPosition, List<Obstacle> obstacles, List<Projectile> projectiles)
     {
         if (!Alive) return;
+        TickStatusEffects(dt);
+        if (!Alive) return;
         _freezeChillTimer = MathF.Max(0f, _freezeChillTimer - dt);
-        var moveMultiplier = _freezeChillTimer > 0f ? 0.75f : 1f;
+        _stickySlowTimer = MathF.Max(0f, _stickySlowTimer - dt);
+        var moveMultiplier = (_freezeChillTimer > 0f ? _freezeChillSpeedMultiplier : 1f) * (_stickySlowTimer > 0f ? _stickySlowSpeedMultiplier : 1f);
         _awareness.Update(Position, playerPosition, obstacles, dt);
         if (!_awareness.Aggroed)
         {
@@ -210,7 +218,24 @@ public sealed class BunkerSiegeEnemy(int roomId, Rectangle room, Vector2 positio
     }
 
     public void Damage(float amount) => Health = MathF.Max(0f, Health - amount);
-    public void ApplyFreezeChill(float duration) => _freezeChillTimer = MathF.Max(_freezeChillTimer, duration);
+    public void ApplyFreezeChill(float duration, float strengthMultiplier = 1f)
+    {
+        var multiplier = MathF.Max(0f, 1f - 0.25f * strengthMultiplier);
+        _freezeChillSpeedMultiplier = _freezeChillTimer > 0f ? MathF.Min(_freezeChillSpeedMultiplier, multiplier) : multiplier;
+        _freezeChillTimer = MathF.Max(_freezeChillTimer, duration);
+    }
+
+    public void ApplyStickySlow(float duration, float strengthMultiplier = 1f)
+    {
+        var multiplier = MathF.Max(0f, 1f - 0.3f * strengthMultiplier);
+        _stickySlowSpeedMultiplier = _stickySlowTimer > 0f ? MathF.Min(_stickySlowSpeedMultiplier, multiplier) : multiplier;
+        _stickySlowTimer = MathF.Max(_stickySlowTimer, duration);
+    }
+    public void ApplyPoison(float damagePerSecond, float duration)
+    {
+        _poisonDamagePerSecond = MathF.Max(_poisonDamagePerSecond, damagePerSecond);
+        _poisonTimer = MathF.Max(_poisonTimer, duration);
+    }
     public void ForceAggro(Vector2 playerPosition)
     {
         _awareness.ForceAggro(Position, playerPosition);
@@ -287,6 +312,14 @@ public sealed class BunkerSiegeEnemy(int roomId, Rectangle room, Vector2 positio
         return minimum <= maximum;
     }
 
+    private void TickStatusEffects(float dt)
+    {
+        if (_poisonTimer <= 0f) return;
+        Health = MathF.Max(0f, Health - _poisonDamagePerSecond * dt);
+        _poisonTimer = MathF.Max(0f, _poisonTimer - dt);
+        if (_poisonTimer <= 0f) _poisonDamagePerSecond = 0f;
+    }
+
     internal static void DrawHealthBar(Vector2 position, float ratio, float width, float yOffset, Color color)
     {
         var bar = new Rectangle(position.X - width * 0.5f, position.Y - yOffset, width, 4f);
@@ -310,13 +343,21 @@ public sealed class BunkerAssaultEnemy(int roomId, Rectangle room, Vector2 posit
     private float _attackVisualTimer;
     private Vector2 _facing = new(1f, 0f);
     private float _freezeChillTimer;
+    private float _stickySlowTimer;
+    private float _freezeChillSpeedMultiplier = 0.75f;
+    private float _stickySlowSpeedMultiplier = 0.7f;
+    private float _poisonTimer;
+    private float _poisonDamagePerSecond;
     private readonly BunkerAwareness _awareness = new(room);
 
     public void Update(float dt, Player player, List<Obstacle> obstacles, List<Projectile> projectiles)
     {
         if (!Alive) return;
+        TickStatusEffects(dt);
+        if (!Alive) return;
         _freezeChillTimer = MathF.Max(0f, _freezeChillTimer - dt);
-        var moveMultiplier = _freezeChillTimer > 0f ? 0.75f : 1f;
+        _stickySlowTimer = MathF.Max(0f, _stickySlowTimer - dt);
+        var moveMultiplier = (_freezeChillTimer > 0f ? _freezeChillSpeedMultiplier : 1f) * (_stickySlowTimer > 0f ? _stickySlowSpeedMultiplier : 1f);
         _attackVisualTimer = MathF.Max(0f, _attackVisualTimer - dt);
         _awareness.Update(Position, player.Position, obstacles, dt);
         if (!_awareness.Aggroed)
@@ -357,7 +398,24 @@ public sealed class BunkerAssaultEnemy(int roomId, Rectangle room, Vector2 posit
     }
 
     public void Damage(float amount) => Health = MathF.Max(0f, Health - amount);
-    public void ApplyFreezeChill(float duration) => _freezeChillTimer = MathF.Max(_freezeChillTimer, duration);
+    public void ApplyFreezeChill(float duration, float strengthMultiplier = 1f)
+    {
+        var multiplier = MathF.Max(0f, 1f - 0.25f * strengthMultiplier);
+        _freezeChillSpeedMultiplier = _freezeChillTimer > 0f ? MathF.Min(_freezeChillSpeedMultiplier, multiplier) : multiplier;
+        _freezeChillTimer = MathF.Max(_freezeChillTimer, duration);
+    }
+
+    public void ApplyStickySlow(float duration, float strengthMultiplier = 1f)
+    {
+        var multiplier = MathF.Max(0f, 1f - 0.3f * strengthMultiplier);
+        _stickySlowSpeedMultiplier = _stickySlowTimer > 0f ? MathF.Min(_stickySlowSpeedMultiplier, multiplier) : multiplier;
+        _stickySlowTimer = MathF.Max(_stickySlowTimer, duration);
+    }
+    public void ApplyPoison(float damagePerSecond, float duration)
+    {
+        _poisonDamagePerSecond = MathF.Max(_poisonDamagePerSecond, damagePerSecond);
+        _poisonTimer = MathF.Max(_poisonTimer, duration);
+    }
     public void ForceAggro(Vector2 playerPosition)
     {
         _awareness.ForceAggro(Position, playerPosition);
@@ -392,6 +450,14 @@ public sealed class BunkerAssaultEnemy(int roomId, Rectangle room, Vector2 posit
         }
         BunkerSiegeEnemy.DrawHealthBar(Position, Health / 250f, 44f, 29f, Palette.C(235, 72, 62));
     }
+
+    private void TickStatusEffects(float dt)
+    {
+        if (_poisonTimer <= 0f) return;
+        Health = MathF.Max(0f, Health - _poisonDamagePerSecond * dt);
+        _poisonTimer = MathF.Max(0f, _poisonTimer - dt);
+        if (_poisonTimer <= 0f) _poisonDamagePerSecond = 0f;
+    }
 }
 
 public sealed class BunkerInfectedEnemy(int roomId, Rectangle room, Vector2 position)
@@ -407,13 +473,21 @@ public sealed class BunkerInfectedEnemy(int roomId, Rectangle room, Vector2 posi
     private float _attackCooldown;
     private float _trailTimer;
     private float _freezeChillTimer;
+    private float _stickySlowTimer;
+    private float _freezeChillSpeedMultiplier = 0.75f;
+    private float _stickySlowSpeedMultiplier = 0.7f;
+    private float _poisonTimer;
+    private float _poisonDamagePerSecond;
     private readonly BunkerAwareness _awareness = new(room);
 
     public void Update(float dt, Player player, List<Obstacle> obstacles, List<BunkerInfectedCloud> clouds)
     {
         if (!Alive) return;
+        TickStatusEffects(dt);
+        if (!Alive) return;
         _freezeChillTimer = MathF.Max(0f, _freezeChillTimer - dt);
-        var moveMultiplier = _freezeChillTimer > 0f ? 0.75f : 1f;
+        _stickySlowTimer = MathF.Max(0f, _stickySlowTimer - dt);
+        var moveMultiplier = (_freezeChillTimer > 0f ? _freezeChillSpeedMultiplier : 1f) * (_stickySlowTimer > 0f ? _stickySlowSpeedMultiplier : 1f);
         _awareness.Update(Position, player.Position, obstacles, dt);
         if (!_awareness.Aggroed)
         {
@@ -445,7 +519,24 @@ public sealed class BunkerInfectedEnemy(int roomId, Rectangle room, Vector2 posi
     }
 
     public void Damage(float amount) => Health = MathF.Max(0f, Health - amount);
-    public void ApplyFreezeChill(float duration) => _freezeChillTimer = MathF.Max(_freezeChillTimer, duration);
+    public void ApplyFreezeChill(float duration, float strengthMultiplier = 1f)
+    {
+        var multiplier = MathF.Max(0f, 1f - 0.25f * strengthMultiplier);
+        _freezeChillSpeedMultiplier = _freezeChillTimer > 0f ? MathF.Min(_freezeChillSpeedMultiplier, multiplier) : multiplier;
+        _freezeChillTimer = MathF.Max(_freezeChillTimer, duration);
+    }
+
+    public void ApplyStickySlow(float duration, float strengthMultiplier = 1f)
+    {
+        var multiplier = MathF.Max(0f, 1f - 0.3f * strengthMultiplier);
+        _stickySlowSpeedMultiplier = _stickySlowTimer > 0f ? MathF.Min(_stickySlowSpeedMultiplier, multiplier) : multiplier;
+        _stickySlowTimer = MathF.Max(_stickySlowTimer, duration);
+    }
+    public void ApplyPoison(float damagePerSecond, float duration)
+    {
+        _poisonDamagePerSecond = MathF.Max(_poisonDamagePerSecond, damagePerSecond);
+        _poisonTimer = MathF.Max(_poisonTimer, duration);
+    }
     public void ForceAggro(Vector2 playerPosition) => _awareness.ForceAggro(Position, playerPosition);
     public void ResetAggro() => _awareness.ResetAggro();
     public void Draw()
@@ -458,9 +549,17 @@ public sealed class BunkerInfectedEnemy(int roomId, Rectangle room, Vector2 posi
         }
         BunkerSiegeEnemy.DrawHealthBar(Position, Health / 250f, 32f, 23f, Palette.C(105, 205, 72));
     }
+
+    private void TickStatusEffects(float dt)
+    {
+        if (_poisonTimer <= 0f) return;
+        Health = MathF.Max(0f, Health - _poisonDamagePerSecond * dt);
+        _poisonTimer = MathF.Max(0f, _poisonTimer - dt);
+        if (_poisonTimer <= 0f) _poisonDamagePerSecond = 0f;
+    }
 }
 
-public sealed class BunkerInfectedCloud(Vector2 position, float radius, float lifetime)
+public sealed class BunkerInfectedCloud(Vector2 position, float radius, float lifetime, float fadeDuration = 0f)
 {
     public Vector2 Position { get; } = position;
     public float Radius { get; } = radius;
@@ -469,6 +568,7 @@ public sealed class BunkerInfectedCloud(Vector2 position, float radius, float li
     public void Update(float dt) => Life = MathF.Max(0f, Life - dt);
     public void Draw()
     {
-        Raylib.DrawCircleV(Position, Radius, Palette.C(46, 78, 42));
+        var alpha = fadeDuration <= 0f ? 1f : Math.Clamp(Life / fadeDuration, 0f, 1f);
+        Raylib.DrawCircleV(Position, Radius, Palette.C(46, 78, 42, (int)(255f * alpha)));
     }
 }

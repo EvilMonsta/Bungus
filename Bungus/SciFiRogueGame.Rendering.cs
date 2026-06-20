@@ -3612,7 +3612,7 @@ public sealed partial class SciFiRogueGame
         CradleTrack.Stability => "Reduces moving ranged spread by 1% for each active cell.",
         CradleTrack.Gunsmith => "Increases ranged weapon damage by 0.4% for each active cell.",
         CradleTrack.Fighter => "Increases melee weapon damage by 0.4% for each active cell.",
-        CradleTrack.Arcane => "Increases effect strength by 1% for each active cell: poison, sticky bullets, stim, regeneration and shield recovery.",
+        CradleTrack.Arcane => "Each active cell increases player poison damage and duration, slow strength and duration, stim strength and duration, health regeneration, shield recovery, freeze and chill duration, Tesla damage, and radioactive decomposition duration and damage bonus by 1%. Shield recovery delay is reduced.",
         _ => string.Empty
     };
 

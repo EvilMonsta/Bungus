@@ -1467,6 +1467,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         foreach (var enemy in _bunkerSiegeEnemies.Where(enemy => _revealedBunkerRooms.Contains(enemy.RoomId)))
         {
+            enemy.FacePlayer(_player.Position);
             if (!enemy.Alive)
             {
                 AwardBunkerEnemyKill(enemy, 3);
@@ -1478,6 +1479,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         foreach (var enemy in _bunkerAssaultEnemies.Where(enemy => _revealedBunkerRooms.Contains(enemy.RoomId)))
         {
+            enemy.FacePlayer(_player.Position);
             if (!enemy.Alive)
             {
                 AwardBunkerEnemyKill(enemy, 3);
@@ -3554,7 +3556,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         var siege = _bunkerSiegeEnemies
-            .Where(target => target.Alive && DistanceToSegment(target.Position, from, to) <= radius + BunkerSiegeEnemy.Radius)
+            .Where(target => target.Alive && target.IntersectsSegment(from, to, radius))
             .OrderBy(target => Vector2.DistanceSquared(from, target.Position))
             .FirstOrDefault();
         if (siege is not null)
@@ -3635,7 +3637,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                     if (scrib.Damage(GetDamageAgainstTarget(scrib, projectile.ExplosionDamage))) ExplodeBunkerScrib(scrib.Position);
                     FreezeBunkerTargetIfNeeded(projectile, scrib);
                 }
-                foreach (var enemy in _bunkerSiegeEnemies.Where(target => target.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, target.Position, BunkerSiegeEnemy.Radius)))
+                foreach (var enemy in _bunkerSiegeEnemies.Where(target => target.Alive && target.IntersectsCircle(projectile.Position, projectile.ExplosionRadius)))
                 {
                     enemy.ForceAggro(_player.Position);
                     enemy.Damage(GetDamageAgainstTarget(enemy, projectile.ExplosionDamage));
@@ -3878,7 +3880,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             foreach (var scrib in _bunkerScribs.Where(target => target.Alive && _revealedBunkerRooms.Contains(target.RoomId)))
                 yield return new EnemyTarget(scrib, scrib.Position, BunkerScrib.Radius);
             foreach (var enemy in _bunkerSiegeEnemies.Where(target => target.Alive && _revealedBunkerRooms.Contains(target.RoomId)))
-                yield return new EnemyTarget(enemy, enemy.Position, BunkerSiegeEnemy.Radius);
+                yield return new EnemyTarget(enemy, enemy.Position, BunkerSiegeEnemy.CollisionRadius);
             foreach (var enemy in _bunkerAssaultEnemies.Where(target => target.Alive && _revealedBunkerRooms.Contains(target.RoomId)))
                 yield return new EnemyTarget(enemy, enemy.Position, BunkerAssaultEnemy.Radius);
             foreach (var enemy in _bunkerInfectedEnemies.Where(target => target.Alive && _revealedBunkerRooms.Contains(target.RoomId)))
@@ -4158,8 +4160,8 @@ public sealed partial class SciFiRogueGame : IDisposable
                 foreach (var enemy in _bunkerSiegeEnemies.Where(target => target.Alive))
                 {
                     var hit = s.IsLine
-                        ? DistanceToSegment(enemy.Position, s.LineStart, s.LineEnd) < BunkerSiegeEnemy.Radius + 4f
-                        : IsInArc(enemy.Position, s, BunkerSiegeEnemy.Radius);
+                        ? enemy.IntersectsSegment(s.LineStart, s.LineEnd, 4f)
+                        : IsInArc(enemy.Position, s, BunkerSiegeEnemy.CollisionRadius);
                     if (hit && s.TryRegisterHit(enemy))
                     {
                         enemy.ForceAggro(_player.Position);

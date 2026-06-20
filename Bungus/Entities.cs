@@ -128,7 +128,9 @@ public sealed class Player
     public bool StimActive => _stim > 0f;
     public bool Poisoned => _poison > 0f;
     public bool RadioactiveDecompositionActive => _radioactiveDecompositionTimer > 0f;
+    public bool MovementSlowed => _movementSlowTimer > 0f;
     public float RadioactiveDecompositionProgress => Math.Clamp(_radioactiveDecompositionTimer / 10f, 0f, 1f);
+    public float MovementSlowProgress => Math.Clamp(_movementSlowTimer / 5f, 0f, 1f);
     public float StimEffectProgress => Math.Clamp(_stim / 6f, 0f, 1f);
     public float StickyBulletsEffectProgress => Math.Clamp(_stickyBulletsTimer / StickyBulletsDuration, 0f, 1f);
     public float TeslaBulletsEffectProgress => Math.Clamp(_teslaBulletsTimer / TeslaBulletsDuration, 0f, 1f);

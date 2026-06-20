@@ -438,8 +438,12 @@ public sealed partial class SciFiRogueGame
 
         foreach (var cloud in _bunkerToxicClouds) cloud.Draw();
         foreach (var cloud in _bunkerInfectedClouds) cloud.Draw();
-        foreach (var enemy in _bunkerSiegeEnemies.Where(enemy => enemy.Alive && _revealedBunkerRooms.Contains(enemy.RoomId))) enemy.Draw();
-        foreach (var enemy in _bunkerAssaultEnemies.Where(enemy => enemy.Alive && _revealedBunkerRooms.Contains(enemy.RoomId))) enemy.Draw();
+        var hasSiegeTexture = TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "siege.png"), out var siegeTexture);
+        var hasAssaultTexture = TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "assault.png"), out var assaultTexture);
+        foreach (var enemy in _bunkerSiegeEnemies.Where(enemy => enemy.Alive && _revealedBunkerRooms.Contains(enemy.RoomId)))
+            enemy.Draw(hasSiegeTexture ? siegeTexture : null);
+        foreach (var enemy in _bunkerAssaultEnemies.Where(enemy => enemy.Alive && _revealedBunkerRooms.Contains(enemy.RoomId)))
+            enemy.Draw(hasAssaultTexture ? assaultTexture : null);
         foreach (var enemy in _bunkerInfectedEnemies.Where(enemy => enemy.Alive && _revealedBunkerRooms.Contains(enemy.RoomId)))
         {
             Raylib.DrawCircleV(enemy.Position, 75f, Palette.C(46, 78, 42));
@@ -546,7 +550,50 @@ public sealed partial class SciFiRogueGame
         DrawPlayerShieldAura();
         Raylib.DrawCircleV(_player.Position, 16f, Theme.Player);
         Raylib.DrawRectangleLinesEx(new Rectangle(0, 0, BunkerWorldSize, BunkerWorldSize), 6f, Palette.C(120, 124, 136));
+        DrawBunkerLighting();
         Raylib.EndMode2D();
+    }
+
+    private void DrawBunkerLighting()
+    {
+        Raylib.DrawRectangle(0, 0, BunkerWorldSize, BunkerWorldSize, Palette.C(0, 0, 0, 145));
+
+        Raylib.BeginBlendMode(BlendMode.Additive);
+        foreach (var room in _bunkerRooms)
+        {
+            if (!_revealedBunkerRooms.Contains(room.Id)) continue;
+            if (room.Id == 19)
+            {
+                DrawBunkerLight(new Vector2(1600f, 3000f), 520f);
+                DrawBunkerLight(new Vector2(2600f, 3000f), 520f);
+                DrawBunkerLight(new Vector2(1600f, 3600f), 520f);
+                DrawBunkerLight(new Vector2(2600f, 3600f), 520f);
+                continue;
+            }
+
+            var horizontal = room.Rect.Width >= room.Rect.Height;
+            var longSide = horizontal ? room.Rect.Width : room.Rect.Height;
+            var shortSide = horizontal ? room.Rect.Height : room.Rect.Width;
+            var lightCount = longSide >= shortSide * 2.5f ? 3 : 1;
+            var radius = MathF.Max(150f, shortSide * 0.9f);
+
+            for (var i = 0; i < lightCount; i++)
+            {
+                var position = (i + 1f) / (lightCount + 1f);
+                var center = horizontal
+                    ? new Vector2(room.Rect.X + room.Rect.Width * position, room.Rect.Y + room.Rect.Height * 0.5f)
+                    : new Vector2(room.Rect.X + room.Rect.Width * 0.5f, room.Rect.Y + room.Rect.Height * position);
+                DrawBunkerLight(center, radius);
+            }
+        }
+        Raylib.EndBlendMode();
+    }
+
+    private static void DrawBunkerLight(Vector2 position, float radius)
+    {
+        var inner = Palette.C(220, 34, 38, 105);
+        var outer = Palette.C(95, 0, 8, 0);
+        Raylib.DrawCircleGradient((int)position.X, (int)position.Y, radius, inner, outer);
     }
 
     private void DrawBunkerTyrantTelegraphs()
@@ -1069,6 +1116,12 @@ public sealed partial class SciFiRogueGame
             y += 46f;
         }
 
+        if (_player.MovementSlowed)
+        {
+            DrawStatusEffectIcon(new Vector2(x, y), Palette.C(115, 120, 130), "M", _player.MovementSlowProgress);
+            y += 46f;
+        }
+
         if (_player.StickyBulletsActive)
         {
             DrawStatusEffectIcon(new Vector2(x, y), Palette.C(120, 120, 120), "B", _player.StickyBulletsEffectProgress);
@@ -1561,6 +1614,8 @@ public sealed partial class SciFiRogueGame
         TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "triangle.png"), out _);
         TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "triangle_enhanced.png"), out _);
         TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "tyrant.png"), out _);
+        TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "siege.png"), out _);
+        TryGetIconTexture(Path.Combine("Assets", "Icons", "Enemies", "assault.png"), out _);
     }
 
     private TextureFilter GetRaylibTextureFilter()

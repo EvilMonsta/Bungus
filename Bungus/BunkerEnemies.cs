@@ -116,12 +116,15 @@ internal sealed class BunkerAwareness(Rectangle room, bool aggroed = false)
 public sealed class BunkerSiegeEnemy(int roomId, Rectangle room, Vector2 position)
 {
     public const float Radius = 16f;
+    public const float CollisionHalfSize = 16f;
+    public const float CollisionRadius = 22.7f;
     public int RoomId { get; } = roomId;
     public Vector2 Position { get; private set; } = position;
+    public Vector2 Facing { get; private set; } = new(1f, 0f);
     public float Health { get; private set; } = 200f;
     public bool Alive => Health > 0f;
     public bool KillAwarded { get; set; }
-    private readonly BunkerNavigator _navigator = new(Radius);
+    private readonly BunkerNavigator _navigator = new(CollisionRadius);
     private float _burstCooldown;
     private int _burstShots;
     private float _burstShotTimer;
@@ -133,6 +136,7 @@ public sealed class BunkerSiegeEnemy(int roomId, Rectangle room, Vector2 positio
     public void Update(float dt, Vector2 playerPosition, List<Obstacle> obstacles, List<Projectile> projectiles)
     {
         if (!Alive) return;
+        FacePlayer(playerPosition);
         _freezeChillTimer = MathF.Max(0f, _freezeChillTimer - dt);
         var moveMultiplier = _freezeChillTimer > 0f ? 0.75f : 1f;
         _awareness.Update(Position, playerPosition, obstacles, dt);
@@ -158,7 +162,7 @@ public sealed class BunkerSiegeEnemy(int roomId, Rectangle room, Vector2 positio
         {
             var side = new Vector2(-dangerousProjectile.Direction.Y, dangerousProjectile.Direction.X);
             if (Random.Shared.Next(2) == 0) side = -side;
-            Position = MovementUtils.MoveWithCollisions(Position, side * 58f, Radius, obstacles, 4000);
+            Position = MovementUtils.MoveWithCollisions(Position, side * 58f, CollisionRadius, obstacles, 4000);
             _dodgeCooldown = 0.75f;
         }
         else
@@ -207,13 +211,74 @@ public sealed class BunkerSiegeEnemy(int roomId, Rectangle room, Vector2 positio
     public void Damage(float amount) => Health = MathF.Max(0f, Health - amount);
     public void ApplyFreezeChill(float duration) => _freezeChillTimer = MathF.Max(_freezeChillTimer, duration);
     public void ForceAggro(Vector2 playerPosition) => _awareness.ForceAggro(Position, playerPosition);
-    public void Draw() => DrawBody(Palette.C(150, 105, 58), Health / 200f);
-
-    private void DrawBody(Color color, float ratio)
+    public void FacePlayer(Vector2 playerPosition)
     {
-        Raylib.DrawRectangle((int)(Position.X - Radius), (int)(Position.Y - Radius), (int)(Radius * 2f), (int)(Radius * 2f), color);
-        Raylib.DrawRectangleLines((int)(Position.X - Radius), (int)(Position.Y - Radius), (int)(Radius * 2f), (int)(Radius * 2f), Palette.C(245, 190, 105));
-        DrawHealthBar(Position, ratio, 34f, 24f, Palette.C(225, 145, 65));
+        var direction = playerPosition - Position;
+        if (direction.LengthSquared() > 0.001f) Facing = Vector2.Normalize(direction);
+    }
+
+    public bool IntersectsSegment(Vector2 from, Vector2 to, float radius)
+    {
+        var localFrom = ToLocal(from);
+        var localTo = ToLocal(to);
+        var halfSize = CollisionHalfSize + radius;
+        return SegmentIntersectsBox(localFrom, localTo, halfSize);
+    }
+
+    public bool IntersectsCircle(Vector2 center, float radius)
+    {
+        var local = ToLocal(center);
+        var nearest = new Vector2(
+            Math.Clamp(local.X, -CollisionHalfSize, CollisionHalfSize),
+            Math.Clamp(local.Y, -CollisionHalfSize, CollisionHalfSize));
+        return Vector2.DistanceSquared(local, nearest) <= radius * radius;
+    }
+
+    public void Draw(Texture2D? texture = null)
+    {
+        if (texture is { Id: not 0 } activeTexture)
+        {
+            const float size = 44f;
+            var source = new Rectangle(0f, 0f, activeTexture.Width, activeTexture.Height);
+            var destination = new Rectangle(Position.X, Position.Y, size, size);
+            var rotation = MathF.Atan2(Facing.Y, Facing.X) * 180f / MathF.PI;
+            Raylib.DrawTexturePro(activeTexture, source, destination, new Vector2(size * 0.5f), rotation, Color.White);
+        }
+        else
+        {
+            var rotation = MathF.Atan2(Facing.Y, Facing.X) * 180f / MathF.PI + 45f;
+            Raylib.DrawPoly(Position, 4, CollisionRadius, rotation, Palette.C(150, 105, 58));
+            Raylib.DrawPolyLinesEx(Position, 4, CollisionRadius, rotation, 1.5f, Palette.C(245, 190, 105));
+        }
+        DrawHealthBar(Position, Health / 200f, 44f, 29f, Palette.C(225, 145, 65));
+    }
+
+    private Vector2 ToLocal(Vector2 point)
+    {
+        var relative = point - Position;
+        var angle = -MathF.Atan2(Facing.Y, Facing.X);
+        return VisibilityUtils.Rotate(relative, angle);
+    }
+
+    private static bool SegmentIntersectsBox(Vector2 from, Vector2 to, float halfSize)
+    {
+        var direction = to - from;
+        var minimum = 0f;
+        var maximum = 1f;
+
+        if (!ClipAxis(from.X, direction.X, -halfSize, halfSize, ref minimum, ref maximum)) return false;
+        return ClipAxis(from.Y, direction.Y, -halfSize, halfSize, ref minimum, ref maximum);
+    }
+
+    private static bool ClipAxis(float start, float direction, float minimumBound, float maximumBound, ref float minimum, ref float maximum)
+    {
+        if (MathF.Abs(direction) < 0.0001f) return start >= minimumBound && start <= maximumBound;
+        var first = (minimumBound - start) / direction;
+        var second = (maximumBound - start) / direction;
+        if (first > second) (first, second) = (second, first);
+        minimum = MathF.Max(minimum, first);
+        maximum = MathF.Min(maximum, second);
+        return minimum <= maximum;
     }
 
     internal static void DrawHealthBar(Vector2 position, float ratio, float width, float yOffset, Color color)
@@ -229,6 +294,7 @@ public sealed class BunkerAssaultEnemy(int roomId, Rectangle room, Vector2 posit
     public const float Radius = 16f;
     public int RoomId { get; } = roomId;
     public Vector2 Position { get; private set; } = position;
+    public Vector2 Facing => _facing;
     public float Health { get; private set; } = 250f;
     public bool Alive => Health > 0f;
     public bool KillAwarded { get; set; }
@@ -243,6 +309,7 @@ public sealed class BunkerAssaultEnemy(int roomId, Rectangle room, Vector2 posit
     public void Update(float dt, Player player, List<Obstacle> obstacles, List<Projectile> projectiles)
     {
         if (!Alive) return;
+        FacePlayer(player.Position);
         _freezeChillTimer = MathF.Max(0f, _freezeChillTimer - dt);
         var moveMultiplier = _freezeChillTimer > 0f ? 0.75f : 1f;
         _attackVisualTimer = MathF.Max(0f, _attackVisualTimer - dt);
@@ -286,16 +353,33 @@ public sealed class BunkerAssaultEnemy(int roomId, Rectangle room, Vector2 posit
     public void Damage(float amount) => Health = MathF.Max(0f, Health - amount);
     public void ApplyFreezeChill(float duration) => _freezeChillTimer = MathF.Max(_freezeChillTimer, duration);
     public void ForceAggro(Vector2 playerPosition) => _awareness.ForceAggro(Position, playerPosition);
-    public void Draw()
+    public void FacePlayer(Vector2 playerPosition)
     {
-        Raylib.DrawCircleV(Position, Radius, Palette.C(205, 62, 52));
-        Raylib.DrawCircleLines((int)Position.X, (int)Position.Y, Radius, Palette.C(255, 135, 105));
+        var direction = playerPosition - Position;
+        if (direction.LengthSquared() > 0.001f) _facing = Vector2.Normalize(direction);
+    }
+
+    public void Draw(Texture2D? texture = null)
+    {
+        if (texture is { Id: not 0 } activeTexture)
+        {
+            const float size = 44f;
+            var source = new Rectangle(0f, 0f, activeTexture.Width, activeTexture.Height);
+            var destination = new Rectangle(Position.X, Position.Y, size, size);
+            var rotation = MathF.Atan2(_facing.Y, _facing.X) * 180f / MathF.PI;
+            Raylib.DrawTexturePro(activeTexture, source, destination, new Vector2(size * 0.5f), rotation, Color.White);
+        }
+        else
+        {
+            Raylib.DrawCircleV(Position, Radius, Palette.C(205, 62, 52));
+            Raylib.DrawCircleLines((int)Position.X, (int)Position.Y, Radius, Palette.C(255, 135, 105));
+        }
         if (_attackVisualTimer > 0f)
         {
             var angle = MathF.Atan2(_facing.Y, _facing.X) * 180f / MathF.PI;
             Raylib.DrawCircleSector(Position, 100f, angle - 90f, angle + 90f, 24, Palette.C(145, 105, 20, 82));
         }
-        BunkerSiegeEnemy.DrawHealthBar(Position, Health / 250f, 34f, 24f, Palette.C(235, 72, 62));
+        BunkerSiegeEnemy.DrawHealthBar(Position, Health / 250f, 44f, 29f, Palette.C(235, 72, 62));
     }
 }
 

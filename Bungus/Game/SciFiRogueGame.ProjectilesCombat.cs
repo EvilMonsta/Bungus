@@ -746,7 +746,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (_destroyerBoss.TryApplySegmentDamage(from, to, radius, damage))
             {
                 hitTarget = _destroyerBoss;
-                AddDamageTextForHealthLoss(_destroyerBoss, healthBefore);
+                AddDamageTextForHealthLoss(_destroyerBoss, healthBefore, showImmuneOnNoLoss: true);
                 ApplyPlayerHitEffects(_destroyerBoss, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
                 var targetAggroed = _destroyerBoss.ReactToShot(shotSource, _obstacles);
                 AggroWitnesses(_destroyerBoss.Position, targetAggroed);
@@ -1083,7 +1083,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (_destroyerBoss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, actualDamage)
                 && _destroyerBoss.IntersectsAnyHitZone(projectile.Position, projectile.ExplosionRadius))
             {
-                AddDamageTextForHealthLoss(_destroyerBoss, healthBefore);
+                AddDamageTextForHealthLoss(_destroyerBoss, healthBefore, showImmuneOnNoLoss: true);
                 if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[_destroyerBoss] = GetPlayerFreezeDuration();
                 ApplyPlayerHitEffects(_destroyerBoss, rangedWeaponEffects: false);
                 aggroWitnesses |= _destroyerBoss.ReactToShot(projectile.SourcePosition, _obstacles);
@@ -1312,7 +1312,8 @@ public sealed partial class SciFiRogueGame : IDisposable
             case BunkerInfectedEnemy enemy: enemy.ForceAggro(_player.Position); enemy.Damage(actualDamage); break;
         }
 
-        if (healthBefore is not null) AddDamageTextForHealthLoss(target, healthBefore.Value);
+        if (healthBefore is not null)
+            AddDamageTextForHealthLoss(target, healthBefore.Value, target is BossEnemyDestroyer or StationBossEnemy);
         else AddDamageText(target, actualDamage);
     }
 
@@ -1798,7 +1799,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                     var actualDamage = GetDamageAgainstTarget(_destroyerBoss, _player.GetMeleeDamage() * 0.75f);
                     var healthBefore = _destroyerBoss.Health;
                     _destroyerBoss.Damage(actualDamage);
-                    AddDamageTextForHealthLoss(_destroyerBoss, healthBefore);
+                    AddDamageTextForHealthLoss(_destroyerBoss, healthBefore, showImmuneOnNoLoss: true);
                     ApplyPlayerHitEffects(_destroyerBoss, rangedWeaponEffects: false);
                     _destroyerBoss.ForceAggro(_player.Position);
                     AggroWitnesses(_destroyerBoss.Position, true);

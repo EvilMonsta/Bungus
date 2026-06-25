@@ -43,25 +43,41 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private Vector2 GetDesiredCameraTarget(Vector2 mouseWorld)
     {
-        if (!_player.IsSniperEquipped || _player.InventoryOpen) return _player.Position;
-
         var toCursor = mouseWorld - _player.Position;
         if (toCursor.LengthSquared() <= 0.001f) return _player.Position;
 
         var dir = Vector2.Normalize(toCursor);
+        if (!_player.IsSniperEquipped || _player.InventoryOpen)
+        {
+            var mouseScreen = GetUiMousePosition();
+            var screenDelta = mouseScreen - GetUiScreenCenter();
+            var screenDistance = screenDelta.Length();
+            if (screenDistance <= 0.001f) return _player.Position;
+
+            var screenDir = screenDelta / screenDistance;
+            var maxScreenDistance = GetDistanceFromCenterToScreenEdge(screenDir);
+            var offsetRatio = Math.Clamp(screenDistance / MathF.Max(maxScreenDistance, 0.001f), 0f, 1f);
+            return _player.Position + dir * (50f * offsetRatio);
+        }
+
         var desiredOffset = toCursor * 0.5f;
         var maxOffset = GetMaxSniperCameraOffset(dir);
         if (desiredOffset.Length() > maxOffset) desiredOffset = dir * maxOffset;
         return _player.Position + desiredOffset;
     }
 
-    private float GetMaxSniperCameraOffset(Vector2 dir)
+    private static float GetDistanceFromCenterToScreenEdge(Vector2 dir)
     {
         var halfWidth = GetUiScreenWidth() * 0.5f;
         var halfHeight = GetUiScreenHeight() * 0.5f;
         var xLimit = MathF.Abs(dir.X) < 0.001f ? float.PositiveInfinity : halfWidth / MathF.Abs(dir.X);
         var yLimit = MathF.Abs(dir.Y) < 0.001f ? float.PositiveInfinity : halfHeight / MathF.Abs(dir.Y);
-        var distanceFromCenterToEdge = MathF.Min(xLimit, yLimit);
+        return MathF.Min(xLimit, yLimit);
+    }
+
+    private float GetMaxSniperCameraOffset(Vector2 dir)
+    {
+        var distanceFromCenterToEdge = GetDistanceFromCenterToScreenEdge(dir);
         return distanceFromCenterToEdge * 0.5f / MathF.Max(_camera.Zoom, 0.001f);
     }
 

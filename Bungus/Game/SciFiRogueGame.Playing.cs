@@ -154,7 +154,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (_state != GameState.Playing) return;
 
         var desiredCameraTarget = GetDesiredCameraTarget(mouseWorld);
-        _camera.Target = Vector2.Lerp(_camera.Target, desiredCameraTarget, _player.IsSniperEquipped ? 0.035f : 0.2f);
+        _camera.Target = Vector2.Lerp(_camera.Target, desiredCameraTarget, _player.IsSniperEquipped ? 0.035f : 0.08f);
         if (_player.Health <= 0) FailRun("You Died", "All carried items were lost.");
     }
 

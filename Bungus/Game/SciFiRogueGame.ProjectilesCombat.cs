@@ -742,11 +742,11 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (_destroyerBoss is not null && _destroyerBoss.Alive && !ReferenceEquals(_destroyerBoss, ignoreTarget))
         {
-            var healthBefore = _destroyerBoss.Health;
-            if (_destroyerBoss.TryApplySegmentDamage(from, to, radius, damage))
+            if (_destroyerBoss.TryApplySegmentDamage(from, to, radius, damage, out var actualDamage))
             {
                 hitTarget = _destroyerBoss;
-                AddDamageTextForHealthLoss(_destroyerBoss, healthBefore, showImmuneOnNoLoss: true);
+                if (actualDamage > 0.01f) AddDamageText(_destroyerBoss, actualDamage);
+                else AddImmuneText(_destroyerBoss);
                 ApplyPlayerHitEffects(_destroyerBoss, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
                 var targetAggroed = _destroyerBoss.ReactToShot(shotSource, _obstacles);
                 AggroWitnesses(_destroyerBoss.Position, targetAggroed);
@@ -1079,11 +1079,11 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (_destroyerBoss is not null && _destroyerBoss.Alive)
         {
             var actualDamage = GetDamageAgainstTarget(_destroyerBoss, projectile.ExplosionDamage);
-            var healthBefore = _destroyerBoss.Health;
-            if (_destroyerBoss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, actualDamage)
+            if (_destroyerBoss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, actualDamage, out var appliedDamage)
                 && _destroyerBoss.IntersectsAnyHitZone(projectile.Position, projectile.ExplosionRadius))
             {
-                AddDamageTextForHealthLoss(_destroyerBoss, healthBefore, showImmuneOnNoLoss: true);
+                if (appliedDamage > 0.01f) AddDamageText(_destroyerBoss, appliedDamage);
+                else AddImmuneText(_destroyerBoss);
                 if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[_destroyerBoss] = GetPlayerFreezeDuration();
                 ApplyPlayerHitEffects(_destroyerBoss, rangedWeaponEffects: false);
                 aggroWitnesses |= _destroyerBoss.ReactToShot(projectile.SourcePosition, _obstacles);
@@ -1797,9 +1797,16 @@ public sealed partial class SciFiRogueGame : IDisposable
                 if (hit && s.TryRegisterHit(_destroyerBoss))
                 {
                     var actualDamage = GetDamageAgainstTarget(_destroyerBoss, _player.GetMeleeDamage() * 0.75f);
-                    var healthBefore = _destroyerBoss.Health;
-                    _destroyerBoss.Damage(actualDamage);
-                    AddDamageTextForHealthLoss(_destroyerBoss, healthBefore, showImmuneOnNoLoss: true);
+                    var appliedDamage = 0f;
+                    if (s.IsLine) _destroyerBoss.TryApplySegmentDamage(s.LineStart, s.LineEnd, 4f, actualDamage, out appliedDamage);
+                    else
+                    {
+                        var healthBefore = _destroyerBoss.Health;
+                        _destroyerBoss.Damage(actualDamage);
+                        appliedDamage = healthBefore - _destroyerBoss.Health;
+                    }
+                    if (appliedDamage > 0.01f) AddDamageText(_destroyerBoss, appliedDamage);
+                    else AddImmuneText(_destroyerBoss);
                     ApplyPlayerHitEffects(_destroyerBoss, rangedWeaponEffects: false);
                     _destroyerBoss.ForceAggro(_player.Position);
                     AggroWitnesses(_destroyerBoss.Position, true);
@@ -1913,12 +1920,24 @@ public sealed partial class SciFiRogueGame : IDisposable
         var delta = current - previous;
         if (delta.LengthSquared() < 0.25f) return;
 
+        alpha *= GetVisualEffectsMultiplier();
+        if (alpha <= 0.035f) return;
+
+        var sizeMultiplier = GetVisualEffectsSizeMultiplier();
+        radius *= sizeMultiplier;
+        if (minRadius >= 0f) minRadius *= sizeMultiplier;
+
         var dir = Vector2.Normalize(delta);
         var trailPosition = current - dir * MathF.Min(radius * 0.75f, delta.Length() * 0.5f);
         var rotation = rotateWithMovement ? MathF.Atan2(dir.Y, dir.X) * 180f / MathF.PI : 0f;
         _motionAfterImages.Add(new MotionAfterImage(trailPosition, color, alpha, radius, shape, rotation, minRadius));
 
-        const int maxMotionAfterImages = 700;
+        var maxMotionAfterImages = _visualEffectsIntensity switch
+        {
+            VisualEffectsIntensity.Low => 240,
+            VisualEffectsIntensity.High => 760,
+            _ => 520
+        };
         if (_motionAfterImages.Count > maxMotionAfterImages)
         {
             _motionAfterImages.RemoveRange(0, _motionAfterImages.Count - maxMotionAfterImages);

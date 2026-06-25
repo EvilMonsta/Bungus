@@ -190,13 +190,7 @@ public sealed partial class SciFiRogueGame
         foreach (var dome in _protectiveDomes)
         {
             if (!dome.Alive) continue;
-            var ratio = Math.Clamp(dome.Health / ProtectiveDome.MaxHealth, 0f, 1f);
-            Raylib.DrawCircleV(dome.Position, ProtectiveDome.Radius, Palette.C(120, 190, 255, 46));
-            Raylib.DrawCircleLines((int)dome.Position.X, (int)dome.Position.Y, ProtectiveDome.Radius, Palette.C(170, 225, 255));
-            Raylib.DrawCircleLines((int)dome.Position.X, (int)dome.Position.Y, ProtectiveDome.Radius - 6f, Palette.C(120, 180, 255, 110));
-            var bar = new Rectangle(dome.Position.X - 40f, dome.Position.Y - ProtectiveDome.Radius - 18f, 80f, 5f);
-            Raylib.DrawRectangleRec(bar, Palette.C(20, 20, 20, 220));
-            Raylib.DrawRectangle((int)bar.X, (int)bar.Y, (int)(bar.Width * ratio), (int)bar.Height, Palette.C(120, 205, 255));
+            DrawProtectiveDome(dome);
         }
 
         foreach (var zone in _freezeZones)
@@ -510,13 +504,7 @@ public sealed partial class SciFiRogueGame
         foreach (var dome in _bunkerProtectiveDomes)
         {
             if (!dome.Alive) continue;
-            var ratio = Math.Clamp(dome.Health / ProtectiveDome.MaxHealth, 0f, 1f);
-            Raylib.DrawCircleV(dome.Position, ProtectiveDome.Radius, Palette.C(120, 190, 255, 46));
-            Raylib.DrawCircleLines((int)dome.Position.X, (int)dome.Position.Y, ProtectiveDome.Radius, Palette.C(170, 225, 255));
-            Raylib.DrawCircleLines((int)dome.Position.X, (int)dome.Position.Y, ProtectiveDome.Radius - 6f, Palette.C(120, 180, 255, 110));
-            var bar = new Rectangle(dome.Position.X - 40f, dome.Position.Y - ProtectiveDome.Radius - 18f, 80f, 5f);
-            Raylib.DrawRectangleRec(bar, Palette.C(20, 20, 20, 220));
-            Raylib.DrawRectangle((int)bar.X, (int)bar.Y, (int)(bar.Width * ratio), (int)bar.Height, Palette.C(120, 205, 255));
+            DrawProtectiveDome(dome);
         }
 
         foreach (var zone in _bunkerFreezeZones)
@@ -625,27 +613,27 @@ public sealed partial class SciFiRogueGame
         Raylib.BeginBlendMode(BlendMode.Additive);
         foreach (var zone in _generatorZones)
         {
-            DrawAreaGlow(zone.Center, MathF.Max(zone.Rect.Width, zone.Rect.Height) * 0.42f, Palette.C(70, 190, 255, 34));
+            DrawAreaGlow(zone.Center, MathF.Max(zone.Rect.Width, zone.Rect.Height) * 0.38f, Palette.C(70, 190, 255, 26));
         }
 
         foreach (var hangar in _hangars)
         {
-            DrawAreaGlow(hangar.Center, MathF.Max(hangar.Rect.Width, hangar.Rect.Height) * 0.34f, Palette.C(80, 220, 130, 24));
+            DrawAreaGlow(hangar.Center, MathF.Max(hangar.Rect.Width, hangar.Rect.Height) * 0.3f, Palette.C(80, 220, 130, 18));
         }
 
         if (_stationZone is not null)
         {
-            DrawAreaGlow(_stationZone.Center, MathF.Max(_stationZone.Rect.Width, _stationZone.Rect.Height) * 0.38f, Palette.C(180, 190, 220, 24));
+            DrawAreaGlow(_stationZone.Center, MathF.Max(_stationZone.Rect.Width, _stationZone.Rect.Height) * 0.34f, Palette.C(180, 190, 220, 18));
         }
 
         foreach (var portal in _extractPortals)
         {
-            DrawAreaGlow(portal.Position, 180f, _lastChanceActive ? Palette.C(255, 88, 92, 58) : Palette.C(110, 190, 255, 46));
+            DrawAreaGlow(portal.Position, 170f, _lastChanceActive ? Palette.C(255, 88, 92, 50) : Palette.C(110, 190, 255, 38));
         }
 
         foreach (var generator in _generators)
         {
-            if (!generator.Destroyed) DrawAreaGlow(generator.Position, 120f, generator.Vulnerable ? Palette.C(255, 220, 92, 56) : Palette.C(80, 190, 255, 36));
+            if (!generator.Destroyed) DrawAreaGlow(generator.Position, 112f, generator.Vulnerable ? Palette.C(255, 220, 92, 48) : Palette.C(80, 190, 255, 28));
         }
 
         Raylib.EndBlendMode();
@@ -670,7 +658,8 @@ public sealed partial class SciFiRogueGame
 
         if (_bunkerTyrant?.Alive == true)
         {
-            DrawAreaGlow(_bunkerTyrant.Position, 260f, Palette.C(255, 40, 72, 42));
+            var tyrantGlow = _bunkerTyrant.Invulnerable ? Palette.C(255, 64, 92, 32) : Palette.C(255, 156, 82, 40);
+            DrawAreaGlow(_bunkerTyrant.Position, _bunkerTyrant.Invulnerable ? 230f : 190f, tyrantGlow);
         }
 
         Raylib.EndBlendMode();
@@ -679,6 +668,26 @@ public sealed partial class SciFiRogueGame
     private static void DrawAreaGlow(Vector2 position, float radius, Color color)
     {
         Raylib.DrawCircleGradient((int)position.X, (int)position.Y, radius, color, Palette.C(color.R, color.G, color.B, 0));
+    }
+
+    private static void DrawProtectiveDome(ProtectiveDome dome)
+    {
+        var ratio = Math.Clamp(dome.Health / ProtectiveDome.MaxHealth, 0f, 1f);
+        var time = (float)Raylib.GetTime();
+        var pulse = 0.5f + 0.5f * MathF.Sin(time * 4.2f);
+        var radius = ProtectiveDome.Radius;
+        var outerRadius = radius + pulse * 3f;
+
+        Raylib.BeginBlendMode(BlendMode.Additive);
+        Raylib.DrawCircleGradient((int)dome.Position.X, (int)dome.Position.Y, radius * 1.12f, Palette.C(88, 190, 255, 30), Palette.C(88, 190, 255, 0));
+        Raylib.EndBlendMode();
+
+        Raylib.DrawCircleV(dome.Position, radius, Palette.C(120, 190, 255, 28));
+        Raylib.DrawCircleLinesV(dome.Position, outerRadius, Palette.C(188, 235, 255, 205));
+
+        var bar = new Rectangle(dome.Position.X - 40f, dome.Position.Y - radius - 18f, 80f, 5f);
+        Raylib.DrawRectangleRec(bar, Palette.C(20, 20, 20, 220));
+        Raylib.DrawRectangle((int)bar.X, (int)bar.Y, (int)(bar.Width * ratio), (int)bar.Height, Palette.C(120, 205, 255));
     }
 
     private void DrawProjectileGlowPass()

@@ -435,43 +435,65 @@ public sealed class BossEnemyDestroyer
     }
 
     public bool TryApplyPointDamage(Vector2 point, float radius, float amount)
+        => TryApplyPointDamage(point, radius, amount, out _);
+
+    public bool TryApplyPointDamage(Vector2 point, float radius, float amount, out float actualDamage)
     {
+        actualDamage = 0f;
         if (!Alive) return false;
 
         var shieldIndex = FindShieldNodeHit(point, radius);
         if (shieldIndex >= 0)
         {
-            DamageShieldNode(shieldIndex, amount);
+            actualDamage = DamageShieldNode(shieldIndex, amount);
             return true;
         }
 
         var bodyLimit = radius + GetBodyHitRadius();
         if (Vector2.DistanceSquared(Position, point) > bodyLimit * bodyLimit) return false;
 
-        if (!ShieldActive) DamageCore(amount);
+        if (!ShieldActive)
+        {
+            var healthBefore = Health;
+            DamageCore(amount);
+            actualDamage = healthBefore - Health;
+        }
         return true;
     }
 
     public bool TryApplySegmentDamage(Vector2 from, Vector2 to, float radius, float amount)
+        => TryApplySegmentDamage(from, to, radius, amount, out _);
+
+    public bool TryApplySegmentDamage(Vector2 from, Vector2 to, float radius, float amount, out float actualDamage)
     {
+        actualDamage = 0f;
         if (!Alive) return false;
 
         var shieldIndex = FindShieldNodeHit(from, to, radius);
         if (shieldIndex >= 0)
         {
-            DamageShieldNode(shieldIndex, amount);
+            actualDamage = DamageShieldNode(shieldIndex, amount);
             return true;
         }
 
         var bodyLimit = radius + GetBodyHitRadius();
         if (DistanceToSegment(Position, from, to) > bodyLimit) return false;
 
-        if (!ShieldActive) DamageCore(amount);
+        if (!ShieldActive)
+        {
+            var healthBefore = Health;
+            DamageCore(amount);
+            actualDamage = healthBefore - Health;
+        }
         return true;
     }
 
     public bool ApplyExplosionDamage(Vector2 center, float radius, float amount)
+        => ApplyExplosionDamage(center, radius, amount, out _);
+
+    public bool ApplyExplosionDamage(Vector2 center, float radius, float amount, out float actualDamage)
     {
+        actualDamage = 0f;
         if (!Alive) return false;
 
         var hitAny = false;
@@ -484,14 +506,19 @@ public sealed class BossEnemyDestroyer
             var limit = radius + GetShieldNodeHitRadius(i);
             if (Vector2.DistanceSquared(GetShieldNodePosition(i), center) > limit * limit) continue;
 
-            DamageShieldNode(i, amount);
+            actualDamage += DamageShieldNode(i, amount);
             hitAny = true;
         }
 
         var bodyLimit = radius + GetBodyHitRadius();
         if (Vector2.DistanceSquared(Position, center) <= bodyLimit * bodyLimit)
         {
-            if (!shieldWasActive) DamageCore(amount);
+            if (!shieldWasActive)
+            {
+                var healthBefore = Health;
+                DamageCore(amount);
+                actualDamage += healthBefore - Health;
+            }
             hitAny = true;
         }
 
@@ -514,16 +541,29 @@ public sealed class BossEnemyDestroyer
         if (!Alive) return;
 
         var mainSize = GetBodySize();
-        if (PhaseTwo) DrawDiamond(Position, mainSize, Palette.C(165, 36, 36), Color.Maroon);
-        else DrawSquare(Position, mainSize, Palette.C(120, 20, 20), Color.Maroon);
+        var time = (float)Raylib.GetTime();
+        var pulse = 0.5f + 0.5f * MathF.Sin(time * (PhaseTwo ? 5.5f : 3.2f));
+
+        if (PhaseTwo)
+        {
+            Raylib.BeginBlendMode(BlendMode.Additive);
+            Raylib.DrawPoly(Position, 4, mainSize * (0.78f + pulse * 0.08f), 45f, Palette.C(255, 116, 54, 34));
+            Raylib.EndBlendMode();
+            DrawDiamond(Position, mainSize, Palette.C(162, 42, 46), Palette.C(255, 128, 72));
+            Raylib.DrawPolyLinesEx(Position, 4, mainSize * 0.74f, 45f, 4f, Palette.C(255, 178, 82, 210));
+        }
+        else
+        {
+            DrawSquare(Position, mainSize, Palette.C(94, 24, 34), Palette.C(178, 58, 70));
+        }
 
         if (!PhaseTwo || ShieldActive)
         {
             for (var i = 0; i < _shieldNodeHealth.Length; i++)
             {
                 var hpRatio = Math.Clamp(_shieldNodeHealth[i] / ShieldNodeMaxHealth, 0f, 1f);
-                var fill = BlendColor(Palette.C(220, 52, 52), Color.White, 1f - hpRatio);
-                var line = IsShieldNodeAlive(i) ? Color.Black : Palette.C(180, 180, 180);
+                var fill = BlendColor(Palette.C(62, 152, 220), Palette.C(224, 242, 255), 1f - hpRatio);
+                var line = IsShieldNodeAlive(i) ? Palette.C(188, 226, 255) : Palette.C(180, 180, 180);
                 DrawSquare(GetShieldNodePosition(i), GetShieldNodeSize(i), fill, line);
             }
         }
@@ -627,10 +667,12 @@ public sealed class BossEnemyDestroyer
         return closestIndex;
     }
 
-    private void DamageShieldNode(int index, float amount)
+    private float DamageShieldNode(int index, float amount)
     {
-        if (!IsShieldNodeAlive(index) || amount <= 0f) return;
+        if (!IsShieldNodeAlive(index) || amount <= 0f) return 0f;
+        var healthBefore = _shieldNodeHealth[index];
         _shieldNodeHealth[index] = MathF.Max(0f, _shieldNodeHealth[index] - amount);
+        return healthBefore - _shieldNodeHealth[index];
     }
 
     private void RestoreShieldNodes()

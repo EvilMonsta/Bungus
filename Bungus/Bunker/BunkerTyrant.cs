@@ -239,6 +239,13 @@ public sealed class BunkerTyrant
 
     public void Draw(Texture2D? texture = null)
     {
+        var time = (float)Raylib.GetTime();
+        var pulse = 0.5f + 0.5f * MathF.Sin(time * (Invulnerable ? 3.5f : 6.5f));
+        Raylib.BeginBlendMode(BlendMode.Additive);
+        var glowColor = Invulnerable ? Palette.C(255, 58, 96, 30) : Palette.C(255, 176, 84, 42);
+        Raylib.DrawCircleGradient((int)Position.X, (int)Position.Y, Radius * (Invulnerable ? 2.25f : 1.75f) + pulse * 8f, glowColor, Palette.C(glowColor.R, glowColor.G, glowColor.B, 0));
+        Raylib.EndBlendMode();
+
         if (texture is { Id: not 0 } activeTexture)
         {
             var size = Radius * 2f;
@@ -249,21 +256,25 @@ public sealed class BunkerTyrant
         }
         else
         {
-        var body = Invulnerable ? Palette.C(52, 8, 48) : Palette.C(108, 18, 42);
-        if (WakeTimer > 0f) body = Palette.C(34, 20, 34);
-        Raylib.DrawCircleV(Position, Radius, body);
-        Raylib.DrawCircleLines((int)Position.X, (int)Position.Y, Radius, Palette.C(190, 55, 95));
-        Raylib.DrawCircleV(Position, 17f, Palette.C(12, 8, 16));
+            var body = Invulnerable ? Palette.C(52, 8, 48) : Palette.C(108, 18, 42);
+            if (WakeTimer > 0f) body = Palette.C(34, 20, 34);
+            Raylib.DrawCircleV(Position, Radius, body);
+            Raylib.DrawCircleLines((int)Position.X, (int)Position.Y, Radius, Invulnerable ? Palette.C(210, 72, 118) : Palette.C(255, 166, 92));
+            Raylib.DrawCircleV(Position, 17f, Palette.C(12, 8, 16));
         }
         if (Invulnerable)
         {
             var shieldRadius = Radius + 10f;
-            Raylib.DrawCircleV(Position, shieldRadius, Palette.C(235, 42, 54, 32));
-            Raylib.DrawCircleLinesV(Position, shieldRadius, Palette.C(255, 82, 88, 120));
+            Raylib.DrawCircleV(Position, shieldRadius, Palette.C(235, 42, 78, 24));
+            Raylib.DrawCircleLinesV(Position, shieldRadius + pulse * 3f, Palette.C(255, 104, 132, 130));
+        }
+        else
+        {
+            Raylib.DrawCircleLinesV(Position, Radius + 13f + pulse * 5f, Palette.C(255, 190, 96, 165));
         }
         var bar = new Rectangle(Position.X - 90f, Position.Y - 66f, 180f, 9f);
         Raylib.DrawRectangleRec(bar, Palette.C(24, 16, 22));
-        Raylib.DrawRectangle((int)bar.X, (int)bar.Y, (int)(bar.Width * Health / MaxHealth), (int)bar.Height, Palette.C(176, 32, 58));
+        Raylib.DrawRectangle((int)bar.X, (int)bar.Y, (int)(bar.Width * Health / MaxHealth), (int)bar.Height, Invulnerable ? Palette.C(176, 32, 58) : Palette.C(232, 116, 58));
     }
 
     private static TyrantMode RollNextAttackMode(TyrantMode previous)

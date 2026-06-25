@@ -339,26 +339,34 @@ public sealed class StationBossEnemy
         if (!Alive) return;
         foreach (var point in _dashTrail)
         {
-            var alpha = (byte)Math.Clamp(point.TimeLeft / 0.24f * 170f, 0f, 170f);
-            var radius = 32f + point.TimeLeft * 18f;
-            Raylib.DrawCircleV(point.Position, radius, Palette.C(235, 245, 255, alpha));
+            var alpha = (byte)Math.Clamp(point.TimeLeft / 0.24f * 118f, 0f, 118f);
+            var radius = 28f + point.TimeLeft * 14f;
+            Raylib.DrawCircleV(point.Position, radius, Palette.C(150, 205, 255, alpha));
         }
 
-        var fill = _grayHealTimer > 0f ? Palette.C(130, 130, 130) : PhaseTwo ? Palette.C(120, 30, 32) : Palette.C(210, 40, 44);
+        var time = (float)Raylib.GetTime();
+        var pulse = 0.5f + 0.5f * MathF.Sin(time * (PhaseTwo ? 7f : 4f));
+        Raylib.BeginBlendMode(BlendMode.Additive);
+        Raylib.DrawCircleGradient((int)Position.X, (int)Position.Y, PhaseTwo ? 74f + pulse * 8f : 58f + pulse * 5f, PhaseTwo ? Palette.C(255, 82, 72, 32) : Palette.C(255, 92, 96, 22), Palette.C(255, 82, 72, 0));
+        Raylib.EndBlendMode();
+
+        var fill = _grayHealTimer > 0f ? Palette.C(112, 118, 128) : PhaseTwo ? Palette.C(126, 30, 42) : Palette.C(186, 42, 52);
         Raylib.DrawCircleV(Position, 34f, fill);
-        if (_dashing) Raylib.DrawCircleV(Position, 68f, Palette.C(255, 70, 70, 60));
-        var tri = _dashWindup > 0f ? Color.Yellow : Color.White;
+        if (_dashing) Raylib.DrawCircleV(Position, 62f, Palette.C(255, 126, 70, 48));
+        if (_grayHealTimer > 0f) Raylib.DrawCircleLinesV(Position, 48f + pulse * 4f, Palette.C(195, 210, 222, 180));
+        var tri = _dashWindup > 0f ? Palette.C(255, 218, 96) : Palette.C(235, 244, 255);
         Raylib.DrawPoly(Position + new Vector2(-8f, 0f), 3, 13f, 90f, tri);
         Raylib.DrawPoly(Position + new Vector2(10f, 0f), 3, 13f, -90f, Color.Black);
         if (PhaseTwo)
         {
             Raylib.DrawPoly(Position + new Vector2(0f, -13f), 3, 11f, 180f, Color.Black);
             Raylib.DrawPoly(Position + new Vector2(0f, 13f), 3, 11f, 0f, Color.Black);
+            Raylib.DrawCircleLinesV(Position, 46f + pulse * 3f, Palette.C(255, 156, 88, 190));
         }
-        Raylib.DrawCircleLines((int)Position.X, (int)Position.Y, 36f, Color.White);
+        Raylib.DrawCircleLines((int)Position.X, (int)Position.Y, 36f, Palette.C(235, 244, 255));
         var hp = Health / MaxHealth;
         Raylib.DrawRectangle((int)Position.X - 58, (int)Position.Y - 54, 116, 7, Palette.C(20, 20, 20, 230));
-        Raylib.DrawRectangle((int)Position.X - 58, (int)Position.Y - 54, (int)(116 * hp), 7, Color.Green);
+        Raylib.DrawRectangle((int)Position.X - 58, (int)Position.Y - 54, (int)(116 * hp), 7, Palette.C(96, 224, 122));
     }
 
     private struct DashTrailPoint(Vector2 position, float timeLeft)

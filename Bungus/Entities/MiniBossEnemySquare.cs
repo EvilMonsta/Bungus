@@ -382,13 +382,21 @@ public sealed class MiniBossEnemySquare
         if (!Alive) return;
 
         var size = 42;
-        Raylib.DrawRectangle((int)Position.X - size / 2, (int)Position.Y - size / 2, size, size, theme.Boss);
-        Raylib.DrawRectangleLines((int)Position.X - size / 2, (int)Position.Y - size / 2, size, size, Color.Maroon);
+        if (_alert)
+        {
+            var pulse = 0.5f + 0.5f * MathF.Sin((float)Raylib.GetTime() * 5.5f);
+            Raylib.BeginBlendMode(BlendMode.Additive);
+            Raylib.DrawCircleGradient((int)Position.X, (int)Position.Y, 52f + pulse * 5f, Palette.C(255, 96, 72, 24), Palette.C(255, 96, 72, 0));
+            Raylib.EndBlendMode();
+        }
+
+        Raylib.DrawRectangle((int)Position.X - size / 2, (int)Position.Y - size / 2, size, size, Palette.C(132, 34, 50));
+        Raylib.DrawRectangleLines((int)Position.X - size / 2, (int)Position.Y - size / 2, size, size, Palette.C(232, 104, 92));
 
         if (_slamVisual > 0)
         {
-            var alpha = (byte)(120 * (_slamVisual / 0.7f));
-            Raylib.DrawCircle((int)Position.X, (int)Position.Y, GetSlamRadius(), Palette.C(255, 100, 100, alpha));
+            var alpha = (byte)(82 * (_slamVisual / 0.7f));
+            Raylib.DrawCircle((int)Position.X, (int)Position.Y, GetSlamRadius(), Palette.C(255, 122, 86, alpha));
         }
 
         if (IsFast)

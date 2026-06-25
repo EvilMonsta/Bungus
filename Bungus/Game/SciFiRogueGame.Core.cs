@@ -18,6 +18,11 @@ public sealed partial class SciFiRogueGame : IDisposable
     private const float RunIntroHoldDuration = 2f;
     private const float RunIntroFadeOutDuration = 1f;
     private const float RunIntroDuration = RunIntroFadeInDuration + RunIntroHoldDuration + RunIntroFadeOutDuration;
+    private const float StartupSplashHoldDuration = 2f;
+    private const float StartupSplashFadeToBlackDuration = 1f;
+    private const float StartupSplashBlackHoldDuration = 1f;
+    private const float StartupSplashFadeFromBlackDuration = 1f;
+    private const float StartupSplashDuration = StartupSplashHoldDuration + StartupSplashFadeToBlackDuration + StartupSplashBlackHoldDuration + StartupSplashFadeFromBlackDuration;
     private const int BunkerWorldSize = 4000;
     private const float BunkerWallThickness = 8f;
     private const float BunkerDoorLength = 100f;
@@ -128,6 +133,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private int _storageSortMode = -1;
     private readonly HashSet<(SlotKind Kind, int Index)> _selectedStorageSlots = [];
     private bool _requestExit;
+    private float _startupSplashTimer = StartupSplashDuration;
     private bool _showPerformanceOverlay;
     private double _lastFrameMs;
     private double _lastUpdateMs;
@@ -652,6 +658,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         _fixedUpdateStepsLastFrame = 0;
         if (Raylib.IsKeyPressed(KeyboardKey.F3)) _showPerformanceOverlay = !_showPerformanceOverlay;
+        if (UpdateStartupSplash(dt)) return;
 
         var stateBeforeUpdate = _state;
         switch (_state)
@@ -679,6 +686,14 @@ public sealed partial class SciFiRogueGame : IDisposable
             _noticeTimer -= dt;
             if (_noticeTimer <= 0f) _noticeText = string.Empty;
         }
+    }
+
+    private bool UpdateStartupSplash(float dt)
+    {
+        if (_startupSplashTimer <= 0f) return false;
+
+        _startupSplashTimer = MathF.Max(0f, _startupSplashTimer - dt);
+        return _startupSplashTimer > 0f;
     }
 
     private void StartUiTransition() => _uiTransitionTimer = UiTransitionDuration;

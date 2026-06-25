@@ -106,7 +106,47 @@ public sealed partial class SciFiRogueGame
         DrawCinematicPostProcess();
         DrawFloatingCombatTexts();
         DrawUiTransitionOverlay();
+        DrawStartupSplashOverlay();
         DrawPerformanceOverlay();
+    }
+
+    private void DrawStartupSplashOverlay()
+    {
+        if (_startupSplashTimer <= 0f) return;
+
+        var elapsed = StartupSplashDuration - _startupSplashTimer;
+        var blackAlpha = 255;
+        var textAlpha = 255;
+
+        if (elapsed < StartupSplashHoldDuration)
+        {
+            textAlpha = 255;
+        }
+        else if (elapsed < StartupSplashHoldDuration + StartupSplashFadeToBlackDuration)
+        {
+            var t = (elapsed - StartupSplashHoldDuration) / StartupSplashFadeToBlackDuration;
+            textAlpha = (int)(255f * (1f - Math.Clamp(t, 0f, 1f)));
+        }
+        else if (elapsed < StartupSplashHoldDuration + StartupSplashFadeToBlackDuration + StartupSplashBlackHoldDuration)
+        {
+            textAlpha = 0;
+        }
+        else
+        {
+            var t = (elapsed - StartupSplashHoldDuration - StartupSplashFadeToBlackDuration - StartupSplashBlackHoldDuration) / StartupSplashFadeFromBlackDuration;
+            blackAlpha = (int)(255f * (1f - Math.Clamp(t, 0f, 1f)));
+            textAlpha = 0;
+        }
+
+        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(2, 4, 10, blackAlpha));
+        if (textAlpha <= 0) return;
+
+        const string text = "MADE BY RAMBROS";
+        const int fontSize = 48;
+        var textWidth = Raylib.MeasureText(text, fontSize);
+        var x = Raylib.GetScreenWidth() / 2 - textWidth / 2;
+        var y = Raylib.GetScreenHeight() / 2 - fontSize / 2;
+        Raylib.DrawText(text, x, y, fontSize, Palette.C(235, 245, 255, textAlpha));
     }
 
     private void DrawUiTransitionOverlay()

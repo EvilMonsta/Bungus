@@ -338,6 +338,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void OpenCodesPopup()
     {
+        StartUiTransition();
         _codesPopupOpen = true;
         _codeInput = string.Empty;
         _codeStatusText = string.Empty;
@@ -346,6 +347,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void CloseCodesPopup()
     {
+        StartUiTransition();
         _codesPopupOpen = false;
         _codeInput = string.Empty;
         _codeStatusText = string.Empty;
@@ -354,16 +356,19 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void OpenAboutPopup()
     {
+        StartUiTransition();
         _aboutPopupOpen = true;
     }
 
     private void CloseAboutPopup()
     {
+        StartUiTransition();
         _aboutPopupOpen = false;
     }
 
     private void OpenChangelogPopup()
     {
+        StartUiTransition();
         _changelogPopupOpen = true;
         _changelogScroll = 0f;
         _changelogLines.Clear();
@@ -386,6 +391,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void CloseChangelogPopup()
     {
+        StartUiTransition();
         _changelogPopupOpen = false;
         _changelogScroll = 0f;
     }

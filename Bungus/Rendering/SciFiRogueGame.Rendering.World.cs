@@ -105,7 +105,17 @@ public sealed partial class SciFiRogueGame
     {
         DrawCinematicPostProcess();
         DrawFloatingCombatTexts();
+        DrawUiTransitionOverlay();
         DrawPerformanceOverlay();
+    }
+
+    private void DrawUiTransitionOverlay()
+    {
+        if (_uiTransitionTimer <= 0f) return;
+
+        var t = Math.Clamp(_uiTransitionTimer / UiTransitionDuration, 0f, 1f);
+        var alpha = (int)(155f * t * t);
+        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), Palette.C(2, 4, 10, alpha));
     }
 
     private static void BeginUiScale()
@@ -687,6 +697,7 @@ public sealed partial class SciFiRogueGame
             };
 
             var alpha = projectile.Highlighted || projectile.Kind is ProjectileKind.PulsarBolt or ProjectileKind.MicroCharge ? 0.34f : 0.16f;
+            alpha *= GetVisualEffectsMultiplier();
             Raylib.DrawCircleGradient(
                 (int)projectile.Position.X,
                 (int)projectile.Position.Y,

@@ -141,6 +141,11 @@ public sealed partial class SciFiRogueGame : IDisposable
     private float _screenShakeStrength;
     private float _playerDamageFlash;
     private float _lastObservedPlayerHealth = -1f;
+    private VisualEffectsIntensity _visualEffectsIntensity = VisualEffectsIntensity.Normal;
+    private bool _damageNumbersEnabled = true;
+    private bool _screenShakeEnabled = true;
+    private Rectangle? _pressedUiButtonRect;
+    private float _uiTransitionTimer;
     private readonly List<VisualTheme> _themes;
     private int _themeIndex;
     private DisplayMode _displayMode;
@@ -246,6 +251,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private static readonly float[] PitRewardSpinDurations = [3f, 4f, 5f, 6f];
     private const float PitDifficultySpinDuration = 3f;
     private const float InventoryConsumableUseHoldDuration = 1f;
+    private const float UiTransitionDuration = 0.18f;
     private const int ArmoryOfferCount = 18;
     private const int ArmoryConsumableRowCount = 6;
     private const float CombatSpatialCellSize = 256f;
@@ -644,6 +650,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _fixedUpdateStepsLastFrame = 0;
         if (Raylib.IsKeyPressed(KeyboardKey.F3)) _showPerformanceOverlay = !_showPerformanceOverlay;
 
+        var stateBeforeUpdate = _state;
         switch (_state)
         {
             case GameState.MainMenu: UpdateMainMenu(); break;
@@ -657,6 +664,10 @@ public sealed partial class SciFiRogueGame : IDisposable
             case GameState.Death: UpdateDeath(); break;
         }
 
+        if (_state != stateBeforeUpdate) StartUiTransition();
+        if (Raylib.IsMouseButtonReleased(MouseButton.Left)) _pressedUiButtonRect = null;
+        if (_uiTransitionTimer > 0f) _uiTransitionTimer = MathF.Max(0f, _uiTransitionTimer - dt);
+
         UpdateCursorVisibility();
         UpdatePlayerDamageFeedback(dt);
 
@@ -666,6 +677,8 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (_noticeTimer <= 0f) _noticeText = string.Empty;
         }
     }
+
+    private void StartUiTransition() => _uiTransitionTimer = UiTransitionDuration;
 
     private void UpdatePlayerDamageFeedback(float dt)
     {

@@ -163,7 +163,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (!Raylib.CheckCollisionPointRec(mouse, rect)) continue;
 
             _hovered = offer.Item;
-            if (Raylib.IsMouseButtonPressed(MouseButton.Left)) TryBuyArmoryOffer(i);
+            if (Clicked(rect)) TryBuyArmoryOffer(i);
             return;
         }
 
@@ -174,7 +174,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (!Raylib.CheckCollisionPointRec(mouse, rect)) continue;
 
             _hovered = offer.Item;
-            if (Raylib.IsMouseButtonPressed(MouseButton.Left)) TryBuyTokenStoreOffer(i);
+            if (Clicked(rect)) TryBuyTokenStoreOffer(i);
             return;
         }
     }
@@ -319,17 +319,24 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (Clicked(CenterRect(90, 500, 96, 44))) SetTargetFps(30);
         if (Clicked(CenterRect(202, 500, 96, 44))) SetTargetFps(60);
         if (Clicked(CenterRect(314, 500, 96, 44))) SetTargetFps(120);
+        if (Clicked(CenterRect(-320, 620, 180, 44))) SetDamageNumbersEnabled(false);
+        if (Clicked(CenterRect(-120, 620, 180, 44))) SetDamageNumbersEnabled(true);
+        if (Clicked(CenterRect(120, 620, 180, 44))) SetScreenShakeEnabled(false);
+        if (Clicked(CenterRect(320, 620, 180, 44))) SetScreenShakeEnabled(true);
+        if (Clicked(CenterRect(-224, 690, 160, 44))) SetVisualEffectsIntensity(VisualEffectsIntensity.Low);
+        if (Clicked(CenterRect(-40, 690, 160, 44))) SetVisualEffectsIntensity(VisualEffectsIntensity.Normal);
+        if (Clicked(CenterRect(144, 690, 160, 44))) SetVisualEffectsIntensity(VisualEffectsIntensity.High);
 
         for (var i = 0; i < _themes.Count; i++)
         {
-            if (Clicked(CenterRect(0, 620 + i * 50, 390, 44)))
+            if (Clicked(CenterRect(0, 780 + i * 50, 390, 44)))
             {
                 _themeIndex = i;
                 SavePersistentState();
             }
         }
 
-        if (Clicked(CenterRect(0, 900, 280, 52)) || Raylib.IsKeyPressed(KeyboardKey.Escape)) _state = GameState.MainMenu;
+        if (Clicked(CenterRect(0, 1020, 280, 52)) || Raylib.IsKeyPressed(KeyboardKey.Escape)) _state = GameState.MainMenu;
     }
 
     private void SetAntialiasingMode(AntialiasingMode mode)
@@ -366,6 +373,37 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         _targetFps = fps;
         Raylib.SetTargetFPS(_targetFps);
+        SavePersistentState();
+    }
+
+    private void SetVisualEffectsIntensity(VisualEffectsIntensity intensity)
+    {
+        if (_visualEffectsIntensity == intensity) return;
+
+        _visualEffectsIntensity = intensity;
+        SavePersistentState();
+    }
+
+    private void SetDamageNumbersEnabled(bool enabled)
+    {
+        if (_damageNumbersEnabled == enabled) return;
+
+        _damageNumbersEnabled = enabled;
+        if (!enabled) ClearFloatingCombatTexts();
+        SavePersistentState();
+    }
+
+    private void SetScreenShakeEnabled(bool enabled)
+    {
+        if (_screenShakeEnabled == enabled) return;
+
+        _screenShakeEnabled = enabled;
+        if (!enabled)
+        {
+            _screenShakeTimer = 0f;
+            _screenShakeDuration = 0f;
+            _screenShakeStrength = 0f;
+        }
         SavePersistentState();
     }
 

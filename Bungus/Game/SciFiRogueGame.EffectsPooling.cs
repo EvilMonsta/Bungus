@@ -32,6 +32,7 @@ public sealed partial class SciFiRogueGame
 
     private void SpawnImpactParticles(Vector2 position, Color color, int count = 8, float speed = 160f)
     {
+        count = Math.Max(1, (int)MathF.Round(count * GetVisualEffectsMultiplier()));
         for (var i = 0; i < count; i++)
         {
             var angle = _visualRng.NextSingle() * MathF.Tau;
@@ -50,10 +51,11 @@ public sealed partial class SciFiRogueGame
 
     private void SpawnExplosionParticles(Vector2 position, float radius, Color color, bool heavy)
     {
+        var multiplier = GetVisualEffectsMultiplier();
         var sparkCount = Math.Clamp((int)(radius / 12f), 6, heavy ? 42 : 26);
         SpawnImpactParticles(position, color, sparkCount, 130f + radius * 1.1f);
 
-        var smokeCount = Math.Clamp((int)(radius / 30f), 2, heavy ? 16 : 8);
+        var smokeCount = Math.Clamp((int)(radius / 30f * multiplier), 1, heavy ? 16 : 8);
         for (var i = 0; i < smokeCount; i++)
         {
             var angle = _visualRng.NextSingle() * MathF.Tau;
@@ -68,7 +70,8 @@ public sealed partial class SciFiRogueGame
                 VisualParticleShape.Smoke);
         }
 
-        AddVisualParticle(position, Vector2.Zero, Palette.C(color.R, color.G, color.B, 120), MathF.Max(20f, radius * 0.16f), 0.18f, VisualParticleShape.Glow);
+        if (_visualEffectsIntensity != VisualEffectsIntensity.Low)
+            AddVisualParticle(position, Vector2.Zero, Palette.C(color.R, color.G, color.B, 120), MathF.Max(20f, radius * 0.16f), 0.18f, VisualParticleShape.Glow);
     }
 
     private void AddVisualParticle(Vector2 position, Vector2 velocity, Color color, float size, float life, VisualParticleShape shape, float rotation = 0f, float spin = 0f)
@@ -96,6 +99,7 @@ public sealed partial class SciFiRogueGame
 
     private void AddDamageText(object target, float amount, Color color)
     {
+        if (!_damageNumbersEnabled) return;
         if (amount <= 0f) return;
         var position = GetTargetPosition(target);
         if (position is null) return;
@@ -136,6 +140,7 @@ public sealed partial class SciFiRogueGame
 
     private void AddScreenShake(float strength, float duration)
     {
+        if (!_screenShakeEnabled) return;
         _screenShakeStrength = MathF.Max(_screenShakeStrength, strength);
         _screenShakeDuration = MathF.Max(_screenShakeDuration, duration);
         _screenShakeTimer = MathF.Max(_screenShakeTimer, duration);
@@ -143,10 +148,7 @@ public sealed partial class SciFiRogueGame
 
     private void ClearCombatFeedback()
     {
-        for (var i = _floatingCombatTexts.Count - 1; i >= 0; i--)
-        {
-            ReleaseFloatingCombatTextAt(i);
-        }
+        ClearFloatingCombatTexts();
 
         _screenShakeTimer = 0f;
         _screenShakeDuration = 0f;
@@ -155,9 +157,17 @@ public sealed partial class SciFiRogueGame
         _lastObservedPlayerHealth = _player is null ? -1f : _player.Health;
     }
 
+    private void ClearFloatingCombatTexts()
+    {
+        for (var i = _floatingCombatTexts.Count - 1; i >= 0; i--)
+        {
+            ReleaseFloatingCombatTextAt(i);
+        }
+    }
+
     private void SpawnFreezeAmbientParticles(Vector2 center, float radius, float dt)
     {
-        var expected = dt * 18f;
+        var expected = dt * 18f * GetVisualEffectsMultiplier();
         while (expected > 0f)
         {
             if (_visualRng.NextSingle() > MathF.Min(1f, expected)) break;
@@ -179,7 +189,7 @@ public sealed partial class SciFiRogueGame
 
     private void SpawnToxicAmbientParticles(Vector2 center, float radiusX, float radiusY, float dt)
     {
-        var expected = dt * 10f;
+        var expected = dt * 10f * GetVisualEffectsMultiplier();
         while (expected > 0f)
         {
             if (_visualRng.NextSingle() > MathF.Min(1f, expected)) break;
@@ -196,4 +206,12 @@ public sealed partial class SciFiRogueGame
                 VisualParticleShape.Smoke);
         }
     }
+
+    private float GetVisualEffectsMultiplier()
+        => _visualEffectsIntensity switch
+        {
+            VisualEffectsIntensity.Low => 0.45f,
+            VisualEffectsIntensity.High => 1.25f,
+            _ => 1f
+        };
 }

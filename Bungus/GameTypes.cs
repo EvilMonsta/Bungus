@@ -21,6 +21,7 @@ public enum MotionTrailShape { Circle, Triangle, Square, Hex }
 public enum DisplayMode { Windowed, Fullscreen }
 public enum AntialiasingMode { Off, Msaa4x }
 public enum TextureFilteringMode { Point, Bilinear }
+public enum VisualEffectsIntensity { Low, Normal, High }
 public enum LootZoneKind { City, Outpost, Generator, Hangar, Station }
 
 public static class Palette

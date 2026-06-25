@@ -30,14 +30,27 @@ public sealed partial class SciFiRogueGame
         DrawButton(CenterRect(202, 500, 96, 44), _targetFps == 60 ? "> 60 <" : "60");
         DrawButton(CenterRect(314, 500, 96, 44), _targetFps == 120 ? "> 120 <" : "120");
 
-        Raylib.DrawText("Choose theme", (GetUiScreenWidth() - Raylib.MeasureText("Choose theme", 28)) / 2, 580, 28, Color.LightGray);
+        DrawSettingsLabel("Damage numbers", -220, 580);
+        DrawButton(CenterRect(-320, 620, 180, 44), !_damageNumbersEnabled ? "> Off <" : "Off");
+        DrawButton(CenterRect(-120, 620, 180, 44), _damageNumbersEnabled ? "> On <" : "On");
+
+        DrawSettingsLabel("Screen shake", 220, 580);
+        DrawButton(CenterRect(120, 620, 180, 44), !_screenShakeEnabled ? "> Off <" : "Off");
+        DrawButton(CenterRect(320, 620, 180, 44), _screenShakeEnabled ? "> On <" : "On");
+
+        Raylib.DrawText("Effects", (GetUiScreenWidth() - Raylib.MeasureText("Effects", 28)) / 2, 670, 28, Color.LightGray);
+        DrawButton(CenterRect(-224, 690, 160, 44), _visualEffectsIntensity == VisualEffectsIntensity.Low ? "> Low <" : "Low");
+        DrawButton(CenterRect(-40, 690, 160, 44), _visualEffectsIntensity == VisualEffectsIntensity.Normal ? "> Normal <" : "Normal");
+        DrawButton(CenterRect(144, 690, 160, 44), _visualEffectsIntensity == VisualEffectsIntensity.High ? "> High <" : "High");
+
+        Raylib.DrawText("Choose theme", (GetUiScreenWidth() - Raylib.MeasureText("Choose theme", 28)) / 2, 740, 28, Color.LightGray);
         for (var i = 0; i < _themes.Count; i++)
         {
             var name = i == _themeIndex ? $"> {_themes[i].Name} <" : _themes[i].Name;
-            DrawButton(CenterRect(0, 620 + i * 50, 390, 44), name);
+            DrawButton(CenterRect(0, 780 + i * 50, 390, 44), name);
         }
 
-        DrawButton(CenterRect(0, 900, 280, 52), "Back");
+        DrawButton(CenterRect(0, 1020, 280, 52), "Back");
     }
 
     private static void DrawSettingsLabel(string text, int xOffset, int y)
@@ -510,5 +523,33 @@ public sealed partial class SciFiRogueGame
     }
 
     private static Rectangle CenterRect(int offsetX, int y, int w, int h) => new((GetUiScreenWidth() - w) / 2f + offsetX, y, w, h);
-    private static bool Clicked(Rectangle rect) => Raylib.IsMouseButtonPressed(MouseButton.Left) && Raylib.CheckCollisionPointRec(GetUiMousePosition(), rect);
+
+    private bool Clicked(Rectangle rect)
+    {
+        var mouse = GetUiMousePosition();
+        var hover = Raylib.CheckCollisionPointRec(mouse, rect);
+
+        if (Raylib.IsMouseButtonPressed(MouseButton.Left) && hover && _pressedUiButtonRect is null)
+        {
+            _pressedUiButtonRect = rect;
+            return false;
+        }
+
+        if (!Raylib.IsMouseButtonReleased(MouseButton.Left)
+            || _pressedUiButtonRect is not { } pressed
+            || !SameRect(pressed, rect)
+            || !hover)
+        {
+            return false;
+        }
+
+        _pressedUiButtonRect = null;
+        return true;
+    }
+
+    private static bool SameRect(Rectangle a, Rectangle b)
+        => MathF.Abs(a.X - b.X) < 0.01f
+           && MathF.Abs(a.Y - b.Y) < 0.01f
+           && MathF.Abs(a.Width - b.Width) < 0.01f
+           && MathF.Abs(a.Height - b.Height) < 0.01f;
 }

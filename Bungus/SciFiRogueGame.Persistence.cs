@@ -34,6 +34,9 @@ public sealed partial class SciFiRogueGame
             _textureFilteringMode = Enum.IsDefined(data.TextureFilteringMode) ? data.TextureFilteringMode : TextureFilteringMode.Bilinear;
             _vsyncEnabled = data.VSyncEnabled;
             _targetFps = NormalizeTargetFps(data.TargetFps);
+            _visualEffectsIntensity = Enum.IsDefined(data.VisualEffectsIntensity) ? data.VisualEffectsIntensity : VisualEffectsIntensity.Normal;
+            _damageNumbersEnabled = data.DamageNumbersEnabled;
+            _screenShakeEnabled = data.ScreenShakeEnabled;
             Raylib.SetTargetFPS(_targetFps);
             _selectedMapName = string.IsNullOrWhiteSpace(data.SelectedMapName) ? "Baselands" : data.SelectedMapName;
             _isFunnyNextRun = data.IsFunnyNextRun;
@@ -56,6 +59,9 @@ public sealed partial class SciFiRogueGame
             _textureFilteringMode = TextureFilteringMode.Bilinear;
             _vsyncEnabled = false;
             _targetFps = 60;
+            _visualEffectsIntensity = VisualEffectsIntensity.Normal;
+            _damageNumbersEnabled = true;
+            _screenShakeEnabled = true;
             Raylib.SetTargetFPS(_targetFps);
             _selectedMapName = "Baselands";
             _isFunnyNextRun = false;
@@ -83,6 +89,9 @@ public sealed partial class SciFiRogueGame
                 TextureFilteringMode = _textureFilteringMode,
                 VSyncEnabled = _vsyncEnabled,
                 TargetFps = _targetFps,
+                VisualEffectsIntensity = _visualEffectsIntensity,
+                DamageNumbersEnabled = _damageNumbersEnabled,
+                ScreenShakeEnabled = _screenShakeEnabled,
                 SelectedMapName = _selectedMapName,
                 IsFunnyNextRun = _isFunnyNextRun,
                 ToBunkerNextRun = _toBunkerNextRun,

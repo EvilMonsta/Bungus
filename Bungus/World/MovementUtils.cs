@@ -93,6 +93,25 @@ public static class MovementUtils
         return index.CircleHitsObstacle(center, radius);
     }
 
+    public static bool SweptCircleHitsObstacle(Vector2 from, Vector2 to, float radius, List<Obstacle> obstacles)
+    {
+        if (CircleHitsObstacle(to, radius, obstacles)) return true;
+        if (Vector2.DistanceSquared(from, to) < 0.0001f) return false;
+
+        var minX = MathF.Min(from.X, to.X) - radius;
+        var maxX = MathF.Max(from.X, to.X) + radius;
+        var minY = MathF.Min(from.Y, to.Y) - radius;
+        var maxY = MathF.Max(from.Y, to.Y) + radius;
+        foreach (var obstacle in obstacles)
+        {
+            var rect = obstacle.Rect;
+            if (rect.X > maxX || rect.X + rect.Width < minX || rect.Y > maxY || rect.Y + rect.Height < minY) continue;
+            if (SweptCircleHitsRect(from, to, radius, obstacle.Rect)) return true;
+        }
+
+        return false;
+    }
+
     public static void WarmObstacleIndex(List<Obstacle> obstacles)
     {
         if (obstacles.Count < 24) return;
@@ -119,6 +138,22 @@ public static class MovementUtils
         var dx = center.X - nx;
         var dy = center.Y - ny;
         return dx * dx + dy * dy < radius * radius;
+    }
+
+    private static bool SweptCircleHitsRect(Vector2 from, Vector2 to, float radius, Rectangle rect)
+    {
+        var inflated = new Rectangle(rect.X - radius, rect.Y - radius, rect.Width + radius * 2f, rect.Height + radius * 2f);
+        if (Raylib.CheckCollisionPointRec(from, inflated) || Raylib.CheckCollisionPointRec(to, inflated)) return true;
+
+        var hit = Vector2.Zero;
+        var topLeft = new Vector2(inflated.X, inflated.Y);
+        var topRight = new Vector2(inflated.X + inflated.Width, inflated.Y);
+        var bottomRight = new Vector2(inflated.X + inflated.Width, inflated.Y + inflated.Height);
+        var bottomLeft = new Vector2(inflated.X, inflated.Y + inflated.Height);
+        return Raylib.CheckCollisionLines(from, to, topLeft, topRight, ref hit)
+            || Raylib.CheckCollisionLines(from, to, topRight, bottomRight, ref hit)
+            || Raylib.CheckCollisionLines(from, to, bottomRight, bottomLeft, ref hit)
+            || Raylib.CheckCollisionLines(from, to, bottomLeft, topLeft, ref hit);
     }
 
     public static bool CircleHitsObstacle(Vector2 center, float radius, List<Obstacle> obstacles, List<ProtectiveDome> domes)

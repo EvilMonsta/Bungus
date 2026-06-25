@@ -303,14 +303,18 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
+        RebuildCombatTargetCache();
         UpdateBunkerFreezeZones(dt);
+        RebuildCombatTargetCache();
         UpdateBunkerMidaMiniTurrets(dt);
         UpdateBunkerRoomEnemies(dt);
         UpdateBunkerTyrantFight(dt);
         UpdateChests();
+        RebuildCombatTargetCache();
         UpdateProjectiles(dt);
         UpdateEffects(dt);
         UpdateSwings(dt);
+        RebuildCombatTargetCache();
         UpdateBunkerProtectiveDomes(dt);
         if (_drag is null) _player.Inventory.AutoFillConsumableSlots();
         _camera.Target = Vector2.Lerp(_camera.Target, _player.Position, 0.2f);
@@ -473,7 +477,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _bunkerTyrant.MarkShockwaveTriggered();
         _bunkerTyrantArenaObstaclesDestroyed = true;
         RebuildBunkerObstacles();
-        _explosions.Add(new Explosion(_bunkerTyrant.Position, 520f, Palette.C(185, 40, 75), true, true, 0.2f));
+        AddExplosion(_bunkerTyrant.Position, 520f, Palette.C(185, 40, 75), true, true, 0.2f);
 
         var direction = _player.Position - _bunkerTyrant.Position;
         if (direction.LengthSquared() <= 0.001f) direction = new Vector2(0f, -1f);
@@ -514,7 +518,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private void ExplodeBunkerScrib(Vector2 position)
     {
         const float explosionRadius = 112.5f;
-        _explosions.Add(new Explosion(position, explosionRadius, Palette.C(116, 185, 72), true));
+        AddExplosion(position, explosionRadius, Palette.C(116, 185, 72), true);
         _bunkerInfectedClouds.Add(new BunkerInfectedCloud(position, explosionRadius, 5f, 1f));
         if (Vector2.Distance(_player.Position, position) <= explosionRadius + 16f)
         {

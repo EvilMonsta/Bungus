@@ -120,7 +120,9 @@ public sealed partial class SciFiRogueGame : IDisposable
             _player.Attack(mouseWorld, _projectiles, _swings, _obstacles, _worldSize, _dashAfterImages);
         }
 
+        RebuildCombatTargetCache();
         UpdateFreezeZones(dt);
+        RebuildCombatTargetCache();
         UpdateMidaMiniTurrets(dt);
         var enemyPlayerTarget = GetEnemyPlayerTarget();
         UpdateEnemies(dt, enemyCollisionObstacles, enemyPlayerTarget);
@@ -132,9 +134,11 @@ public sealed partial class SciFiRogueGame : IDisposable
         UpdateDeadZoneHazards(dt);
         UpdateDeadZoneProgress(dt);
         if (_challengeMode && !IsPlayerInvisibleForRunIntro()) UpdatePitChallenge(dt);
+        RebuildCombatTargetCache();
         UpdateProjectiles(dt);
         UpdateSwings(dt);
         UpdateEffects(dt);
+        RebuildCombatTargetCache();
         UpdateProtectiveDomes(dt);
         UpdateChests();
         UpdateGroundConsumables();

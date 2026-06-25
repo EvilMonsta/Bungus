@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Diagnostics;
 using System.Text.Json;
 using Raylib_cs;
 
@@ -61,6 +62,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private readonly List<StationBossEnemy> _pitStationBosses = [];
     private List<Projectile> _projectiles = [];
     private List<Explosion> _explosions = [];
+    private readonly Stack<Explosion> _explosionPool = new();
     private List<BeamEffect> _beamEffects = [];
     private List<LightningEffect> _lightningEffects = [];
     private List<SwingArc> _swings = [];
@@ -119,6 +121,14 @@ public sealed partial class SciFiRogueGame : IDisposable
     private int _storageSortMode = -1;
     private readonly HashSet<(SlotKind Kind, int Index)> _selectedStorageSlots = [];
     private bool _requestExit;
+    private bool _showPerformanceOverlay;
+    private double _lastFrameMs;
+    private double _lastUpdateMs;
+    private double _lastDrawMs;
+    private double _smoothedFrameMs;
+    private double _smoothedUpdateMs;
+    private double _smoothedDrawMs;
+    private int _fixedUpdateStepsLastFrame;
     private readonly List<VisualTheme> _themes;
     private int _themeIndex;
     private DisplayMode _displayMode;
@@ -226,8 +236,12 @@ public sealed partial class SciFiRogueGame : IDisposable
     private const float InventoryConsumableUseHoldDuration = 1f;
     private const int ArmoryOfferCount = 18;
     private const int ArmoryConsumableRowCount = 6;
+    private const float CombatSpatialCellSize = 256f;
     private readonly record struct PitDifficultyOffer(char Kind, float Percent);
     private readonly record struct EnemyTarget(object Target, Vector2 Position, float Radius);
+    private readonly List<EnemyTarget> _combatTargets = [];
+    private readonly Dictionary<long, List<int>> _combatTargetCells = [];
+    private readonly List<int> _combatQueryIndices = [];
     private readonly record struct BunkerRoom(int Id, Rectangle Rect);
     private sealed class BunkerDoor(int roomA, int roomB, Rectangle rect)
     {
@@ -592,15 +606,25 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         while (!Raylib.WindowShouldClose())
         {
+            var frameStart = Stopwatch.GetTimestamp();
             var dt = Raylib.GetFrameTime();
+            var updateStart = Stopwatch.GetTimestamp();
             Update(dt);
+            _lastUpdateMs = GetElapsedMilliseconds(updateStart);
             if (_requestExit) break;
+            var drawStart = Stopwatch.GetTimestamp();
             Draw();
+            _lastDrawMs = GetElapsedMilliseconds(drawStart);
+            _lastFrameMs = GetElapsedMilliseconds(frameStart);
+            SmoothPerformanceTimings();
         }
     }
 
     private void Update(float dt)
     {
+        _fixedUpdateStepsLastFrame = 0;
+        if (Raylib.IsKeyPressed(KeyboardKey.F3)) _showPerformanceOverlay = !_showPerformanceOverlay;
+
         switch (_state)
         {
             case GameState.MainMenu: UpdateMainMenu(); break;
@@ -621,6 +645,25 @@ public sealed partial class SciFiRogueGame : IDisposable
             _noticeTimer -= dt;
             if (_noticeTimer <= 0f) _noticeText = string.Empty;
         }
+    }
+
+    private static double GetElapsedMilliseconds(long startTimestamp)
+        => (Stopwatch.GetTimestamp() - startTimestamp) * 1000.0 / Stopwatch.Frequency;
+
+    private void SmoothPerformanceTimings()
+    {
+        const double smoothing = 0.12;
+        if (_smoothedFrameMs <= 0.0)
+        {
+            _smoothedFrameMs = _lastFrameMs;
+            _smoothedUpdateMs = _lastUpdateMs;
+            _smoothedDrawMs = _lastDrawMs;
+            return;
+        }
+
+        _smoothedFrameMs += (_lastFrameMs - _smoothedFrameMs) * smoothing;
+        _smoothedUpdateMs += (_lastUpdateMs - _smoothedUpdateMs) * smoothing;
+        _smoothedDrawMs += (_lastDrawMs - _smoothedDrawMs) * smoothing;
     }
 
 }

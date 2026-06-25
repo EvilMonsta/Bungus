@@ -97,7 +97,13 @@ public sealed partial class SciFiRogueGame
                 break;
         }
 
+        DrawFrameOverlays();
         Raylib.EndDrawing();
+    }
+
+    private void DrawFrameOverlays()
+    {
+        DrawPerformanceOverlay();
     }
 
     private static void BeginUiScale()
@@ -315,6 +321,7 @@ public sealed partial class SciFiRogueGame
         foreach (var beam in _beamEffects) beam.Draw();
         foreach (var lightning in _lightningEffects) lightning.Draw();
 
+        DrawProjectileGlowPass();
         foreach (var p in _projectiles)
         {
             if (p.Kind == ProjectileKind.TraceBeam) continue;
@@ -513,6 +520,7 @@ public sealed partial class SciFiRogueGame
         foreach (var ghost in _motionAfterImages) ghost.Draw();
         foreach (var beam in _beamEffects) beam.Draw();
         foreach (var lightning in _lightningEffects) lightning.Draw();
+        DrawProjectileGlowPass();
         foreach (var p in _projectiles)
         {
             if (p.Kind == ProjectileKind.TraceBeam) continue;
@@ -585,6 +593,32 @@ public sealed partial class SciFiRogueGame
                     : new Vector2(room.Rect.X + room.Rect.Width * 0.5f, room.Rect.Y + room.Rect.Height * position);
                 DrawBunkerLight(center, radius);
             }
+        }
+        Raylib.EndBlendMode();
+    }
+
+    private void DrawProjectileGlowPass()
+    {
+        Raylib.BeginBlendMode(BlendMode.Additive);
+        foreach (var projectile in _projectiles)
+        {
+            if (projectile.Kind == ProjectileKind.TraceBeam) continue;
+            var glowRadius = projectile.Kind switch
+            {
+                ProjectileKind.PulsarBolt => projectile.DrawRadius * 5.4f,
+                ProjectileKind.MicroCharge => projectile.DrawRadius * 4.8f,
+                ProjectileKind.LinearShot => projectile.DrawRadius * 3.8f,
+                ProjectileKind.Grenade or ProjectileKind.FreezeGrenade or ProjectileKind.HeGrenade => projectile.DrawRadius * 3.2f,
+                _ => projectile.Highlighted ? projectile.DrawRadius * 3.4f : projectile.DrawRadius * 2.1f
+            };
+
+            var alpha = projectile.Highlighted || projectile.Kind is ProjectileKind.PulsarBolt or ProjectileKind.MicroCharge ? 0.34f : 0.16f;
+            Raylib.DrawCircleGradient(
+                (int)projectile.Position.X,
+                (int)projectile.Position.Y,
+                glowRadius,
+                WithAlpha(projectile.Color, alpha),
+                WithAlpha(projectile.Color, 0f));
         }
         Raylib.EndBlendMode();
     }

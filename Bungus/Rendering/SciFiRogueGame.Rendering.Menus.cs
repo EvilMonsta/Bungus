@@ -13,7 +13,7 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMainMenu()
     {
-        Raylib.DrawText("a0.3.8", 86, 150, 24, Palette.C(150, 185, 220));
+        Raylib.DrawText("a0.4", 86, 150, 24, Palette.C(150, 185, 220));
         DrawMetaProgressHeader();
 
         DrawButton(MainMenuButtonRect(0), "Play");

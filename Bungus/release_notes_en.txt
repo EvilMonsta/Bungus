@@ -1,3 +1,33 @@
+a0.4 — June 26, 2026
+--------------------
+
+Polish, feedback, camera, and startup presentation update.
+
+Added:
+- A startup splash screen with MADE BY RAMBROS and smooth transitions into the main menu.
+- A subtle cursor-aware camera offset for non-sniper gameplay, with the Sniper Rifle keeping its own camera behavior.
+- Healing, shield absorption, and actual HP-loss combat numbers.
+- Separate combat number colors for player damage, dome damage, heavy hits, and boss damage.
+- IMMUNE feedback for invulnerable targets instead of false damage numbers.
+- A pulsing visual treatment for Protective Dome.
+
+Changed:
+- Settings layout was reorganized into clearer columns and adjusted for windowed mode.
+- Menu buttons now activate on mouse release and menu/page changes use smoother transitions.
+- Medkits now restore 25 HP plus 10% of max HP.
+- Low/Normal/High Effects settings now control more visual noise, including trails.
+- Boss phase visuals were made clearer with stronger shape, color, and pulse cues.
+- Hit glow and several impact effects were reduced to be easier on the eyes.
+- Changelog data is now embedded in the game assembly instead of being loaded from an editable file beside the executable.
+
+Fixed:
+- Damage numbers no longer carry into death/pause menus.
+- Screen shake is cleared after death so pause/death screens stay stable.
+- Damage numbers now report actual HP loss for more sources, including explosions, melee, domes, turrets, poison, and zones.
+- First boss shield nodes now show real damage numbers instead of IMMUNE when they take damage.
+- Tyrant and other invulnerable targets no longer show misleading damage numbers while immune.
+- Several overly bright red flashes and noisy transparent line effects were reduced or removed.
+
 a0.3.8 — June 20, 2026
 ----------------------
 

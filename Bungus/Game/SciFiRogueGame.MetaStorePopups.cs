@@ -373,14 +373,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         _changelogScroll = 0f;
         _changelogLines.Clear();
 
-        var path = ResolveReleaseNotesPath();
-        if (path is null)
+        var lines = ReadEmbeddedReleaseNotes();
+        if (lines is null)
         {
-            _changelogLines.Add(("release_notes_en.txt was not found.", false));
+            _changelogLines.Add(("release notes resource was not found.", false));
             return;
         }
 
-        foreach (var line in File.ReadLines(path))
+        foreach (var line in lines)
         {
             var version = IsReleaseVersionLine(line);
             var displayLine = line.Replace('—', '-');
@@ -417,22 +417,26 @@ public sealed partial class SciFiRogueGame : IDisposable
         _changelogScroll = Math.Clamp(_changelogScroll, 0f, maxScroll);
     }
 
-    private static string? ResolveReleaseNotesPath()
+    private static string[]? ReadEmbeddedReleaseNotes()
     {
-        var candidates = new[]
-        {
-            Path.Combine(AppContext.BaseDirectory, "release_notes_en.txt"),
-            Path.Combine(Environment.CurrentDirectory, "release_notes_en.txt")
-        };
-        return candidates.FirstOrDefault(File.Exists);
+        var assembly = typeof(SciFiRogueGame).Assembly;
+        var resourceName = assembly.GetManifestResourceNames()
+            .FirstOrDefault(name => name.EndsWith("release_notes_en.txt", StringComparison.OrdinalIgnoreCase));
+        if (resourceName is null) return null;
+
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream is null) return null;
+
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd().Replace("\r\n", "\n").Split('\n');
     }
 
     private static bool IsReleaseVersionLine(string line)
     {
         var token = line.TrimStart().Split([' ', '\t', '—', '-'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-        if (string.IsNullOrEmpty(token) || token.Length < 6 || char.ToLowerInvariant(token[0]) != 'a') return false;
+        if (string.IsNullOrEmpty(token) || token.Length < 4 || char.ToLowerInvariant(token[0]) != 'a') return false;
         var parts = token[1..].Split('.');
-        return parts.Length == 3 && parts.All(part => int.TryParse(part, out _));
+        return parts.Length is 2 or 3 && parts.All(part => int.TryParse(part, out _));
     }
 
     private void UpdateAboutPopup()

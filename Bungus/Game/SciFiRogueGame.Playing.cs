@@ -1,0 +1,161 @@
+using System.Numerics;
+using System.Text.Json;
+using Raylib_cs;
+
+namespace Bungus.Game;
+
+public sealed partial class SciFiRogueGame : IDisposable
+{
+    private void UpdatePlaying(float dt)
+    {
+        if (UpdateRunIntro(dt))
+        {
+            _player.Invulnerable = true;
+            UpdateCursorVisibility();
+            return;
+        }
+        _player.Invulnerable = IsPlayerInvisibleForRunIntro();
+
+        if (_terminalOpen)
+        {
+            UpdateTerminalPanel();
+            UpdateCursorVisibility();
+            return;
+        }
+
+        if (_openTerminalNoteIndex is not null)
+        {
+            UpdateTerminalNotePopup();
+            UpdateCursorVisibility();
+            return;
+        }
+
+        if (_challengeMode && _pitRewardOpen)
+        {
+            UpdatePitRewardSelection(dt);
+            UpdateCursorVisibility();
+            return;
+        }
+
+        if (_challengeMode && _pitDifficultyOpen)
+        {
+            UpdatePitDifficultySelection(dt);
+            UpdateCursorVisibility();
+            return;
+        }
+
+        if (Raylib.IsKeyPressed(KeyboardKey.M))
+        {
+            _mapOpen = !_mapOpen;
+            _drag = null;
+            ResetInventoryUseHold();
+            return;
+        }
+
+        if (_mapOpen)
+        {
+            UpdateMapWindow();
+            return;
+        }
+
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape))
+        {
+            if (_player.InventoryOpen) CloseRunInventory();
+            else _state = GameState.Paused;
+            return;
+        }
+
+        if (Raylib.IsKeyPressed(KeyboardKey.Tab))
+        {
+            _player.InventoryOpen = !_player.InventoryOpen;
+            if (!_player.InventoryOpen) CloseRunInventory();
+            else
+            {
+                ResetInventoryUseHold();
+            }
+        }
+
+        if (_challengeMode && _player.InventoryOpen)
+        {
+            UpdateInventoryUi();
+            UpdateLevelUi();
+            if (_drag is null) _player.Inventory.AutoFillConsumableSlots();
+            return;
+        }
+
+        if (_inBunker)
+        {
+            UpdateBunker(dt);
+            return;
+        }
+
+        var enemyCollisionObstacles = BuildEnemyCollisionObstacles();
+        var playerInvisibleForIntro = IsPlayerInvisibleForRunIntro();
+        var playerPreviousPosition = _player.Position;
+        _player.Update(dt, _obstacles, _worldSize, _dashAfterImages);
+        AddMotionTrail(playerPreviousPosition, _player.Position, Theme.Player, 15f, MotionTrailShape.Circle, 0.18f, 13f);
+        _player.UpdateCombat(dt, _projectiles);
+        if (!playerInvisibleForIntro && Raylib.IsKeyPressed(KeyboardKey.Q)) HandleConsumedQuickSlot(_player.UseQuickSlotQ());
+        if (!playerInvisibleForIntro && Raylib.IsKeyPressed(KeyboardKey.R)) HandleConsumedQuickSlot(_player.UseQuickSlotR());
+        if (Raylib.IsKeyPressed((KeyboardKey)49)) _player.SelectWeaponSlot(WeaponSlot.Melee);
+        if (Raylib.IsKeyPressed((KeyboardKey)50)) _player.SelectWeaponSlot(WeaponSlot.PrimaryRanged);
+        if (Raylib.IsKeyPressed((KeyboardKey)51)) _player.SelectWeaponSlot(WeaponSlot.HeavyRanged);
+        if (!playerInvisibleForIntro && !_player.InventoryOpen && Raylib.IsMouseButtonPressed(MouseButton.Right)) _player.ToggleRocketPulseMode();
+
+        var mouseWorld = Raylib.GetScreenToWorld2D(GetUiMousePosition(), _camera);
+        var linearRelease = _player.IsLinearRifleEquipped && Raylib.IsMouseButtonReleased(MouseButton.Left);
+        var activeWeapon = _player.ActiveWeapon;
+        if (!playerInvisibleForIntro
+            && !_player.InventoryOpen
+            && activeWeapon?.Pattern == WeaponPattern.RamBomber
+            && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            _player.Attack(mouseWorld, _projectiles, _swings, _obstacles, _worldSize, _dashAfterImages);
+        }
+        else if (activeWeapon?.Pattern != WeaponPattern.RamBomber
+            && (Raylib.IsMouseButtonDown(MouseButton.Left) || linearRelease)
+            && !playerInvisibleForIntro
+            && !_player.InventoryOpen)
+        {
+            _player.Attack(mouseWorld, _projectiles, _swings, _obstacles, _worldSize, _dashAfterImages);
+        }
+
+        UpdateFreezeZones(dt);
+        UpdateMidaMiniTurrets(dt);
+        var enemyPlayerTarget = GetEnemyPlayerTarget();
+        UpdateEnemies(dt, enemyCollisionObstacles, enemyPlayerTarget);
+        UpdateHexEnemies(dt, enemyCollisionObstacles, enemyPlayerTarget);
+        UpdateTurrets(dt, enemyCollisionObstacles, enemyPlayerTarget);
+        UpdateMiniBosses(dt, enemyCollisionObstacles, enemyPlayerTarget);
+        UpdateDestroyerBoss(dt, enemyCollisionObstacles, enemyPlayerTarget);
+        UpdateDeadZoneEnemies(dt, enemyCollisionObstacles, enemyPlayerTarget);
+        UpdateDeadZoneHazards(dt);
+        UpdateDeadZoneProgress(dt);
+        if (_challengeMode && !IsPlayerInvisibleForRunIntro()) UpdatePitChallenge(dt);
+        UpdateProjectiles(dt);
+        UpdateSwings(dt);
+        UpdateEffects(dt);
+        UpdateProtectiveDomes(dt);
+        UpdateChests();
+        UpdateGroundConsumables();
+        UpdateSecuredTerminalInteractions();
+        UpdateInventoryUi();
+        UpdateLevelUi();
+        if (_drag is null) _player.Inventory.AutoFillConsumableSlots();
+        if (!_challengeMode) UpdateExtraction(dt);
+        if (_state != GameState.Playing) return;
+
+        var desiredCameraTarget = GetDesiredCameraTarget(mouseWorld);
+        _camera.Target = Vector2.Lerp(_camera.Target, desiredCameraTarget, _player.IsSniperEquipped ? 0.035f : 0.2f);
+        if (_player.Health <= 0) FailRun("You Died", "All carried items were lost.");
+    }
+
+    private void CloseRunInventory()
+    {
+        _player.InventoryOpen = false;
+        _openedChestIndex = null;
+        ClearPendingLevelUpPoints();
+        ResetInventoryUseHold();
+    }
+
+}

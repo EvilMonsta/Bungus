@@ -1,0 +1,47 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0/win-x64",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {},
+    ".NETCoreApp,Version=v10.0/win-x64": {
+      "Bungus/1.0.0": {
+        "dependencies": {
+          "Raylib-cs": "6.1.0"
+        },
+        "runtime": {
+          "Bungus.dll": {}
+        }
+      },
+      "Raylib-cs/6.1.0": {
+        "runtime": {
+          "lib/net6.0/Raylib-cs.dll": {
+            "assemblyVersion": "0.0.0.0",
+            "fileVersion": "0.0.0.0"
+          }
+        },
+        "native": {
+          "runtimes/win-x64/native/raylib.dll": {
+            "fileVersion": "0.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "Bungus/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "Raylib-cs/6.1.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-343/oH+IrxKv+wmQCJHEAfIYJ/p7Zi4M8ezBJ+OjU5qHtqTVSkMMJSKUjVAKCPTBYBPE3aDNTWj1XUGRjresNQ==",
+      "path": "raylib-cs/6.1.0",
+      "hashPath": "raylib-cs.6.1.0.nupkg.sha512"
+    }
+  }
+}

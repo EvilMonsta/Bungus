@@ -268,6 +268,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         RefreshStoreAfterQualifiedRun();
         SavePersistentState();
         ClearUiInteraction();
+        ClearCombatFeedback();
         _extractPortals.Clear();
         _lastChanceActive = false;
         _lastChanceTimer = 0f;
@@ -310,6 +311,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _pitDifficultyOpen = false;
         _pitDifficultySpinElapsed = 0f;
         ClearUiInteraction();
+        ClearCombatFeedback();
         UpdateStoreAfterFailedRun();
         SavePersistentState();
         _deathHeader = header;

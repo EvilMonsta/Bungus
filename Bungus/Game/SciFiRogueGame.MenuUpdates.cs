@@ -384,7 +384,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             else StartRun(_selectedMapName);
             _state = GameState.Playing;
         }
-        if (Clicked(CenterRect(0, 400, 320, 62))) { ClearUiInteraction(); _state = GameState.MainMenu; }
+        if (Clicked(CenterRect(0, 400, 320, 62))) { ClearUiInteraction(); ClearCombatFeedback(); _state = GameState.MainMenu; }
     }
 
 }

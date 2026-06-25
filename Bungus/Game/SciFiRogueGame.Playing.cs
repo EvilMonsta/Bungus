@@ -61,7 +61,11 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (Raylib.IsKeyPressed(KeyboardKey.Escape))
         {
             if (_player.InventoryOpen) CloseRunInventory();
-            else _state = GameState.Paused;
+            else
+            {
+                ClearCombatFeedback();
+                _state = GameState.Paused;
+            }
             return;
         }
 

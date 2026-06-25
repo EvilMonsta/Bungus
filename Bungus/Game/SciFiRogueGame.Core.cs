@@ -71,6 +71,8 @@ public sealed partial class SciFiRogueGame : IDisposable
     private List<MotionAfterImage> _motionAfterImages = [];
     private readonly List<VisualParticle> _visualParticles = [];
     private readonly Stack<VisualParticle> _visualParticlePool = new();
+    private readonly List<FloatingCombatText> _floatingCombatTexts = [];
+    private readonly Stack<FloatingCombatText> _floatingCombatTextPool = new();
     private readonly List<WorldDecal> _worldDecals = [];
     private readonly List<WorldDecal> _bunkerDecals = [];
     private readonly Dictionary<string, Texture2D> _iconTextures = new(StringComparer.OrdinalIgnoreCase);
@@ -137,6 +139,8 @@ public sealed partial class SciFiRogueGame : IDisposable
     private float _screenShakeTimer;
     private float _screenShakeDuration;
     private float _screenShakeStrength;
+    private float _playerDamageFlash;
+    private float _lastObservedPlayerHealth = -1f;
     private readonly List<VisualTheme> _themes;
     private int _themeIndex;
     private DisplayMode _displayMode;
@@ -433,6 +437,8 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         _camera.Offset = GetUiScreenCenter();
         _camera.Target = _player.Position;
+        _lastObservedPlayerHealth = _player.Health;
+        _playerDamageFlash = 0f;
         StartRunIntro();
         SavePersistentState();
     }
@@ -560,6 +566,8 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         _camera.Offset = GetUiScreenCenter();
         _camera.Target = _player.Position;
+        _lastObservedPlayerHealth = _player.Health;
+        _playerDamageFlash = 0f;
         StartRunIntro();
         SavePersistentState();
     }
@@ -650,12 +658,38 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         UpdateCursorVisibility();
+        UpdatePlayerDamageFeedback(dt);
 
         if (_noticeTimer > 0f)
         {
             _noticeTimer -= dt;
             if (_noticeTimer <= 0f) _noticeText = string.Empty;
         }
+    }
+
+    private void UpdatePlayerDamageFeedback(float dt)
+    {
+        if (_state != GameState.Playing || _player is null)
+        {
+            _lastObservedPlayerHealth = -1f;
+            _playerDamageFlash = MathF.Max(0f, _playerDamageFlash - dt * 3f);
+            return;
+        }
+
+        if (_lastObservedPlayerHealth < 0f)
+        {
+            _lastObservedPlayerHealth = _player.Health;
+            return;
+        }
+
+        if (_player.Health < _lastObservedPlayerHealth - 0.01f)
+        {
+            var damage = _lastObservedPlayerHealth - _player.Health;
+            AddDamageText(_player, damage, Palette.C(255, 172, 118));
+        }
+
+        _lastObservedPlayerHealth = _player.Health;
+        _playerDamageFlash = MathF.Max(0f, _playerDamageFlash - dt * 2.8f);
     }
 
     private static double GetElapsedMilliseconds(long startTimestamp)

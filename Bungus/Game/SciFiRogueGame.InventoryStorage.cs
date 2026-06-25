@@ -318,7 +318,8 @@ public sealed partial class SciFiRogueGame : IDisposable
             foreach (var target in EnumerateEnemyTargets())
             {
                 if (Vector2.Distance(target.Position, dome.Position) > ProtectiveDome.Radius + target.Radius) continue;
-                dome.TryApplyContactDamage(target.Target, GetBunkerDomeContactDamage(target.Target), 0.9f);
+                var damage = GetBunkerDomeContactDamage(target.Target);
+                if (dome.TryApplyContactDamage(target.Target, damage, 0.9f)) AddDamageText(dome, damage, Palette.C(120, 205, 255));
             }
             if (!dome.Alive) _bunkerProtectiveDomes.RemoveAt(i);
         }

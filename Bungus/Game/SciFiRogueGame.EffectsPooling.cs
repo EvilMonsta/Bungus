@@ -94,11 +94,65 @@ public sealed partial class SciFiRogueGame
         if (_visualParticlePool.Count < 2048) _visualParticlePool.Push(particle);
     }
 
+    private void AddDamageText(object target, float amount, Color color)
+    {
+        if (amount <= 0f) return;
+        var position = GetTargetPosition(target);
+        if (position is null) return;
+
+        FloatingCombatText text;
+        if (_floatingCombatTextPool.Count > 0)
+        {
+            text = _floatingCombatTextPool.Pop();
+        }
+        else
+        {
+            text = new FloatingCombatText();
+        }
+
+        var drift = new Vector2((_visualRng.NextSingle() - 0.5f) * 32f, -62f - _visualRng.NextSingle() * 22f);
+        var start = position.Value + new Vector2((_visualRng.NextSingle() - 0.5f) * 24f, -22f - _visualRng.NextSingle() * 16f);
+        text.Reset(start, drift, MathF.Ceiling(amount).ToString("0"), color, 0.72f, amount >= 100f ? 24f : 20f);
+        _floatingCombatTexts.Add(text);
+
+        if (_floatingCombatTexts.Count <= 96) return;
+        ReleaseFloatingCombatTextAt(0);
+    }
+
+    private void AddDamageText(object target, float amount)
+        => AddDamageText(target, amount, target switch
+        {
+            GeneratorNode => Palette.C(255, 220, 96),
+            BunkerTyrant or BossEnemyDestroyer or StationBossEnemy or MiniBossEnemySquare => Palette.C(255, 118, 118),
+            _ => Palette.C(255, 238, 176)
+        });
+
+    private void ReleaseFloatingCombatTextAt(int index)
+    {
+        var text = _floatingCombatTexts[index];
+        _floatingCombatTexts.RemoveAt(index);
+        if (_floatingCombatTextPool.Count < 192) _floatingCombatTextPool.Push(text);
+    }
+
     private void AddScreenShake(float strength, float duration)
     {
         _screenShakeStrength = MathF.Max(_screenShakeStrength, strength);
         _screenShakeDuration = MathF.Max(_screenShakeDuration, duration);
         _screenShakeTimer = MathF.Max(_screenShakeTimer, duration);
+    }
+
+    private void ClearCombatFeedback()
+    {
+        for (var i = _floatingCombatTexts.Count - 1; i >= 0; i--)
+        {
+            ReleaseFloatingCombatTextAt(i);
+        }
+
+        _screenShakeTimer = 0f;
+        _screenShakeDuration = 0f;
+        _screenShakeStrength = 0f;
+        _playerDamageFlash = 0f;
+        _lastObservedPlayerHealth = _player is null ? -1f : _player.Health;
     }
 
     private void SpawnFreezeAmbientParticles(Vector2 center, float radius, float dt)

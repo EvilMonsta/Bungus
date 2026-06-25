@@ -103,6 +103,8 @@ public sealed partial class SciFiRogueGame
 
     private void DrawFrameOverlays()
     {
+        DrawCinematicPostProcess();
+        DrawFloatingCombatTexts();
         DrawPerformanceOverlay();
     }
 
@@ -765,7 +767,7 @@ public sealed partial class SciFiRogueGame
         var scale = GetUiScale();
         var offset = GetUiOffset();
         var shake = Vector2.Zero;
-        if (_screenShakeTimer > 0f && _screenShakeDuration > 0f)
+        if (_state == GameState.Playing && _screenShakeTimer > 0f && _screenShakeDuration > 0f)
         {
             var ratio = Math.Clamp(_screenShakeTimer / _screenShakeDuration, 0f, 1f);
             var time = (float)Raylib.GetTime();

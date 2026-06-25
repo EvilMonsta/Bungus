@@ -853,7 +853,7 @@ public sealed class ItemStack
     {
         return t switch
         {
-            ConsumableType.Medkit => new ItemStack(ItemType.Consumable, "Medkit", "Restore HP. Hotkey Q/R.", ArmorRarity.Common, Palette.C(130, 210, 120), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
+            ConsumableType.Medkit => new ItemStack(ItemType.Consumable, "Medkit", "Restore 25 HP + 10% max HP. Hotkey Q/R.", ArmorRarity.Common, Palette.C(130, 210, 120), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
             ConsumableType.Stim => new ItemStack(ItemType.Consumable, "Stim", "Move speed boost. Hotkey Q/R.", ArmorRarity.Common, Palette.C(220, 220, 120), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
             ConsumableType.ProtectiveDome => new ItemStack(ItemType.Consumable, "Protective Dome", "Deploy a dome that blocks enemy shots and absorbs 200 damage. Hotkey Q/R.", ArmorRarity.Common, Palette.C(120, 190, 255), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
             ConsumableType.TeslaBullets => new ItemStack(ItemType.Consumable, "Tesla Bullets", "For 15 seconds ranged hits chain lightning to up to two nearby enemies. Hotkey Q/R.", ArmorRarity.Common, Palette.C(120, 230, 255), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),

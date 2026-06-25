@@ -33,6 +33,7 @@ public sealed partial class SciFiRogueGame
     private void SpawnImpactParticles(Vector2 position, Color color, int count = 8, float speed = 160f)
     {
         count = Math.Max(1, (int)MathF.Round(count * GetVisualEffectsMultiplier()));
+        speed *= GetVisualEffectsSpeedMultiplier();
         for (var i = 0; i < count; i++)
         {
             var angle = _visualRng.NextSingle() * MathF.Tau;
@@ -41,8 +42,8 @@ public sealed partial class SciFiRogueGame
                 position,
                 velocity,
                 color,
-                2f + _visualRng.NextSingle() * 3f,
-                0.14f + _visualRng.NextSingle() * 0.18f,
+                (2f + _visualRng.NextSingle() * 3f) * GetVisualEffectsSizeMultiplier(),
+                (0.14f + _visualRng.NextSingle() * 0.18f) * GetVisualEffectsLifeMultiplier(),
                 VisualParticleShape.Spark,
                 angle * 180f / MathF.PI,
                 (_visualRng.NextSingle() - 0.5f) * 360f);
@@ -65,8 +66,8 @@ public sealed partial class SciFiRogueGame
                 position + direction * distance,
                 direction * (12f + _visualRng.NextSingle() * 42f),
                 Palette.C(Math.Min(255, color.R + 24), Math.Min(255, color.G + 24), Math.Min(255, color.B + 24), heavy ? 92 : 68),
-                MathF.Max(8f, radius * (0.05f + _visualRng.NextSingle() * 0.045f)),
-                0.32f + _visualRng.NextSingle() * 0.36f,
+                MathF.Max(8f, radius * (0.05f + _visualRng.NextSingle() * 0.045f)) * GetVisualEffectsSizeMultiplier(),
+                (0.32f + _visualRng.NextSingle() * 0.36f) * GetVisualEffectsLifeMultiplier(),
                 VisualParticleShape.Smoke);
         }
 
@@ -99,8 +100,14 @@ public sealed partial class SciFiRogueGame
 
     private void AddDamageText(object target, float amount, Color color)
     {
-        if (!_damageNumbersEnabled) return;
         if (amount <= 0f) return;
+        AddFloatingCombatText(target, MathF.Ceiling(amount).ToString("0"), color, amount >= 100f ? 24f : 20f);
+    }
+
+    private void AddFloatingCombatText(object target, string value, Color color, float size = 20f)
+    {
+        if (!_damageNumbersEnabled) return;
+        if (string.IsNullOrWhiteSpace(value)) return;
         var position = GetTargetPosition(target);
         if (position is null) return;
 
@@ -116,7 +123,7 @@ public sealed partial class SciFiRogueGame
 
         var drift = new Vector2((_visualRng.NextSingle() - 0.5f) * 32f, -62f - _visualRng.NextSingle() * 22f);
         var start = position.Value + new Vector2((_visualRng.NextSingle() - 0.5f) * 24f, -22f - _visualRng.NextSingle() * 16f);
-        text.Reset(start, drift, MathF.Ceiling(amount).ToString("0"), color, 0.72f, amount >= 100f ? 24f : 20f);
+        text.Reset(start, drift, value, color, 0.72f, size);
         _floatingCombatTexts.Add(text);
 
         if (_floatingCombatTexts.Count <= 96) return;
@@ -124,12 +131,33 @@ public sealed partial class SciFiRogueGame
     }
 
     private void AddDamageText(object target, float amount)
-        => AddDamageText(target, amount, target switch
+        => AddDamageText(target, amount, GetDamageTextColor(target, amount));
+
+    private static Color GetDamageTextColor(object target, float amount)
+        => target switch
         {
+            Player => Palette.C(255, 156, 118),
+            ProtectiveDome => Palette.C(120, 205, 255),
+            _ when amount >= 100f => Palette.C(255, 174, 72),
             GeneratorNode => Palette.C(255, 220, 96),
             BunkerTyrant or BossEnemyDestroyer or StationBossEnemy or MiniBossEnemySquare => Palette.C(255, 118, 118),
             _ => Palette.C(255, 238, 176)
-        });
+        };
+
+    private void AddHealingText(object target, float amount)
+    {
+        if (amount <= 0.01f) return;
+        AddFloatingCombatText(target, $"+{MathF.Ceiling(amount):0}", Palette.C(118, 255, 148), amount >= 50f ? 23f : 20f);
+    }
+
+    private void AddShieldText(object target, float amount)
+    {
+        if (amount <= 0.01f) return;
+        AddFloatingCombatText(target, $"{MathF.Ceiling(amount):0}", Palette.C(120, 205, 255), amount >= 50f ? 23f : 20f);
+    }
+
+    private void AddImmuneText(object target)
+        => AddFloatingCombatText(target, "IMMUNE", Palette.C(170, 205, 255), 18f);
 
     private void ReleaseFloatingCombatTextAt(int index)
     {
@@ -155,6 +183,7 @@ public sealed partial class SciFiRogueGame
         _screenShakeStrength = 0f;
         _playerDamageFlash = 0f;
         _lastObservedPlayerHealth = _player is null ? -1f : _player.Health;
+        _lastObservedPlayerShield = _player is null ? -1f : _player.Shield;
     }
 
     private void ClearFloatingCombatTexts()
@@ -179,8 +208,8 @@ public sealed partial class SciFiRogueGame
                 position,
                 new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * (12f + _visualRng.NextSingle() * 34f),
                 Palette.C(150, 235, 255, 105),
-                2.5f + _visualRng.NextSingle() * 4f,
-                0.22f + _visualRng.NextSingle() * 0.28f,
+                (2.5f + _visualRng.NextSingle() * 4f) * GetVisualEffectsSizeMultiplier(),
+                (0.22f + _visualRng.NextSingle() * 0.28f) * GetVisualEffectsLifeMultiplier(),
                 VisualParticleShape.Shard,
                 _visualRng.NextSingle() * 360f,
                 (_visualRng.NextSingle() - 0.5f) * 220f);
@@ -201,8 +230,8 @@ public sealed partial class SciFiRogueGame
                 position,
                 new Vector2((_visualRng.NextSingle() - 0.5f) * 18f, -18f - _visualRng.NextSingle() * 18f),
                 Palette.C(88, 190, 72, 54),
-                8f + _visualRng.NextSingle() * 10f,
-                0.55f + _visualRng.NextSingle() * 0.5f,
+                (8f + _visualRng.NextSingle() * 10f) * GetVisualEffectsSizeMultiplier(),
+                (0.55f + _visualRng.NextSingle() * 0.5f) * GetVisualEffectsLifeMultiplier(),
                 VisualParticleShape.Smoke);
         }
     }
@@ -210,8 +239,32 @@ public sealed partial class SciFiRogueGame
     private float GetVisualEffectsMultiplier()
         => _visualEffectsIntensity switch
         {
-            VisualEffectsIntensity.Low => 0.45f,
+            VisualEffectsIntensity.Low => 0.28f,
             VisualEffectsIntensity.High => 1.25f,
+            _ => 1f
+        };
+
+    private float GetVisualEffectsSizeMultiplier()
+        => _visualEffectsIntensity switch
+        {
+            VisualEffectsIntensity.Low => 0.65f,
+            VisualEffectsIntensity.High => 1.08f,
+            _ => 1f
+        };
+
+    private float GetVisualEffectsLifeMultiplier()
+        => _visualEffectsIntensity switch
+        {
+            VisualEffectsIntensity.Low => 0.72f,
+            VisualEffectsIntensity.High => 1.08f,
+            _ => 1f
+        };
+
+    private float GetVisualEffectsSpeedMultiplier()
+        => _visualEffectsIntensity switch
+        {
+            VisualEffectsIntensity.Low => 0.72f,
+            VisualEffectsIntensity.High => 1.05f,
             _ => 1f
         };
 }

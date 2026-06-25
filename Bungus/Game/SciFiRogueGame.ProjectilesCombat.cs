@@ -311,8 +311,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                 {
                     if (domeHit is not null)
                     {
+                        var healthBefore = domeHit.Health;
                         domeHit.Damage(p.ExplosionDamage);
-                        AddDamageText(domeHit, p.ExplosionDamage, Palette.C(120, 205, 255));
+                        AddDamageTextForHealthLoss(domeHit, healthBefore);
                         AddExplosion(p.Position, 26f, p.Color);
                         _projectiles.RemoveAt(i);
                         continue;
@@ -337,8 +338,9 @@ public sealed partial class SciFiRogueGame : IDisposable
 
             if (domeHit is not null)
             {
+                var healthBefore = domeHit.Health;
                 domeHit.Damage(p.Damage);
-                AddDamageText(domeHit, p.Damage, Palette.C(120, 205, 255));
+                AddDamageTextForHealthLoss(domeHit, healthBefore);
                 AddBulletImpact(p);
                 AddLinearShotFadeTrail(p);
                 _projectiles.RemoveAt(i);
@@ -407,7 +409,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void AddBulletImpact(Projectile projectile)
     {
-        AddExplosion(projectile.Position, projectile.DrawRadius * 4f, projectile.Color, filled: true, outlined: false, fillAlpha: 0.264f);
+        AddExplosion(projectile.Position, projectile.DrawRadius * 3f, projectile.Color, filled: true, outlined: false, fillAlpha: 0.2f);
         SpawnImpactParticles(projectile.Position, projectile.Color, projectile.Highlighted ? 10 : 5, projectile.Highlighted ? 180f : 120f);
     }
 
@@ -589,8 +591,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             hitTarget = enemyHit;
             var actualDamage = GetDamageAgainstTarget(enemyHit, damage);
+            var healthBefore = enemyHit.Health;
             enemyHit.Damage(actualDamage);
-            AddDamageText(enemyHit, actualDamage);
+            AddDamageTextForHealthLoss(enemyHit, healthBefore);
             ApplyEnemyDecomposition(enemyHit, enemyDecompositionDuration);
             ApplyPlayerHitEffects(enemyHit, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             var targetAggroed = enemyHit.ReactToShot(shotSource, _obstacles);
@@ -606,8 +609,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             hitTarget = hexHit;
             var actualDamage = GetDamageAgainstTarget(hexHit, damage);
+            var healthBefore = hexHit.Health;
             hexHit.Damage(actualDamage);
-            AddDamageText(hexHit, actualDamage);
+            AddDamageTextForHealthLoss(hexHit, healthBefore);
             ApplyEnemyDecomposition(hexHit, enemyDecompositionDuration);
             ApplyPlayerHitEffects(hexHit, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             AggroWitnesses(hexHit.Position, true);
@@ -622,8 +626,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             hitTarget = turretHit;
             var actualDamage = GetDamageAgainstTarget(turretHit, damage);
+            var healthBefore = turretHit.Health;
             turretHit.Damage(actualDamage);
-            AddDamageText(turretHit, actualDamage);
+            AddDamageTextForHealthLoss(turretHit, healthBefore);
             ApplyEnemyDecomposition(turretHit, enemyDecompositionDuration);
             ApplyPlayerHitEffects(turretHit, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             var targetAggroed = turretHit.ReactToShot(shotSource, _player.Position, _obstacles);
@@ -639,8 +644,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             hitTarget = miniBossHit;
             var actualDamage = GetDamageAgainstTarget(miniBossHit, damage);
+            var healthBefore = miniBossHit.Health;
             miniBossHit.Damage(actualDamage);
-            AddDamageText(miniBossHit, actualDamage);
+            AddDamageTextForHealthLoss(miniBossHit, healthBefore);
             ApplyEnemyDecomposition(miniBossHit, enemyDecompositionDuration);
             ApplyPlayerHitEffects(miniBossHit, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             var targetAggroed = miniBossHit.ReactToShot(shotSource, _obstacles);
@@ -656,8 +662,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             hitTarget = guardHit;
             var actualDamage = GetDamageAgainstTarget(guardHit, damage);
+            var healthBefore = guardHit.Health;
             guardHit.Damage(actualDamage);
-            AddDamageText(guardHit, actualDamage);
+            AddDamageTextForHealthLoss(guardHit, healthBefore);
             ApplyEnemyDecomposition(guardHit, enemyDecompositionDuration);
             ApplyPlayerHitEffects(guardHit, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             var targetAggroed = guardHit.TryAggroFromPlayerHit(_player.Position);
@@ -673,8 +680,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             hitTarget = toxicHit;
             var actualDamage = GetDamageAgainstTarget(toxicHit, damage);
+            var healthBefore = toxicHit.Health;
             toxicHit.Damage(actualDamage);
-            AddDamageText(toxicHit, actualDamage);
+            AddDamageTextForHealthLoss(toxicHit, healthBefore);
             ApplyEnemyDecomposition(toxicHit, enemyDecompositionDuration);
             ApplyPlayerHitEffects(toxicHit, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             var targetAggroed = toxicHit.ReactToShot(shotSource, _obstacles);
@@ -689,18 +697,31 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (generatorHit is not null)
         {
             hitTarget = generatorHit;
+            if (!generatorHit.Vulnerable)
+            {
+                AddImmuneText(generatorHit);
+                return true;
+            }
+            var healthBefore = generatorHit.Health;
             generatorHit.Damage(damage);
-            AddDamageText(generatorHit, damage);
+            AddDamageTextForHealthLoss(generatorHit, healthBefore);
             return true;
         }
 
         if (_stationBoss is not null && !ReferenceEquals(_stationBoss, ignoreTarget))
         {
+            if (!_stationBoss.Active && DistanceToSegment(_stationBoss.Position, from, to) <= radius + 34f)
+            {
+                hitTarget = _stationBoss;
+                AddImmuneText(_stationBoss);
+                return true;
+            }
+
             var healthBefore = _stationBoss.Health;
             if (_stationBoss.TryApplySegmentDamage(from, to, radius, damage))
             {
                 hitTarget = _stationBoss;
-                AddDamageTextForHealthLoss(_stationBoss, healthBefore);
+                AddDamageTextForHealthLoss(_stationBoss, healthBefore, showImmuneOnNoLoss: true);
                 ApplyPlayerHitEffects(_stationBoss, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
                 AggroWitnesses(_stationBoss.Position, true);
                 return true;
@@ -713,7 +734,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (!pitStationBoss.TryApplySegmentDamage(from, to, radius, damage)) continue;
 
             hitTarget = pitStationBoss;
-            AddDamageTextForHealthLoss(pitStationBoss, healthBefore);
+            AddDamageTextForHealthLoss(pitStationBoss, healthBefore, showImmuneOnNoLoss: true);
             ApplyPlayerHitEffects(pitStationBoss, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             AggroWitnesses(pitStationBoss.Position, true);
             return true;
@@ -756,8 +777,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (parasite is not null)
         {
             var actualDamage = GetDamageAgainstTarget(parasite, damage);
+            var healthBefore = parasite.Health;
             parasite.Damage(actualDamage);
-            AddDamageText(parasite, actualDamage);
+            AddDamageTextForHealthLoss(parasite, healthBefore);
             ApplyEnemyDecomposition(parasite, enemyDecompositionDuration);
             ApplyBunkerPlayerHitEffects(parasite, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             hitTarget = parasite;
@@ -772,8 +794,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             scrib.ForceAggro(_player.Position);
             var actualDamage = GetDamageAgainstTarget(scrib, damage);
+            var healthBefore = scrib.Health;
             if (scrib.Damage(actualDamage)) ExplodeBunkerScrib(scrib.Position);
-            AddDamageText(scrib, actualDamage);
+            AddDamageTextForHealthLoss(scrib, healthBefore);
             ApplyEnemyDecomposition(scrib, enemyDecompositionDuration);
             ApplyBunkerPlayerHitEffects(scrib, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             hitTarget = scrib;
@@ -788,8 +811,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             siege.ForceAggro(_player.Position);
             var actualDamage = GetDamageAgainstTarget(siege, damage);
+            var healthBefore = siege.Health;
             siege.Damage(actualDamage);
-            AddDamageText(siege, actualDamage);
+            AddDamageTextForHealthLoss(siege, healthBefore);
             ApplyEnemyDecomposition(siege, enemyDecompositionDuration);
             ApplyBunkerPlayerHitEffects(siege, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             hitTarget = siege;
@@ -804,8 +828,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             assault.ForceAggro(_player.Position);
             var actualDamage = GetDamageAgainstTarget(assault, damage);
+            var healthBefore = assault.Health;
             assault.Damage(actualDamage);
-            AddDamageText(assault, actualDamage);
+            AddDamageTextForHealthLoss(assault, healthBefore);
             ApplyEnemyDecomposition(assault, enemyDecompositionDuration);
             ApplyBunkerPlayerHitEffects(assault, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             hitTarget = assault;
@@ -820,8 +845,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             infected.ForceAggro(_player.Position);
             var actualDamage = GetDamageAgainstTarget(infected, damage);
+            var healthBefore = infected.Health;
             infected.Damage(actualDamage);
-            AddDamageText(infected, actualDamage);
+            AddDamageTextForHealthLoss(infected, healthBefore);
             ApplyEnemyDecomposition(infected, enemyDecompositionDuration);
             ApplyBunkerPlayerHitEffects(infected, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             hitTarget = infected;
@@ -834,12 +860,14 @@ public sealed partial class SciFiRogueGame : IDisposable
             && DistanceToSegment(_bunkerTyrant.Position, from, to) <= radius + BunkerTyrant.Radius)
         {
             var actualDamage = GetDamageAgainstTarget(_bunkerTyrant, damage);
+            var healthBefore = _bunkerTyrant.Health;
             if (_bunkerTyrant.Damage(actualDamage))
             {
-                AddDamageText(_bunkerTyrant, actualDamage);
+                AddDamageTextForHealthLoss(_bunkerTyrant, healthBefore);
                 ApplyEnemyDecomposition(_bunkerTyrant, enemyDecompositionDuration);
                 ApplyBunkerPlayerHitEffects(_bunkerTyrant, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
             }
+            else AddImmuneText(_bunkerTyrant);
             hitTarget = _bunkerTyrant;
             return true;
         }
@@ -869,50 +897,57 @@ public sealed partial class SciFiRogueGame : IDisposable
                 foreach (var parasite in _bunkerParasites.Where(target => target.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, target.Position, 8f)))
                 {
                     var actualDamage = GetDamageAgainstTarget(parasite, projectile.ExplosionDamage);
+                    var healthBefore = parasite.Health;
                     parasite.Damage(actualDamage);
-                    AddDamageText(parasite, actualDamage);
+                    AddDamageTextForHealthLoss(parasite, healthBefore);
                     FreezeBunkerTargetIfNeeded(projectile, parasite);
                 }
                 foreach (var scrib in _bunkerScribs.Where(target => target.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, target.Position, BunkerScrib.Radius)))
                 {
                     scrib.ForceAggro(_player.Position);
                     var actualDamage = GetDamageAgainstTarget(scrib, projectile.ExplosionDamage);
+                    var healthBefore = scrib.Health;
                     if (scrib.Damage(actualDamage)) ExplodeBunkerScrib(scrib.Position);
-                    AddDamageText(scrib, actualDamage);
+                    AddDamageTextForHealthLoss(scrib, healthBefore);
                     FreezeBunkerTargetIfNeeded(projectile, scrib);
                 }
                 foreach (var enemy in _bunkerSiegeEnemies.Where(target => target.Alive && target.IntersectsCircle(projectile.Position, projectile.ExplosionRadius)))
                 {
                     enemy.ForceAggro(_player.Position);
                     var actualDamage = GetDamageAgainstTarget(enemy, projectile.ExplosionDamage);
+                    var healthBefore = enemy.Health;
                     enemy.Damage(actualDamage);
-                    AddDamageText(enemy, actualDamage);
+                    AddDamageTextForHealthLoss(enemy, healthBefore);
                     FreezeBunkerTargetIfNeeded(projectile, enemy);
                 }
                 foreach (var enemy in _bunkerAssaultEnemies.Where(target => target.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, target.Position, BunkerAssaultEnemy.Radius)))
                 {
                     enemy.ForceAggro(_player.Position);
                     var actualDamage = GetDamageAgainstTarget(enemy, projectile.ExplosionDamage);
+                    var healthBefore = enemy.Health;
                     enemy.Damage(actualDamage);
-                    AddDamageText(enemy, actualDamage);
+                    AddDamageTextForHealthLoss(enemy, healthBefore);
                     FreezeBunkerTargetIfNeeded(projectile, enemy);
                 }
                 foreach (var enemy in _bunkerInfectedEnemies.Where(target => target.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, target.Position, BunkerInfectedEnemy.Radius)))
                 {
                     enemy.ForceAggro(_player.Position);
                     var actualDamage = GetDamageAgainstTarget(enemy, projectile.ExplosionDamage);
+                    var healthBefore = enemy.Health;
                     enemy.Damage(actualDamage);
-                    AddDamageText(enemy, actualDamage);
+                    AddDamageTextForHealthLoss(enemy, healthBefore);
                     FreezeBunkerTargetIfNeeded(projectile, enemy);
                 }
                 if (_bunkerTyrant is not null && IsInExplosion(projectile.Position, projectile.ExplosionRadius, _bunkerTyrant.Position, BunkerTyrant.Radius))
                 {
                     var actualDamage = GetDamageAgainstTarget(_bunkerTyrant, projectile.ExplosionDamage);
+                    var healthBefore = _bunkerTyrant.Health;
                     if (_bunkerTyrant.Damage(actualDamage))
                     {
-                        AddDamageText(_bunkerTyrant, actualDamage);
+                        AddDamageTextForHealthLoss(_bunkerTyrant, healthBefore);
                         FreezeBunkerTargetIfNeeded(projectile, _bunkerTyrant);
                     }
+                    else AddImmuneText(_bunkerTyrant);
                 }
             }
             return;
@@ -933,8 +968,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         foreach (var enemy in _enemies.Where(e => e.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, e.Position, 16f)))
         {
             var actualDamage = GetDamageAgainstTarget(enemy, projectile.ExplosionDamage);
+            var healthBefore = enemy.Health;
             enemy.Damage(actualDamage);
-            AddDamageText(enemy, actualDamage);
+            AddDamageTextForHealthLoss(enemy, healthBefore);
             if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[enemy] = GetPlayerFreezeDuration();
             ApplyPlayerHitEffects(enemy, rangedWeaponEffects: false);
             aggroWitnesses |= enemy.ReactToShot(projectile.SourcePosition, _obstacles);
@@ -943,8 +979,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         foreach (var hex in _hexEnemies.Where(h => h.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, h.Position, 15f)))
         {
             var actualDamage = GetDamageAgainstTarget(hex, projectile.ExplosionDamage);
+            var healthBefore = hex.Health;
             hex.Damage(actualDamage);
-            AddDamageText(hex, actualDamage);
+            AddDamageTextForHealthLoss(hex, healthBefore);
             if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[hex] = GetPlayerFreezeDuration();
             ApplyPlayerHitEffects(hex, rangedWeaponEffects: false);
             aggroWitnesses = true;
@@ -953,8 +990,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         foreach (var turret in _turrets.Where(t => t.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, t.Position, 18f)))
         {
             var actualDamage = GetDamageAgainstTarget(turret, projectile.ExplosionDamage);
+            var healthBefore = turret.Health;
             turret.Damage(actualDamage);
-            AddDamageText(turret, actualDamage);
+            AddDamageTextForHealthLoss(turret, healthBefore);
             if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[turret] = GetPlayerFreezeDuration();
             ApplyPlayerHitEffects(turret, rangedWeaponEffects: false);
             aggroWitnesses |= turret.ReactToShot(projectile.SourcePosition, _player.Position, _obstacles);
@@ -963,8 +1001,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         foreach (var miniBoss in _miniBosses.Where(b => b.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, b.Position, 21f)))
         {
             var actualDamage = GetDamageAgainstTarget(miniBoss, projectile.ExplosionDamage);
+            var healthBefore = miniBoss.Health;
             miniBoss.Damage(actualDamage);
-            AddDamageText(miniBoss, actualDamage);
+            AddDamageTextForHealthLoss(miniBoss, healthBefore);
             if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[miniBoss] = GetPlayerFreezeDuration();
             ApplyPlayerHitEffects(miniBoss, rangedWeaponEffects: false);
             aggroWitnesses |= miniBoss.ReactToShot(projectile.SourcePosition, _obstacles);
@@ -973,8 +1012,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         foreach (var guard in _generatorGuards.Where(g => g.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, g.Position, 14f)))
         {
             var actualDamage = GetDamageAgainstTarget(guard, projectile.ExplosionDamage);
+            var healthBefore = guard.Health;
             guard.Damage(actualDamage);
-            AddDamageText(guard, actualDamage);
+            AddDamageTextForHealthLoss(guard, healthBefore);
             if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[guard] = GetPlayerFreezeDuration();
             ApplyPlayerHitEffects(guard, rangedWeaponEffects: false);
             aggroWitnesses |= guard.TryAggroFromPlayerHit(_player.Position);
@@ -983,8 +1023,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         foreach (var toxic in _toxicEnemies.Where(e => e.Alive && IsInExplosion(projectile.Position, projectile.ExplosionRadius, e.Position, 12f)))
         {
             var actualDamage = GetDamageAgainstTarget(toxic, projectile.ExplosionDamage);
+            var healthBefore = toxic.Health;
             toxic.Damage(actualDamage);
-            AddDamageText(toxic, actualDamage);
+            AddDamageTextForHealthLoss(toxic, healthBefore);
             if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[toxic] = GetPlayerFreezeDuration();
             ApplyPlayerHitEffects(toxic, rangedWeaponEffects: false);
             aggroWitnesses |= toxic.ReactToShot(projectile.SourcePosition, _obstacles);
@@ -992,18 +1033,29 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         foreach (var generator in _generators.Where(g => !g.Destroyed && IsInExplosion(projectile.Position, projectile.ExplosionRadius, g.Position, 24f)))
         {
+            if (!generator.Vulnerable)
+            {
+                AddImmuneText(generator);
+                continue;
+            }
+            var healthBefore = generator.Health;
             generator.Damage(projectile.ExplosionDamage);
-            AddDamageText(generator, projectile.ExplosionDamage);
+            AddDamageTextForHealthLoss(generator, healthBefore);
         }
 
         if (_stationBoss is not null)
         {
+            var hitsStationBoss = Vector2.Distance(_stationBoss.Position, projectile.Position) <= projectile.ExplosionRadius + 34f;
+            if (!_stationBoss.Active && hitsStationBoss)
+            {
+                AddImmuneText(_stationBoss);
+            }
             var actualDamage = GetDamageAgainstTarget(_stationBoss, projectile.ExplosionDamage);
             var healthBefore = _stationBoss.Health;
             _stationBoss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, actualDamage);
             if (_stationBoss.IntersectsAnyHitZone(projectile.Position, projectile.ExplosionRadius))
             {
-                AddDamageTextForHealthLoss(_stationBoss, healthBefore);
+                AddDamageTextForHealthLoss(_stationBoss, healthBefore, showImmuneOnNoLoss: true);
                 if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[_stationBoss] = GetPlayerFreezeDuration();
                 ApplyPlayerHitEffects(_stationBoss, rangedWeaponEffects: false);
                 aggroWitnesses = true;
@@ -1017,7 +1069,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             boss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, actualDamage);
             if (boss.IntersectsAnyHitZone(projectile.Position, projectile.ExplosionRadius))
             {
-                AddDamageTextForHealthLoss(boss, healthBefore);
+                AddDamageTextForHealthLoss(boss, healthBefore, showImmuneOnNoLoss: true);
                 if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[boss] = GetPlayerFreezeDuration();
                 ApplyPlayerHitEffects(boss, rangedWeaponEffects: false);
                 aggroWitnesses = true;
@@ -1230,8 +1282,23 @@ public sealed partial class SciFiRogueGame : IDisposable
             case MiniBossEnemySquare boss: boss.Damage(actualDamage); break;
             case GeneratorGuardianEnemy guard: guard.Damage(actualDamage); break;
             case ToxicTriangleEnemy toxic: toxic.Damage(actualDamage); break;
-            case StationBossEnemy boss: boss.Damage(actualDamage); break;
+            case StationBossEnemy boss:
+                if (!boss.Active)
+                {
+                    AddImmuneText(boss);
+                    return;
+                }
+                boss.Damage(actualDamage);
+                break;
             case BossEnemyDestroyer boss: boss.Damage(actualDamage); break;
+            case GeneratorNode generator:
+                if (!generator.Vulnerable)
+                {
+                    AddImmuneText(generator);
+                    return;
+                }
+                generator.Damage(actualDamage);
+                break;
             case BunkerParasite parasite: parasite.Damage(actualDamage); break;
             case BunkerScrib scrib:
                 scrib.ForceAggro(_player.Position);
@@ -1249,13 +1316,14 @@ public sealed partial class SciFiRogueGame : IDisposable
         else AddDamageText(target, actualDamage);
     }
 
-    private void AddDamageTextForHealthLoss(object target, float healthBefore)
+    private void AddDamageTextForHealthLoss(object target, float healthBefore, bool showImmuneOnNoLoss = false)
     {
         var healthAfter = GetTargetHealth(target);
         if (healthAfter is null) return;
 
         var actualLoss = healthBefore - healthAfter.Value;
         if (actualLoss > 0.01f) AddDamageText(target, actualLoss);
+        else if (showImmuneOnNoLoss) AddImmuneText(target);
     }
 
     private static float? GetTargetHealth(object target)
@@ -1291,37 +1359,44 @@ public sealed partial class SciFiRogueGame : IDisposable
             foreach (var enemy in _enemies.Where(e => e.Alive && Vector2.Distance(e.Position, dome.Position) <= ProtectiveDome.Radius + 14f))
             {
                 var damage = enemy.IsStrong ? 18f : 10f;
-                if (dome.TryApplyContactDamage(enemy, damage, enemy.IsStrong ? 1.3f : 0.9f)) AddDamageText(dome, damage, Palette.C(120, 205, 255));
+                var healthBefore = dome.Health;
+                if (dome.TryApplyContactDamage(enemy, damage, enemy.IsStrong ? 1.3f : 0.9f)) AddDamageTextForHealthLoss(dome, healthBefore);
             }
 
             foreach (var hex in _hexEnemies.Where(h => h.Alive && Vector2.Distance(h.Position, dome.Position) <= ProtectiveDome.Radius + 16f))
             {
-                if (dome.TryApplyContactDamage(hex, 10f, 0.9f)) AddDamageText(dome, 10f, Palette.C(120, 205, 255));
+                var healthBefore = dome.Health;
+                if (dome.TryApplyContactDamage(hex, 10f, 0.9f)) AddDamageTextForHealthLoss(dome, healthBefore);
             }
 
             foreach (var boss in _miniBosses.Where(b => b.Alive && Vector2.Distance(b.Position, dome.Position) <= ProtectiveDome.Radius + 28f))
             {
-                if (dome.TryApplyContactDamage(boss, 20f, 0.8f)) AddDamageText(dome, 20f, Palette.C(120, 205, 255));
+                var healthBefore = dome.Health;
+                if (dome.TryApplyContactDamage(boss, 20f, 0.8f)) AddDamageTextForHealthLoss(dome, healthBefore);
             }
 
             foreach (var guard in _generatorGuards.Where(g => g.Alive && Vector2.Distance(g.Position, dome.Position) <= ProtectiveDome.Radius + 18f))
             {
-                if (dome.TryApplyContactDamage(guard, 18f, 0.8f)) AddDamageText(dome, 18f, Palette.C(120, 205, 255));
+                var healthBefore = dome.Health;
+                if (dome.TryApplyContactDamage(guard, 18f, 0.8f)) AddDamageTextForHealthLoss(dome, healthBefore);
             }
 
             foreach (var toxic in _toxicEnemies.Where(t => t.Alive && Vector2.Distance(t.Position, dome.Position) <= ProtectiveDome.Radius + 16f))
             {
-                if (dome.TryApplyContactDamage(toxic, 10f, 0.9f)) AddDamageText(dome, 10f, Palette.C(120, 205, 255));
+                var healthBefore = dome.Health;
+                if (dome.TryApplyContactDamage(toxic, 10f, 0.9f)) AddDamageTextForHealthLoss(dome, healthBefore);
             }
 
             if (_destroyerBoss is not null && _destroyerBoss.Alive && Vector2.Distance(_destroyerBoss.Position, dome.Position) <= ProtectiveDome.Radius + 52f)
             {
-                if (dome.TryApplyContactDamage(_destroyerBoss, 22f, 0.8f)) AddDamageText(dome, 22f, Palette.C(120, 205, 255));
+                var healthBefore = dome.Health;
+                if (dome.TryApplyContactDamage(_destroyerBoss, 22f, 0.8f)) AddDamageTextForHealthLoss(dome, healthBefore);
             }
 
             if (_stationBoss is not null && _stationBoss.Alive && Vector2.Distance(_stationBoss.Position, dome.Position) <= ProtectiveDome.Radius + 34f)
             {
-                if (dome.TryApplyContactDamage(_stationBoss, 22f, 0.8f)) AddDamageText(dome, 22f, Palette.C(120, 205, 255));
+                var healthBefore = dome.Health;
+                if (dome.TryApplyContactDamage(_stationBoss, 22f, 0.8f)) AddDamageTextForHealthLoss(dome, healthBefore);
             }
 
             if (dome.Alive) continue;
@@ -1492,8 +1567,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                     if (hit && s.TryRegisterHit(parasite))
                     {
                         var actualDamage = GetDamageAgainstTarget(parasite, _player.GetMeleeDamage());
+                        var healthBefore = parasite.Health;
                         parasite.Damage(actualDamage);
-                        AddDamageText(parasite, actualDamage);
+                        AddDamageTextForHealthLoss(parasite, healthBefore);
                     }
                 }
 
@@ -1505,8 +1581,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                     if (hit && s.TryRegisterHit(scrib))
                     {
                         var actualDamage = GetDamageAgainstTarget(scrib, _player.GetMeleeDamage());
+                        var healthBefore = scrib.Health;
                         if (scrib.Damage(actualDamage)) ExplodeBunkerScrib(scrib.Position);
-                        AddDamageText(scrib, actualDamage);
+                        AddDamageTextForHealthLoss(scrib, healthBefore);
                     }
                     if (hit) scrib.ForceAggro(_player.Position);
                 }
@@ -1520,8 +1597,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                     {
                         enemy.ForceAggro(_player.Position);
                         var actualDamage = GetDamageAgainstTarget(enemy, _player.GetMeleeDamage());
+                        var healthBefore = enemy.Health;
                         enemy.Damage(actualDamage);
-                        AddDamageText(enemy, actualDamage);
+                        AddDamageTextForHealthLoss(enemy, healthBefore);
                     }
                 }
 
@@ -1534,8 +1612,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                     {
                         enemy.ForceAggro(_player.Position);
                         var actualDamage = GetDamageAgainstTarget(enemy, _player.GetMeleeDamage());
+                        var healthBefore = enemy.Health;
                         enemy.Damage(actualDamage);
-                        AddDamageText(enemy, actualDamage);
+                        AddDamageTextForHealthLoss(enemy, healthBefore);
                     }
                 }
 
@@ -1548,8 +1627,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                     {
                         enemy.ForceAggro(_player.Position);
                         var actualDamage = GetDamageAgainstTarget(enemy, _player.GetMeleeDamage());
+                        var healthBefore = enemy.Health;
                         enemy.Damage(actualDamage);
-                        AddDamageText(enemy, actualDamage);
+                        AddDamageTextForHealthLoss(enemy, healthBefore);
                     }
                 }
 
@@ -1561,7 +1641,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                     if (hit && s.TryRegisterHit(_bunkerTyrant))
                     {
                         var actualDamage = GetDamageAgainstTarget(_bunkerTyrant, _player.GetMeleeDamage() * 0.75f);
-                        if (_bunkerTyrant.Damage(actualDamage)) AddDamageText(_bunkerTyrant, actualDamage);
+                        var healthBefore = _bunkerTyrant.Health;
+                        if (_bunkerTyrant.Damage(actualDamage)) AddDamageTextForHealthLoss(_bunkerTyrant, healthBefore);
+                        else AddImmuneText(_bunkerTyrant);
                     }
                 }
                 continue;
@@ -1574,8 +1656,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                     : IsInArc(e.Position, s, 8f);
                 if (!hit || !s.TryRegisterHit(e)) continue;
                 var actualDamage = GetDamageAgainstTarget(e, _player.GetMeleeDamage());
+                var healthBefore = e.Health;
                 e.Damage(actualDamage);
-                AddDamageText(e, actualDamage);
+                AddDamageTextForHealthLoss(e, healthBefore);
                 ApplyPlayerHitEffects(e, rangedWeaponEffects: false);
                 e.ForceAggro(_player.Position);
                 AggroWitnesses(e.Position, true);
@@ -1589,8 +1672,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                 if (hit && s.TryRegisterHit(h))
                 {
                     var actualDamage = GetDamageAgainstTarget(h, _player.GetMeleeDamage());
+                    var healthBefore = h.Health;
                     h.Damage(actualDamage);
-                    AddDamageText(h, actualDamage);
+                    AddDamageTextForHealthLoss(h, healthBefore);
                     ApplyPlayerHitEffects(h, rangedWeaponEffects: false);
                     AggroWitnesses(h.Position, true);
                 }
@@ -1604,8 +1688,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                 if (hit && s.TryRegisterHit(t))
                 {
                     var actualDamage = GetDamageAgainstTarget(t, _player.GetMeleeDamage());
+                    var healthBefore = t.Health;
                     t.Damage(actualDamage);
-                    AddDamageText(t, actualDamage);
+                    AddDamageTextForHealthLoss(t, healthBefore);
                     ApplyPlayerHitEffects(t, rangedWeaponEffects: false);
                     t.ForceAggro(_player.Position);
                     AggroWitnesses(t.Position, true);
@@ -1620,8 +1705,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                 if (hit && s.TryRegisterHit(b))
                 {
                     var actualDamage = GetDamageAgainstTarget(b, _player.GetMeleeDamage() * 0.75f);
+                    var healthBefore = b.Health;
                     b.Damage(actualDamage);
-                    AddDamageText(b, actualDamage);
+                    AddDamageTextForHealthLoss(b, healthBefore);
                     ApplyPlayerHitEffects(b, rangedWeaponEffects: false);
                     b.ForceAggro(_player.Position);
                     AggroWitnesses(b.Position, true);
@@ -1636,8 +1722,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                 if (hit && s.TryRegisterHit(g))
                 {
                     var actualDamage = GetDamageAgainstTarget(g, _player.GetMeleeDamage());
+                    var healthBefore = g.Health;
                     g.Damage(actualDamage);
-                    AddDamageText(g, actualDamage);
+                    AddDamageTextForHealthLoss(g, healthBefore);
                     ApplyPlayerHitEffects(g, rangedWeaponEffects: false);
                     g.ForceAggro(_player.Position);
                     AggroWitnesses(g.Position, true);
@@ -1652,8 +1739,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                 if (hit && s.TryRegisterHit(toxic))
                 {
                     var actualDamage = GetDamageAgainstTarget(toxic, _player.GetMeleeDamage());
+                    var healthBefore = toxic.Health;
                     toxic.Damage(actualDamage);
-                    AddDamageText(toxic, actualDamage);
+                    AddDamageTextForHealthLoss(toxic, healthBefore);
                     ApplyPlayerHitEffects(toxic, rangedWeaponEffects: false);
                     toxic.ForceAggro(_player.Position);
                     AggroWitnesses(toxic.Position, true);
@@ -1667,9 +1755,15 @@ public sealed partial class SciFiRogueGame : IDisposable
                     : IsInArc(generator.Position, s, 24f);
                 if (hit && s.TryRegisterHit(generator))
                 {
+                    if (!generator.Vulnerable)
+                    {
+                        AddImmuneText(generator);
+                        continue;
+                    }
                     var actualDamage = _player.GetMeleeDamage();
+                    var healthBefore = generator.Health;
                     generator.Damage(actualDamage);
-                    AddDamageText(generator, actualDamage);
+                    AddDamageTextForHealthLoss(generator, healthBefore);
                 }
             }
 
@@ -1680,6 +1774,11 @@ public sealed partial class SciFiRogueGame : IDisposable
                     : IsInArc(_stationBoss.Position, s, 30f);
                 if (hit && s.TryRegisterHit(_stationBoss))
                 {
+                    if (!_stationBoss.Active)
+                    {
+                        AddImmuneText(_stationBoss);
+                        continue;
+                    }
                     var actualDamage = GetDamageAgainstTarget(_stationBoss, _player.GetMeleeDamage() * 0.75f);
                     var healthBefore = _stationBoss.Health;
                     _stationBoss.Damage(actualDamage);

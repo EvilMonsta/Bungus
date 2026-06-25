@@ -72,7 +72,7 @@ public sealed class VisualParticle
                 Raylib.DrawCircleV(Position, Size * (1.4f - ratio * 0.35f), color);
                 break;
             default:
-                Raylib.DrawCircleGradient((int)Position.X, (int)Position.Y, Size * 2.3f, color, Palette.C(Color.R, Color.G, Color.B, 0));
+                Raylib.DrawCircleGradient((int)Position.X, (int)Position.Y, Size * 1.61f, color, Palette.C(Color.R, Color.G, Color.B, 0));
                 break;
         }
     }

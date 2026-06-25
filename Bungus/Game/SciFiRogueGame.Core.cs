@@ -141,6 +141,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private float _screenShakeStrength;
     private float _playerDamageFlash;
     private float _lastObservedPlayerHealth = -1f;
+    private float _lastObservedPlayerShield = -1f;
     private VisualEffectsIntensity _visualEffectsIntensity = VisualEffectsIntensity.Normal;
     private bool _damageNumbersEnabled = true;
     private bool _screenShakeEnabled = true;
@@ -444,6 +445,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _camera.Offset = GetUiScreenCenter();
         _camera.Target = _player.Position;
         _lastObservedPlayerHealth = _player.Health;
+        _lastObservedPlayerShield = _player.Shield;
         _playerDamageFlash = 0f;
         StartRunIntro();
         SavePersistentState();
@@ -573,6 +575,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _camera.Offset = GetUiScreenCenter();
         _camera.Target = _player.Position;
         _lastObservedPlayerHealth = _player.Health;
+        _lastObservedPlayerShield = _player.Shield;
         _playerDamageFlash = 0f;
         StartRunIntro();
         SavePersistentState();
@@ -685,23 +688,36 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (_state != GameState.Playing || _player is null)
         {
             _lastObservedPlayerHealth = -1f;
+            _lastObservedPlayerShield = -1f;
             _playerDamageFlash = MathF.Max(0f, _playerDamageFlash - dt * 3f);
             return;
         }
 
-        if (_lastObservedPlayerHealth < 0f)
+        if (_lastObservedPlayerHealth < 0f || _lastObservedPlayerShield < 0f)
         {
             _lastObservedPlayerHealth = _player.Health;
+            _lastObservedPlayerShield = _player.Shield;
             return;
+        }
+
+        if (_player.Shield < _lastObservedPlayerShield - 0.01f)
+        {
+            const float shieldDamageMultiplier = 1.25f;
+            AddShieldText(_player, (_lastObservedPlayerShield - _player.Shield) / shieldDamageMultiplier);
         }
 
         if (_player.Health < _lastObservedPlayerHealth - 0.01f)
         {
             var damage = _lastObservedPlayerHealth - _player.Health;
-            AddDamageText(_player, damage, Palette.C(255, 172, 118));
+            AddDamageText(_player, damage);
+        }
+        else if (_player.Health > _lastObservedPlayerHealth + 0.01f)
+        {
+            AddHealingText(_player, _player.Health - _lastObservedPlayerHealth);
         }
 
         _lastObservedPlayerHealth = _player.Health;
+        _lastObservedPlayerShield = _player.Shield;
         _playerDamageFlash = MathF.Max(0f, _playerDamageFlash - dt * 2.8f);
     }
 

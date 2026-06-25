@@ -696,6 +696,7 @@ public sealed partial class SciFiRogueGame
                 _ => projectile.Highlighted ? projectile.DrawRadius * 3.4f : projectile.DrawRadius * 2.1f
             };
 
+            glowRadius *= GetVisualEffectsSizeMultiplier();
             var alpha = projectile.Highlighted || projectile.Kind is ProjectileKind.PulsarBolt or ProjectileKind.MicroCharge ? 0.34f : 0.16f;
             alpha *= GetVisualEffectsMultiplier();
             Raylib.DrawCircleGradient(

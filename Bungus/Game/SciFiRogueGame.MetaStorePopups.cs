@@ -564,6 +564,13 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
+        if (code == "RUK")
+        {
+            var result = ApplyRukCode();
+            SetCodeStatus(result.Success, result.Message);
+            if (result.Success) _codeInput = string.Empty;
+            return;
+        }
         if (code == "TOBUNKER")
         {
             var result = ApplyToBunkerCode();
@@ -825,6 +832,11 @@ public sealed partial class SciFiRogueGame : IDisposable
         return (true, "Success: +3000 XP.");
     }
 
+    private (bool Success, string Message) ApplyRukCode()
+    {
+        AddMetaScore(10000);
+        return (true, "Success: +10000 XP.");
+    }
     private (bool Success, string Message) ApplyToBunkerCode()
     {
         const string code = "TOBUNKER";

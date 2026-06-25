@@ -23,6 +23,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private const float StartupSplashBlackHoldDuration = 1f;
     private const float StartupSplashFadeFromBlackDuration = 1f;
     private const float StartupSplashDuration = StartupSplashHoldDuration + StartupSplashFadeToBlackDuration + StartupSplashBlackHoldDuration + StartupSplashFadeFromBlackDuration;
+    private const float StartupSplashInputUnlockLeadTime = 0.75f;
     private const int BunkerWorldSize = 4000;
     private const float BunkerWallThickness = 8f;
     private const float BunkerDoorLength = 100f;
@@ -693,7 +694,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (_startupSplashTimer <= 0f) return false;
 
         _startupSplashTimer = MathF.Max(0f, _startupSplashTimer - dt);
-        return _startupSplashTimer > 0f;
+        return _startupSplashTimer > StartupSplashInputUnlockLeadTime;
     }
 
     private void StartUiTransition() => _uiTransitionTimer = UiTransitionDuration;

@@ -694,30 +694,43 @@ public sealed partial class SciFiRogueGame : IDisposable
             return true;
         }
 
-        if (_stationBoss is not null && !ReferenceEquals(_stationBoss, ignoreTarget) && _stationBoss.TryApplySegmentDamage(from, to, radius, damage))
+        if (_stationBoss is not null && !ReferenceEquals(_stationBoss, ignoreTarget))
         {
-            hitTarget = _stationBoss;
-            ApplyPlayerHitEffects(_stationBoss, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
-            AggroWitnesses(_stationBoss.Position, true);
+            var healthBefore = _stationBoss.Health;
+            if (_stationBoss.TryApplySegmentDamage(from, to, radius, damage))
+            {
+                hitTarget = _stationBoss;
+                AddDamageTextForHealthLoss(_stationBoss, healthBefore);
+                ApplyPlayerHitEffects(_stationBoss, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
+                AggroWitnesses(_stationBoss.Position, true);
+                return true;
+            }
+        }
+
+        foreach (var pitStationBoss in _pitStationBosses.Where(b => b.Alive && !ReferenceEquals(b, ignoreTarget)))
+        {
+            var healthBefore = pitStationBoss.Health;
+            if (!pitStationBoss.TryApplySegmentDamage(from, to, radius, damage)) continue;
+
+            hitTarget = pitStationBoss;
+            AddDamageTextForHealthLoss(pitStationBoss, healthBefore);
+            ApplyPlayerHitEffects(pitStationBoss, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
+            AggroWitnesses(pitStationBoss.Position, true);
             return true;
         }
 
-        var pitStationBossHit = _pitStationBosses.FirstOrDefault(b => b.Alive && !ReferenceEquals(b, ignoreTarget) && b.TryApplySegmentDamage(from, to, radius, damage));
-        if (pitStationBossHit is not null)
+        if (_destroyerBoss is not null && _destroyerBoss.Alive && !ReferenceEquals(_destroyerBoss, ignoreTarget))
         {
-            hitTarget = pitStationBossHit;
-            ApplyPlayerHitEffects(pitStationBossHit, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
-            AggroWitnesses(pitStationBossHit.Position, true);
-            return true;
-        }
-
-        if (_destroyerBoss is not null && _destroyerBoss.Alive && !ReferenceEquals(_destroyerBoss, ignoreTarget) && _destroyerBoss.TryApplySegmentDamage(from, to, radius, damage))
-        {
-            hitTarget = _destroyerBoss;
-            ApplyPlayerHitEffects(_destroyerBoss, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
-            var targetAggroed = _destroyerBoss.ReactToShot(shotSource, _obstacles);
-            AggroWitnesses(_destroyerBoss.Position, targetAggroed);
-            return true;
+            var healthBefore = _destroyerBoss.Health;
+            if (_destroyerBoss.TryApplySegmentDamage(from, to, radius, damage))
+            {
+                hitTarget = _destroyerBoss;
+                AddDamageTextForHealthLoss(_destroyerBoss, healthBefore);
+                ApplyPlayerHitEffects(_destroyerBoss, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
+                var targetAggroed = _destroyerBoss.ReactToShot(shotSource, _obstacles);
+                AggroWitnesses(_destroyerBoss.Position, targetAggroed);
+                return true;
+            }
         }
 
         return false;
@@ -821,10 +834,12 @@ public sealed partial class SciFiRogueGame : IDisposable
             && DistanceToSegment(_bunkerTyrant.Position, from, to) <= radius + BunkerTyrant.Radius)
         {
             var actualDamage = GetDamageAgainstTarget(_bunkerTyrant, damage);
-            _bunkerTyrant.Damage(actualDamage);
-            AddDamageText(_bunkerTyrant, actualDamage);
-            ApplyEnemyDecomposition(_bunkerTyrant, enemyDecompositionDuration);
-            ApplyBunkerPlayerHitEffects(_bunkerTyrant, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
+            if (_bunkerTyrant.Damage(actualDamage))
+            {
+                AddDamageText(_bunkerTyrant, actualDamage);
+                ApplyEnemyDecomposition(_bunkerTyrant, enemyDecompositionDuration);
+                ApplyBunkerPlayerHitEffects(_bunkerTyrant, poisonDamagePerSecond, poisonDuration, rangedWeaponEffects);
+            }
             hitTarget = _bunkerTyrant;
             return true;
         }
@@ -893,9 +908,11 @@ public sealed partial class SciFiRogueGame : IDisposable
                 if (_bunkerTyrant is not null && IsInExplosion(projectile.Position, projectile.ExplosionRadius, _bunkerTyrant.Position, BunkerTyrant.Radius))
                 {
                     var actualDamage = GetDamageAgainstTarget(_bunkerTyrant, projectile.ExplosionDamage);
-                    _bunkerTyrant.Damage(actualDamage);
-                    AddDamageText(_bunkerTyrant, actualDamage);
-                    FreezeBunkerTargetIfNeeded(projectile, _bunkerTyrant);
+                    if (_bunkerTyrant.Damage(actualDamage))
+                    {
+                        AddDamageText(_bunkerTyrant, actualDamage);
+                        FreezeBunkerTargetIfNeeded(projectile, _bunkerTyrant);
+                    }
                 }
             }
             return;
@@ -982,10 +999,11 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (_stationBoss is not null)
         {
             var actualDamage = GetDamageAgainstTarget(_stationBoss, projectile.ExplosionDamage);
+            var healthBefore = _stationBoss.Health;
             _stationBoss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, actualDamage);
             if (_stationBoss.IntersectsAnyHitZone(projectile.Position, projectile.ExplosionRadius))
             {
-                AddDamageText(_stationBoss, actualDamage);
+                AddDamageTextForHealthLoss(_stationBoss, healthBefore);
                 if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[_stationBoss] = GetPlayerFreezeDuration();
                 ApplyPlayerHitEffects(_stationBoss, rangedWeaponEffects: false);
                 aggroWitnesses = true;
@@ -995,10 +1013,11 @@ public sealed partial class SciFiRogueGame : IDisposable
         foreach (var boss in _pitStationBosses.Where(b => b.Alive))
         {
             var actualDamage = GetDamageAgainstTarget(boss, projectile.ExplosionDamage);
+            var healthBefore = boss.Health;
             boss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, actualDamage);
             if (boss.IntersectsAnyHitZone(projectile.Position, projectile.ExplosionRadius))
             {
-                AddDamageText(boss, actualDamage);
+                AddDamageTextForHealthLoss(boss, healthBefore);
                 if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[boss] = GetPlayerFreezeDuration();
                 ApplyPlayerHitEffects(boss, rangedWeaponEffects: false);
                 aggroWitnesses = true;
@@ -1008,10 +1027,11 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (_destroyerBoss is not null && _destroyerBoss.Alive)
         {
             var actualDamage = GetDamageAgainstTarget(_destroyerBoss, projectile.ExplosionDamage);
-            _destroyerBoss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, actualDamage);
-            if (_destroyerBoss.IntersectsAnyHitZone(projectile.Position, projectile.ExplosionRadius))
+            var healthBefore = _destroyerBoss.Health;
+            if (_destroyerBoss.ApplyExplosionDamage(projectile.Position, projectile.ExplosionRadius, actualDamage)
+                && _destroyerBoss.IntersectsAnyHitZone(projectile.Position, projectile.ExplosionRadius))
             {
-                AddDamageText(_destroyerBoss, actualDamage);
+                AddDamageTextForHealthLoss(_destroyerBoss, healthBefore);
                 if (projectile.Kind == ProjectileKind.FreezeGrenade) _frozenTargets[_destroyerBoss] = GetPlayerFreezeDuration();
                 ApplyPlayerHitEffects(_destroyerBoss, rangedWeaponEffects: false);
                 aggroWitnesses |= _destroyerBoss.ReactToShot(projectile.SourcePosition, _obstacles);
@@ -1201,6 +1221,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private void DamageTarget(object target, float damage)
     {
         var actualDamage = target is GeneratorNode ? damage : GetDamageAgainstTarget(target, damage);
+        var healthBefore = GetTargetHealth(target);
         switch (target)
         {
             case Enemy enemy: enemy.Damage(actualDamage); break;
@@ -1216,14 +1237,49 @@ public sealed partial class SciFiRogueGame : IDisposable
                 scrib.ForceAggro(_player.Position);
                 if (scrib.Damage(actualDamage)) ExplodeBunkerScrib(scrib.Position);
                 break;
-            case BunkerTyrant boss: boss.Damage(actualDamage); break;
+            case BunkerTyrant boss:
+                if (!boss.Damage(actualDamage)) return;
+                break;
             case BunkerSiegeEnemy enemy: enemy.ForceAggro(_player.Position); enemy.Damage(actualDamage); break;
             case BunkerAssaultEnemy enemy: enemy.ForceAggro(_player.Position); enemy.Damage(actualDamage); break;
             case BunkerInfectedEnemy enemy: enemy.ForceAggro(_player.Position); enemy.Damage(actualDamage); break;
         }
 
-        AddDamageText(target, actualDamage);
+        if (healthBefore is not null) AddDamageTextForHealthLoss(target, healthBefore.Value);
+        else AddDamageText(target, actualDamage);
     }
+
+    private void AddDamageTextForHealthLoss(object target, float healthBefore)
+    {
+        var healthAfter = GetTargetHealth(target);
+        if (healthAfter is null) return;
+
+        var actualLoss = healthBefore - healthAfter.Value;
+        if (actualLoss > 0.01f) AddDamageText(target, actualLoss);
+    }
+
+    private static float? GetTargetHealth(object target)
+        => target switch
+        {
+            Enemy enemy => enemy.Health,
+            HexEnemy hex => hex.Health,
+            TurretEnemy turret => turret.Health,
+            MiniBossEnemySquare boss => boss.Health,
+            GeneratorGuardianEnemy guard => guard.Health,
+            ToxicTriangleEnemy toxic => toxic.Health,
+            GeneratorNode generator => generator.Health,
+            StationBossEnemy boss => boss.Health,
+            BossEnemyDestroyer boss => boss.Health,
+            BunkerParasite parasite => parasite.Health,
+            BunkerScrib scrib => scrib.Health,
+            BunkerTyrant boss => boss.Health,
+            BunkerSiegeEnemy enemy => enemy.Health,
+            BunkerAssaultEnemy enemy => enemy.Health,
+            BunkerInfectedEnemy enemy => enemy.Health,
+            ProtectiveDome dome => dome.Health,
+            Player player => player.Health,
+            _ => null
+        };
 
     private void UpdateProtectiveDomes(float dt)
     {
@@ -1505,8 +1561,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                     if (hit && s.TryRegisterHit(_bunkerTyrant))
                     {
                         var actualDamage = GetDamageAgainstTarget(_bunkerTyrant, _player.GetMeleeDamage() * 0.75f);
-                        _bunkerTyrant.Damage(actualDamage);
-                        AddDamageText(_bunkerTyrant, actualDamage);
+                        if (_bunkerTyrant.Damage(actualDamage)) AddDamageText(_bunkerTyrant, actualDamage);
                     }
                 }
                 continue;
@@ -1626,8 +1681,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                 if (hit && s.TryRegisterHit(_stationBoss))
                 {
                     var actualDamage = GetDamageAgainstTarget(_stationBoss, _player.GetMeleeDamage() * 0.75f);
+                    var healthBefore = _stationBoss.Health;
                     _stationBoss.Damage(actualDamage);
-                    AddDamageText(_stationBoss, actualDamage);
+                    AddDamageTextForHealthLoss(_stationBoss, healthBefore);
                     ApplyPlayerHitEffects(_stationBoss, rangedWeaponEffects: false);
                     AggroWitnesses(_stationBoss.Position, true);
                 }
@@ -1641,8 +1697,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                 if (hit && s.TryRegisterHit(_destroyerBoss))
                 {
                     var actualDamage = GetDamageAgainstTarget(_destroyerBoss, _player.GetMeleeDamage() * 0.75f);
+                    var healthBefore = _destroyerBoss.Health;
                     _destroyerBoss.Damage(actualDamage);
-                    AddDamageText(_destroyerBoss, actualDamage);
+                    AddDamageTextForHealthLoss(_destroyerBoss, healthBefore);
                     ApplyPlayerHitEffects(_destroyerBoss, rangedWeaponEffects: false);
                     _destroyerBoss.ForceAggro(_player.Position);
                     AggroWitnesses(_destroyerBoss.Position, true);

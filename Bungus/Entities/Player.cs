@@ -21,7 +21,8 @@ public sealed class Player
     private const float TwinShotChance = 0.33f;
     private const float TwinShotSpread = 0.06f;
     private const float BaseDashCooldownDuration = 1.1f;
-    private const float MedkitHealAmount = 36f;
+    private const float MedkitFlatHealAmount = 25f;
+    private const float MedkitMaxHealthHealPercent = 0.10f;
     private const float ShieldDamageMultiplier = 1.25f;
     private const float ShieldRechargeDelay = 5f;
     private const float ShieldRechargeRatePerSecond = 0.0333f;
@@ -902,7 +903,7 @@ public sealed class Player
         if (slot.ConsumableKind == ConsumableType.Medkit)
         {
             if (Health >= MaxHealth) return null;
-            ApplyHealing(MedkitHealAmount);
+            ApplyHealing(MedkitFlatHealAmount + MaxHealth * MedkitMaxHealthHealPercent);
             return slot.ConsumableKind;
         }
 

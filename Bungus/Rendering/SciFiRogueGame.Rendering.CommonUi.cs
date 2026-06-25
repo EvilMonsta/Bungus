@@ -7,56 +7,65 @@ public sealed partial class SciFiRogueGame
 {
     private void DrawSettings()
     {
-        DrawTitle("Settings", 100, 66);
-        Raylib.DrawText("Video", (GetUiScreenWidth() - Raylib.MeasureText("Video", 28)) / 2, 160, 28, Color.LightGray);
-        DrawButton(CenterRect(0, 204, 360, 50), _displayMode == DisplayMode.Windowed ? "> Windowed <" : "Windowed");
-        DrawButton(CenterRect(0, 260, 360, 50), _displayMode == DisplayMode.Fullscreen ? "> Fullscreen <" : "Fullscreen");
+        DrawTitle("Settings", SettingsTitleY(), SettingsTitleSize());
 
-        DrawSettingsLabel("Antialiasing", -220, 330);
-        DrawButton(CenterRect(-320, 370, 180, 44), _antialiasingMode == AntialiasingMode.Off ? "> Off <" : "Off");
-        DrawButton(CenterRect(-120, 370, 180, 44), _antialiasingMode == AntialiasingMode.Msaa4x ? "> MSAA x4 <" : "MSAA x4");
+        DrawSettingsLabel("Display", SettingsColumnCenter(0), SettingsLabelY(0));
+        DrawButton(SettingsDisplayButtonRect(0), _displayMode == DisplayMode.Windowed ? "> Windowed <" : "Windowed");
+        DrawButton(SettingsDisplayButtonRect(1), _displayMode == DisplayMode.Fullscreen ? "> Fullscreen <" : "Fullscreen");
 
-        DrawSettingsLabel("VSync", 220, 330);
-        DrawButton(CenterRect(120, 370, 180, 44), !_vsyncEnabled ? "> Off <" : "Off");
-        DrawButton(CenterRect(320, 370, 180, 44), _vsyncEnabled ? "> On <" : "On");
-        Raylib.DrawText("Applied after restart", (GetUiScreenWidth() - Raylib.MeasureText("Applied after restart", 18)) / 2, 420, 18, Palette.C(150, 185, 220));
+        DrawSettingsLabel("Texture filter", SettingsColumnCenter(0), SettingsLabelY(1));
+        DrawButton(SettingsTextureFilterButtonRect(0), _textureFilteringMode == TextureFilteringMode.Point ? "> Point <" : "Point");
+        DrawButton(SettingsTextureFilterButtonRect(1), _textureFilteringMode == TextureFilteringMode.Bilinear ? "> Bilinear <" : "Bilinear");
 
-        DrawSettingsLabel("Texture filter", -220, 460);
-        DrawButton(CenterRect(-320, 500, 180, 44), _textureFilteringMode == TextureFilteringMode.Point ? "> Point <" : "Point");
-        DrawButton(CenterRect(-120, 500, 180, 44), _textureFilteringMode == TextureFilteringMode.Bilinear ? "> Bilinear <" : "Bilinear");
+        DrawSettingsLabel("Damage numbers", SettingsColumnCenter(0), SettingsLabelY(2));
+        DrawButton(SettingsDamageNumbersButtonRect(0), !_damageNumbersEnabled ? "> Off <" : "Off");
+        DrawButton(SettingsDamageNumbersButtonRect(1), _damageNumbersEnabled ? "> On <" : "On");
 
-        DrawSettingsLabel("FPS", 220, 460);
-        DrawButton(CenterRect(90, 500, 96, 44), _targetFps == 30 ? "> 30 <" : "30");
-        DrawButton(CenterRect(202, 500, 96, 44), _targetFps == 60 ? "> 60 <" : "60");
-        DrawButton(CenterRect(314, 500, 96, 44), _targetFps == 120 ? "> 120 <" : "120");
+        DrawSettingsLabel("Effects", SettingsColumnCenter(0), SettingsLabelY(3));
+        DrawButton(SettingsEffectsButtonRect(0), _visualEffectsIntensity == VisualEffectsIntensity.Low ? "> Low <" : "Low");
+        DrawButton(SettingsEffectsButtonRect(1), _visualEffectsIntensity == VisualEffectsIntensity.Normal ? "> Normal <" : "Normal");
+        DrawButton(SettingsEffectsButtonRect(2), _visualEffectsIntensity == VisualEffectsIntensity.High ? "> High <" : "High");
 
-        DrawSettingsLabel("Damage numbers", -220, 580);
-        DrawButton(CenterRect(-320, 620, 180, 44), !_damageNumbersEnabled ? "> Off <" : "Off");
-        DrawButton(CenterRect(-120, 620, 180, 44), _damageNumbersEnabled ? "> On <" : "On");
-
-        DrawSettingsLabel("Screen shake", 220, 580);
-        DrawButton(CenterRect(120, 620, 180, 44), !_screenShakeEnabled ? "> Off <" : "Off");
-        DrawButton(CenterRect(320, 620, 180, 44), _screenShakeEnabled ? "> On <" : "On");
-
-        Raylib.DrawText("Effects", (GetUiScreenWidth() - Raylib.MeasureText("Effects", 28)) / 2, 670, 28, Color.LightGray);
-        DrawButton(CenterRect(-224, 690, 160, 44), _visualEffectsIntensity == VisualEffectsIntensity.Low ? "> Low <" : "Low");
-        DrawButton(CenterRect(-40, 690, 160, 44), _visualEffectsIntensity == VisualEffectsIntensity.Normal ? "> Normal <" : "Normal");
-        DrawButton(CenterRect(144, 690, 160, 44), _visualEffectsIntensity == VisualEffectsIntensity.High ? "> High <" : "High");
-
-        Raylib.DrawText("Choose theme", (GetUiScreenWidth() - Raylib.MeasureText("Choose theme", 28)) / 2, 740, 28, Color.LightGray);
+        DrawSettingsLabel("Choose theme", SettingsColumnCenter(1), SettingsThemeLabelY());
         for (var i = 0; i < _themes.Count; i++)
         {
             var name = i == _themeIndex ? $"> {_themes[i].Name} <" : _themes[i].Name;
-            DrawButton(CenterRect(0, 780 + i * 50, 390, 44), name);
+            DrawButton(SettingsThemeButtonRect(i), name);
         }
 
-        DrawButton(CenterRect(0, 1020, 280, 52), "Back");
+        DrawSettingsLabel("VSync", SettingsColumnCenter(2), SettingsLabelY(0));
+        DrawButton(SettingsVSyncButtonRect(0), !_vsyncEnabled ? "> Off <" : "Off");
+        DrawButton(SettingsVSyncButtonRect(1), _vsyncEnabled ? "> On <" : "On");
+
+        DrawSettingsLabel("Antialiasing", SettingsColumnCenter(2), SettingsLabelY(1));
+        DrawButton(SettingsAntialiasingButtonRect(0), _antialiasingMode == AntialiasingMode.Off ? "> Off <" : "Off");
+        DrawButton(SettingsAntialiasingButtonRect(1), _antialiasingMode == AntialiasingMode.Msaa4x ? "> MSAA x4 <" : "MSAA x4");
+        DrawSettingsHint("Restart applies antialiasing and VSync", SettingsColumnCenter(2), SettingsHintY());
+
+        DrawSettingsLabel("FPS", SettingsColumnCenter(2), SettingsLabelY(2));
+        DrawButton(SettingsFpsButtonRect(0), _targetFps == 30 ? "> 30 <" : "30");
+        DrawButton(SettingsFpsButtonRect(1), _targetFps == 60 ? "> 60 <" : "60");
+        DrawButton(SettingsFpsButtonRect(2), _targetFps == 120 ? "> 120 <" : "120");
+
+        DrawSettingsLabel("Screen shake", SettingsColumnCenter(2), SettingsLabelY(3));
+        DrawButton(SettingsScreenShakeButtonRect(0), !_screenShakeEnabled ? "> Off <" : "Off");
+        DrawButton(SettingsScreenShakeButtonRect(1), _screenShakeEnabled ? "> On <" : "On");
+
+        DrawButton(SettingsBackButtonRect(), "Back");
     }
 
-    private static void DrawSettingsLabel(string text, int xOffset, int y)
+    private static void DrawSettingsLabel(string text, float centerX, int y)
     {
-        var x = GetUiScreenWidth() / 2 + xOffset - Raylib.MeasureText(text, 28) / 2;
-        Raylib.DrawText(text, x, y, 28, Color.LightGray);
+        var size = CompactSettingsLayout() ? 24 : 28;
+        var x = centerX - Raylib.MeasureText(text, size) / 2f;
+        Raylib.DrawText(text, (int)x, y, size, Color.LightGray);
+    }
+
+    private static void DrawSettingsHint(string text, float centerX, int y)
+    {
+        var size = CompactSettingsLayout() ? 16 : 18;
+        var x = centerX - Raylib.MeasureText(text, size) / 2f;
+        Raylib.DrawText(text, (int)x, y, size, Palette.C(150, 185, 220));
     }
 
     private void DrawPause()
@@ -523,6 +532,81 @@ public sealed partial class SciFiRogueGame
     }
 
     private static Rectangle CenterRect(int offsetX, int y, int w, int h) => new((GetUiScreenWidth() - w) / 2f + offsetX, y, w, h);
+
+    private static bool CompactSettingsLayout() => GetUiScreenHeight() <= 760;
+
+    private static int SettingsTitleY() => CompactSettingsLayout() ? 24 : 82;
+
+    private static int SettingsTitleSize() => CompactSettingsLayout() ? 46 : 66;
+
+    private static int SettingsLabelY(int row)
+        => CompactSettingsLayout()
+            ? 150 + row * 94
+            : 255 + row * 120;
+
+    private static int SettingsButtonY(int row)
+        => CompactSettingsLayout()
+            ? 182 + row * 94
+            : 295 + row * 120;
+
+    private static int SettingsThemeLabelY() => CompactSettingsLayout() ? 150 : 255;
+
+    private static int SettingsHintY()
+        => SettingsButtonY(1) + (CompactSettingsLayout() ? 43 : 52);
+
+    private static float SettingsColumnCenter(int column)
+        => GetUiScreenWidth() * (column * 2f + 1f) / 6f;
+
+    private static Rectangle SettingsPairButtonRect(int column, int index, int row)
+    {
+        var width = CompactSettingsLayout() ? 170f : 180f;
+        var height = CompactSettingsLayout() ? 38f : 44f;
+        var spacing = CompactSettingsLayout() ? 188f : 200f;
+        var x = SettingsColumnCenter(column) + (index == 0 ? -spacing : spacing) * 0.5f - width * 0.5f;
+        return new Rectangle(x, SettingsButtonY(row), width, height);
+    }
+
+    private static Rectangle SettingsTripleButtonRect(int column, int index, int row)
+    {
+        var width = CompactSettingsLayout() ? 112f : 140f;
+        var height = CompactSettingsLayout() ? 38f : 44f;
+        var spacing = CompactSettingsLayout() ? 122f : 156f;
+        var x = SettingsColumnCenter(column) + (index - 1) * spacing - width * 0.5f;
+        return new Rectangle(x, SettingsButtonY(row), width, height);
+    }
+
+    private static Rectangle SettingsDisplayButtonRect(int index) => SettingsPairButtonRect(0, index, 0);
+    private static Rectangle SettingsTextureFilterButtonRect(int index) => SettingsPairButtonRect(0, index, 1);
+    private static Rectangle SettingsDamageNumbersButtonRect(int index) => SettingsPairButtonRect(0, index, 2);
+    private static Rectangle SettingsEffectsButtonRect(int index) => SettingsTripleButtonRect(0, index, 3);
+    private static Rectangle SettingsVSyncButtonRect(int index) => SettingsPairButtonRect(2, index, 0);
+    private static Rectangle SettingsAntialiasingButtonRect(int index) => SettingsPairButtonRect(2, index, 1);
+    private static Rectangle SettingsScreenShakeButtonRect(int index) => SettingsPairButtonRect(2, index, 3);
+
+    private static Rectangle SettingsFpsButtonRect(int index)
+    {
+        var width = CompactSettingsLayout() ? 82f : 96f;
+        var height = CompactSettingsLayout() ? 38f : 44f;
+        var spacing = CompactSettingsLayout() ? 98f : 112f;
+        var x = SettingsColumnCenter(2) + (index - 1) * spacing - width * 0.5f;
+        return new Rectangle(x, SettingsButtonY(2), width, height);
+    }
+
+    private static Rectangle SettingsThemeButtonRect(int index)
+    {
+        var width = CompactSettingsLayout() ? 300f : 360f;
+        var height = CompactSettingsLayout() ? 36f : 44f;
+        var step = CompactSettingsLayout() ? 40f : 50f;
+        return new Rectangle(SettingsColumnCenter(1) - width * 0.5f, SettingsButtonY(0) + index * step, width, height);
+    }
+
+    private static Rectangle SettingsBackButtonRect()
+    {
+        var width = CompactSettingsLayout() ? 220f : 280f;
+        var height = CompactSettingsLayout() ? 44f : 52f;
+        var y = GetUiScreenHeight() - height - (CompactSettingsLayout() ? 52f : 86f);
+        return new Rectangle(GetUiScreenWidth() / 2f - width * 0.5f, y, width, height);
+    }
 
     private bool Clicked(Rectangle rect)
     {

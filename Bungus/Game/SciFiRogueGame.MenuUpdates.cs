@@ -308,35 +308,35 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void UpdateSettings()
     {
-        if (Clicked(CenterRect(0, 204, 360, 50))) SetDisplayMode(DisplayMode.Windowed);
-        if (Clicked(CenterRect(0, 260, 360, 50))) SetDisplayMode(DisplayMode.Fullscreen);
-        if (Clicked(CenterRect(-320, 370, 180, 44))) SetAntialiasingMode(AntialiasingMode.Off);
-        if (Clicked(CenterRect(-120, 370, 180, 44))) SetAntialiasingMode(AntialiasingMode.Msaa4x);
-        if (Clicked(CenterRect(120, 370, 180, 44))) SetVSyncEnabled(false);
-        if (Clicked(CenterRect(320, 370, 180, 44))) SetVSyncEnabled(true);
-        if (Clicked(CenterRect(-320, 500, 180, 44))) SetTextureFilteringMode(TextureFilteringMode.Point);
-        if (Clicked(CenterRect(-120, 500, 180, 44))) SetTextureFilteringMode(TextureFilteringMode.Bilinear);
-        if (Clicked(CenterRect(90, 500, 96, 44))) SetTargetFps(30);
-        if (Clicked(CenterRect(202, 500, 96, 44))) SetTargetFps(60);
-        if (Clicked(CenterRect(314, 500, 96, 44))) SetTargetFps(120);
-        if (Clicked(CenterRect(-320, 620, 180, 44))) SetDamageNumbersEnabled(false);
-        if (Clicked(CenterRect(-120, 620, 180, 44))) SetDamageNumbersEnabled(true);
-        if (Clicked(CenterRect(120, 620, 180, 44))) SetScreenShakeEnabled(false);
-        if (Clicked(CenterRect(320, 620, 180, 44))) SetScreenShakeEnabled(true);
-        if (Clicked(CenterRect(-224, 690, 160, 44))) SetVisualEffectsIntensity(VisualEffectsIntensity.Low);
-        if (Clicked(CenterRect(-40, 690, 160, 44))) SetVisualEffectsIntensity(VisualEffectsIntensity.Normal);
-        if (Clicked(CenterRect(144, 690, 160, 44))) SetVisualEffectsIntensity(VisualEffectsIntensity.High);
+        if (Clicked(SettingsDisplayButtonRect(0))) SetDisplayMode(DisplayMode.Windowed);
+        if (Clicked(SettingsDisplayButtonRect(1))) SetDisplayMode(DisplayMode.Fullscreen);
+        if (Clicked(SettingsAntialiasingButtonRect(0))) SetAntialiasingMode(AntialiasingMode.Off);
+        if (Clicked(SettingsAntialiasingButtonRect(1))) SetAntialiasingMode(AntialiasingMode.Msaa4x);
+        if (Clicked(SettingsVSyncButtonRect(0))) SetVSyncEnabled(false);
+        if (Clicked(SettingsVSyncButtonRect(1))) SetVSyncEnabled(true);
+        if (Clicked(SettingsTextureFilterButtonRect(0))) SetTextureFilteringMode(TextureFilteringMode.Point);
+        if (Clicked(SettingsTextureFilterButtonRect(1))) SetTextureFilteringMode(TextureFilteringMode.Bilinear);
+        if (Clicked(SettingsFpsButtonRect(0))) SetTargetFps(30);
+        if (Clicked(SettingsFpsButtonRect(1))) SetTargetFps(60);
+        if (Clicked(SettingsFpsButtonRect(2))) SetTargetFps(120);
+        if (Clicked(SettingsDamageNumbersButtonRect(0))) SetDamageNumbersEnabled(false);
+        if (Clicked(SettingsDamageNumbersButtonRect(1))) SetDamageNumbersEnabled(true);
+        if (Clicked(SettingsScreenShakeButtonRect(0))) SetScreenShakeEnabled(false);
+        if (Clicked(SettingsScreenShakeButtonRect(1))) SetScreenShakeEnabled(true);
+        if (Clicked(SettingsEffectsButtonRect(0))) SetVisualEffectsIntensity(VisualEffectsIntensity.Low);
+        if (Clicked(SettingsEffectsButtonRect(1))) SetVisualEffectsIntensity(VisualEffectsIntensity.Normal);
+        if (Clicked(SettingsEffectsButtonRect(2))) SetVisualEffectsIntensity(VisualEffectsIntensity.High);
 
         for (var i = 0; i < _themes.Count; i++)
         {
-            if (Clicked(CenterRect(0, 780 + i * 50, 390, 44)))
+            if (Clicked(SettingsThemeButtonRect(i)))
             {
                 _themeIndex = i;
                 SavePersistentState();
             }
         }
 
-        if (Clicked(CenterRect(0, 1020, 280, 52)) || Raylib.IsKeyPressed(KeyboardKey.Escape)) _state = GameState.MainMenu;
+        if (Clicked(SettingsBackButtonRect()) || Raylib.IsKeyPressed(KeyboardKey.Escape)) _state = GameState.MainMenu;
     }
 
     private void SetAntialiasingMode(AntialiasingMode mode)

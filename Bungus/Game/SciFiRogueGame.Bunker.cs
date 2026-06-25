@@ -64,6 +64,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         SpawnBunkerRoomEnemies();
         SpawnBunkerChests();
         RebuildBunkerObstacles();
+        GenerateBunkerDecals();
     }
 
     private void SpawnBunkerChests()
@@ -385,6 +386,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var cloud = _bunkerInfectedClouds[i];
             cloud.Update(dt);
+            SpawnToxicAmbientParticles(cloud.Position, cloud.Radius, cloud.Radius, dt);
             if (Vector2.Distance(_player.Position, cloud.Position) <= cloud.Radius + 16f)
             {
                 _player.ApplyPoison(2f);
@@ -447,6 +449,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var cloud = _bunkerToxicClouds[i];
             cloud.Update(dt);
+            SpawnToxicAmbientParticles(cloud.Position, cloud.Radius, cloud.Radius, dt);
             if (Vector2.Distance(_player.Position, cloud.Position) <= cloud.Radius + 16f)
             {
                 _player.ApplyPoison(2f);

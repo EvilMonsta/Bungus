@@ -130,6 +130,8 @@ public sealed partial class SciFiRogueGame
 
         Raylib.BeginMode2D(GetRenderCamera());
         DrawGrid();
+        foreach (var decal in _worldDecals) decal.Draw();
+        DrawWorldAmbientGlows();
 
         foreach (var b in _buildings)
         {
@@ -353,6 +355,7 @@ public sealed partial class SciFiRogueGame
                 Raylib.DrawCircleLines((int)ex.Position.X, (int)ex.Position.Y, r, ex.Color);
             }
         }
+        DrawVisualParticles();
 
         foreach (var s in _swings)
         {
@@ -375,6 +378,13 @@ public sealed partial class SciFiRogueGame
             if (!_revealedBunkerRooms.Contains(room.Id)) continue;
             Raylib.DrawRectangleRec(room.Rect, Palette.C(48, 50, 56));
         }
+
+        foreach (var decal in _bunkerDecals)
+        {
+            if (!_bunkerRooms.Any(room => _revealedBunkerRooms.Contains(room.Id) && Raylib.CheckCollisionPointRec(decal.Position, room.Rect))) continue;
+            decal.Draw();
+        }
+        DrawBunkerAmbientGlows();
 
         DrawBunkerTyrantTelegraphs();
 
@@ -552,6 +562,7 @@ public sealed partial class SciFiRogueGame
                 Raylib.DrawCircleLines((int)ex.Position.X, (int)ex.Position.Y, r, ex.Color);
             }
         }
+        DrawVisualParticles();
 
         foreach (var s in _swings) DrawSwing(s);
         DrawPlayerSniperAimLine();
@@ -597,6 +608,67 @@ public sealed partial class SciFiRogueGame
         Raylib.EndBlendMode();
     }
 
+    private void DrawWorldAmbientGlows()
+    {
+        Raylib.BeginBlendMode(BlendMode.Additive);
+        foreach (var zone in _generatorZones)
+        {
+            DrawAreaGlow(zone.Center, MathF.Max(zone.Rect.Width, zone.Rect.Height) * 0.42f, Palette.C(70, 190, 255, 34));
+        }
+
+        foreach (var hangar in _hangars)
+        {
+            DrawAreaGlow(hangar.Center, MathF.Max(hangar.Rect.Width, hangar.Rect.Height) * 0.34f, Palette.C(80, 220, 130, 24));
+        }
+
+        if (_stationZone is not null)
+        {
+            DrawAreaGlow(_stationZone.Center, MathF.Max(_stationZone.Rect.Width, _stationZone.Rect.Height) * 0.38f, Palette.C(180, 190, 220, 24));
+        }
+
+        foreach (var portal in _extractPortals)
+        {
+            DrawAreaGlow(portal.Position, 180f, _lastChanceActive ? Palette.C(255, 88, 92, 58) : Palette.C(110, 190, 255, 46));
+        }
+
+        foreach (var generator in _generators)
+        {
+            if (!generator.Destroyed) DrawAreaGlow(generator.Position, 120f, generator.Vulnerable ? Palette.C(255, 220, 92, 56) : Palette.C(80, 190, 255, 36));
+        }
+
+        Raylib.EndBlendMode();
+    }
+
+    private void DrawBunkerAmbientGlows()
+    {
+        Raylib.BeginBlendMode(BlendMode.Additive);
+        foreach (var door in _bunkerDoors)
+        {
+            if (door.Open || (!_revealedBunkerRooms.Contains(door.RoomA) && !_revealedBunkerRooms.Contains(door.RoomB))) continue;
+            DrawAreaGlow(door.Center, 84f, Palette.C(255, 146, 82, 28));
+        }
+
+        if (_revealedBunkerRooms.Contains(19))
+        {
+            foreach (var position in BunkerTyrantSwitchPositions)
+            {
+                DrawAreaGlow(position, 94f, Palette.C(255, 62, 82, 38));
+            }
+        }
+
+        if (_bunkerTyrant?.Alive == true)
+        {
+            DrawAreaGlow(_bunkerTyrant.Position, 260f, Palette.C(255, 40, 72, 42));
+        }
+
+        Raylib.EndBlendMode();
+    }
+
+    private static void DrawAreaGlow(Vector2 position, float radius, Color color)
+    {
+        Raylib.DrawCircleGradient((int)position.X, (int)position.Y, radius, color, Palette.C(color.R, color.G, color.B, 0));
+    }
+
     private void DrawProjectileGlowPass()
     {
         Raylib.BeginBlendMode(BlendMode.Additive);
@@ -621,6 +693,22 @@ public sealed partial class SciFiRogueGame
                 WithAlpha(projectile.Color, 0f));
         }
         Raylib.EndBlendMode();
+    }
+
+    private void DrawVisualParticles()
+    {
+        Raylib.BeginBlendMode(BlendMode.Additive);
+        foreach (var particle in _visualParticles)
+        {
+            if (particle.Shape == VisualParticleShape.Smoke) continue;
+            particle.Draw();
+        }
+        Raylib.EndBlendMode();
+
+        foreach (var particle in _visualParticles)
+        {
+            if (particle.Shape == VisualParticleShape.Smoke) particle.Draw();
+        }
     }
 
     private static void DrawBunkerLight(Vector2 position, float radius)
@@ -676,10 +764,21 @@ public sealed partial class SciFiRogueGame
     {
         var scale = GetUiScale();
         var offset = GetUiOffset();
+        var shake = Vector2.Zero;
+        if (_screenShakeTimer > 0f && _screenShakeDuration > 0f)
+        {
+            var ratio = Math.Clamp(_screenShakeTimer / _screenShakeDuration, 0f, 1f);
+            var time = (float)Raylib.GetTime();
+            shake = new Vector2(
+                MathF.Sin(time * 92.7f) + MathF.Sin(time * 41.3f + 1.7f),
+                MathF.Cos(time * 83.1f) + MathF.Sin(time * 37.9f + 0.4f))
+                * (_screenShakeStrength * ratio * 0.5f);
+        }
+
         return new Camera2D
         {
             Target = _camera.Target,
-            Offset = _camera.Offset * scale + offset,
+            Offset = _camera.Offset * scale + offset + shake,
             Rotation = _camera.Rotation,
             Zoom = _camera.Zoom * scale
         };

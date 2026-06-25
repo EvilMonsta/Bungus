@@ -47,6 +47,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     ];
 
     private readonly Random _rng = new();
+    private readonly Random _visualRng = new();
     private Camera2D _camera;
     private GameState _state = GameState.MainMenu;
     private Player _player = null!;
@@ -68,6 +69,10 @@ public sealed partial class SciFiRogueGame : IDisposable
     private List<SwingArc> _swings = [];
     private List<DashAfterImage> _dashAfterImages = [];
     private List<MotionAfterImage> _motionAfterImages = [];
+    private readonly List<VisualParticle> _visualParticles = [];
+    private readonly Stack<VisualParticle> _visualParticlePool = new();
+    private readonly List<WorldDecal> _worldDecals = [];
+    private readonly List<WorldDecal> _bunkerDecals = [];
     private readonly Dictionary<string, Texture2D> _iconTextures = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _missingIconTextures = new(StringComparer.OrdinalIgnoreCase);
 
@@ -129,6 +134,9 @@ public sealed partial class SciFiRogueGame : IDisposable
     private double _smoothedUpdateMs;
     private double _smoothedDrawMs;
     private int _fixedUpdateStepsLastFrame;
+    private float _screenShakeTimer;
+    private float _screenShakeDuration;
+    private float _screenShakeStrength;
     private readonly List<VisualTheme> _themes;
     private int _themeIndex;
     private DisplayMode _displayMode;
@@ -362,6 +370,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _stationBossDoorSealTimer = -1f;
         GenerateDeadZoneSetPieces();
         GenerateSecuredTerminalContent();
+        GenerateWorldDecals();
         MovementUtils.WarmObstacleIndex(_obstacles);
         _projectiles = [];
         _explosions = [];
@@ -449,6 +458,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         _bunkerProtectiveDomes = [];
         _bunkerFreezeZones = [];
         _bunkerMidaMiniTurrets = [];
+        _worldDecals.Clear();
+        _bunkerDecals.Clear();
         ResetSecuredTerminalContent();
         _frozenTargets.Clear();
         _chilledTargets.Clear();

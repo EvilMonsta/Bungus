@@ -406,6 +406,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private void AddBulletImpact(Projectile projectile)
     {
         AddExplosion(projectile.Position, projectile.DrawRadius * 4f, projectile.Color, filled: true, outlined: false, fillAlpha: 0.264f);
+        SpawnImpactParticles(projectile.Position, projectile.Color, projectile.Highlighted ? 10 : 5, projectile.Highlighted ? 180f : 120f);
     }
 
     private void TrySpawnRicochet(Projectile projectile, object? hitTarget)
@@ -1231,6 +1232,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var zone = _freezeZones[i];
             zone.Update(dt);
+            if (zone.Alive) SpawnFreezeAmbientParticles(zone.Position, FreezeZone.Radius, dt);
             foreach (var target in QueryCombatTargets(zone.Position, FreezeZone.Radius + 56f))
             {
                 if (_frozenTargets.ContainsKey(target.Target)) continue;
@@ -1620,6 +1622,23 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             _motionAfterImages[i].Life -= dt * 7.5f;
             if (_motionAfterImages[i].Life <= 0f) _motionAfterImages.RemoveAt(i);
+        }
+
+        for (var i = _visualParticles.Count - 1; i >= 0; i--)
+        {
+            _visualParticles[i].Update(dt);
+            if (!_visualParticles[i].Alive) ReleaseVisualParticleAt(i);
+        }
+
+        if (_screenShakeTimer > 0f)
+        {
+            _screenShakeTimer -= dt;
+            if (_screenShakeTimer <= 0f)
+            {
+                _screenShakeTimer = 0f;
+                _screenShakeDuration = 0f;
+                _screenShakeStrength = 0f;
+            }
         }
     }
 

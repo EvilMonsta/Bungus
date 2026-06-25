@@ -349,7 +349,14 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         if (!_currentMap.IsDeadZone) return;
 
-        if (_toxicPools.Any(pool => pool.Contains(_player.Position)))
+        var playerInToxicPool = false;
+        foreach (var pool in _toxicPools)
+        {
+            SpawnToxicAmbientParticles(pool.Position, pool.RadiusX, pool.RadiusY, dt);
+            if (pool.Contains(_player.Position)) playerInToxicPool = true;
+        }
+
+        if (playerInToxicPool)
         {
             _player.ApplyPoison(5f);
         }

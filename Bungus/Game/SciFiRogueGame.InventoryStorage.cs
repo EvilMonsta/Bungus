@@ -375,7 +375,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var zone = _bunkerFreezeZones[i];
             zone.Update(dt);
-            foreach (var target in EnumerateEnemyTargets())
+            if (zone.Alive) SpawnFreezeAmbientParticles(zone.Position, FreezeZone.Radius, dt);
+            foreach (var target in QueryCombatTargets(zone.Position, FreezeZone.Radius + 56f))
             {
                 if (_frozenTargets.ContainsKey(target.Target)) continue;
                 if (zone.Freezing && zone.Contains(target.Position, target.Radius))
@@ -412,16 +413,23 @@ public sealed partial class SciFiRogueGame : IDisposable
                 continue;
             }
 
-            var target = EnumerateEnemyTargets()
-                .Where(candidate => Vector2.Distance(candidate.Position, turret.Position) <= MidaMiniTurret.Range + candidate.Radius)
-                .OrderBy(candidate => Vector2.DistanceSquared(candidate.Position, turret.Position))
-                .FirstOrDefault();
-            if (target.Target is null) continue;
+            EnemyTarget? target = null;
+            var bestDistance = float.MaxValue;
+            foreach (var candidate in QueryCombatTargets(turret.Position, MidaMiniTurret.Range + 56f))
+            {
+                var maxDistance = MidaMiniTurret.Range + candidate.Radius;
+                var distanceSquared = Vector2.DistanceSquared(candidate.Position, turret.Position);
+                if (distanceSquared > maxDistance * maxDistance || distanceSquared >= bestDistance) continue;
+                bestDistance = distanceSquared;
+                target = candidate;
+            }
+            if (target is null) continue;
 
-            _beamEffects.Add(new BeamEffect(turret.Position, target.Position, Palette.C(255, 60, 60), 0.045f, 1.4f, false));
+            var targetValue = target.Value;
+            _beamEffects.Add(new BeamEffect(turret.Position, targetValue.Position, Palette.C(255, 60, 60), 0.045f, 1.4f, false));
             if (!turret.ReadyToShoot) continue;
 
-            var direction = target.Position - turret.Position;
+            var direction = targetValue.Position - turret.Position;
             if (direction.LengthSquared() <= 0.001f) direction = new Vector2(1f, 0f);
             direction = Vector2.Normalize(direction);
             _projectiles.Add(new Projectile(

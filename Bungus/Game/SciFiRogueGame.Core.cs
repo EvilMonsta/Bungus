@@ -132,7 +132,10 @@ public sealed partial class SciFiRogueGame : IDisposable
     private Vector2? _bunkerMapMarker;
     private int _storageScrollRow;
     private int _storageSortMode = -1;
+    private readonly HashSet<int> _selectedInventorySlots = [];
     private readonly HashSet<(SlotKind Kind, int Index)> _selectedStorageSlots = [];
+    private float _playerPeriodicDamageTextAccumulator;
+    private float _playerPeriodicDamageTextTimer;
     private bool _requestExit;
     private float _startupSplashTimer = StartupSplashDuration;
     private bool _showPerformanceOverlay;
@@ -360,7 +363,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         _currentMap = MapDefinition.All.FirstOrDefault(m => m.Name.Equals(mapName, StringComparison.OrdinalIgnoreCase)) ?? MapDefinition.Baselands;
         _selectedMapName = _currentMap.Name;
         _worldSize = _currentMap.WorldSize;
-        (_buildings, _outposts) = GenerateZones(_rng.Next(_currentMap.BuildingMin, _currentMap.BuildingMaxExclusive), _rng.Next(_currentMap.OutpostMin, _currentMap.OutpostMaxExclusive));
+        var outpostMin = Math.Max(2, _currentMap.OutpostMin);
+        var outpostMaxExclusive = Math.Max(outpostMin + 1, _currentMap.OutpostMaxExclusive);
+        (_buildings, _outposts) = GenerateZones(_rng.Next(_currentMap.BuildingMin, _currentMap.BuildingMaxExclusive), _rng.Next(outpostMin, outpostMaxExclusive));
         GenerateSpecialZones();
         _obstacles = GenerateObstacles();
         _chests = GenerateChestsInZones();
@@ -403,6 +408,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         _generatorGuards = GenerateGeneratorGuards();
         _toxicEnemies = GenerateToxicEnemies();
         _stationBoss = GenerateStationBoss();
+        NormalizeMetaQuickSlotsToRunBackpack();
         _player = Player.Create(
             GeneratePlayerSpawnPoint(),
             GetCommonHealthBonus(),
@@ -590,6 +596,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private Player CreateNightmarePlayer(Vector2 position)
     {
+        NormalizeMetaQuickSlotsToRunBackpack();
         var player = Player.Create(
             position,
             GetCommonHealthBonus(),
@@ -705,6 +712,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             _lastObservedPlayerHealth = -1f;
             _lastObservedPlayerShield = -1f;
+            _playerPeriodicDamageTextAccumulator = 0f;
+            _playerPeriodicDamageTextTimer = 0f;
             _playerDamageFlash = MathF.Max(0f, _playerDamageFlash - dt * 3f);
             return;
         }
@@ -725,16 +734,47 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (_player.Health < _lastObservedPlayerHealth - 0.01f)
         {
             var damage = _lastObservedPlayerHealth - _player.Health;
-            AddDamageText(_player, damage);
+            var periodicTick = (_player.Poisoned || _player.Bleeding)
+                               && damage <= MathF.Max(2.5f, _player.MaxHealth * 0.035f * dt);
+            if (periodicTick)
+            {
+                _playerPeriodicDamageTextAccumulator += damage;
+                _playerPeriodicDamageTextTimer += dt;
+                if (_playerPeriodicDamageTextTimer >= 0.2f)
+                {
+                    AddDamageText(_player, _playerPeriodicDamageTextAccumulator);
+                    _playerPeriodicDamageTextAccumulator = 0f;
+                    _playerPeriodicDamageTextTimer = 0f;
+                }
+            }
+            else
+            {
+                FlushPlayerPeriodicDamageText();
+                AddDamageText(_player, damage);
+            }
         }
         else if (_player.Health > _lastObservedPlayerHealth + 0.01f)
         {
+            FlushPlayerPeriodicDamageText();
             AddHealingText(_player, _player.Health - _lastObservedPlayerHealth);
+        }
+        else if (_playerPeriodicDamageTextAccumulator > 0f)
+        {
+            _playerPeriodicDamageTextTimer += dt;
+            if (_playerPeriodicDamageTextTimer >= 0.2f || (!_player.Poisoned && !_player.Bleeding)) FlushPlayerPeriodicDamageText();
         }
 
         _lastObservedPlayerHealth = _player.Health;
         _lastObservedPlayerShield = _player.Shield;
         _playerDamageFlash = MathF.Max(0f, _playerDamageFlash - dt * 2.8f);
+    }
+
+    private void FlushPlayerPeriodicDamageText()
+    {
+        if (_playerPeriodicDamageTextAccumulator <= 0.01f) return;
+        AddDamageText(_player, _playerPeriodicDamageTextAccumulator);
+        _playerPeriodicDamageTextAccumulator = 0f;
+        _playerPeriodicDamageTextTimer = 0f;
     }
 
     private static double GetElapsedMilliseconds(long startTimestamp)

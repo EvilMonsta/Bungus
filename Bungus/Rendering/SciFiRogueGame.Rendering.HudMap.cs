@@ -40,7 +40,7 @@ public sealed partial class SciFiRogueGame
 
         var activeWeapon = _player.ActiveWeapon;
         Raylib.DrawText($"Current: {activeWeapon?.Name ?? "None"} {BuildWeaponDamageText(_player, activeWeapon, _player.ActiveWeaponClass)}", 20, 48, 22, activeWeapon?.Color ?? Color.LightGray);
-        Raylib.DrawText($"Consumables: Q [{(_player.Inventory.QuickSlotQ?.Name ?? "-")}]  R [{(_player.Inventory.QuickSlotR?.Name ?? "-")}]", 20, 78, 20, Color.White);
+        Raylib.DrawText($"Consumables: Q [{(GetQuickConsumablePreview(0)?.Name ?? "-")}]  R [{(GetQuickConsumablePreview(1)?.Name ?? "-")}]", 20, 78, 20, Color.White);
         if (!_challengeMode) Raylib.DrawText($"Run score {_runScore}", 20, 108, 20, Color.Gold);
         if (!_inBunker) DrawExtractionHud();
         DrawVitalBars();

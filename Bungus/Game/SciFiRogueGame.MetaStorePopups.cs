@@ -1219,7 +1219,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     }
 
     private static bool IsMetaLoadoutSlot(SlotKind kind)
-        => kind is SlotKind.Armor or SlotKind.RangedWeapon or SlotKind.HeavyWeapon or SlotKind.MeleeWeapon or SlotKind.QuickSlotQ or SlotKind.QuickSlotR;
+        => kind is SlotKind.Armor or SlotKind.RangedWeapon or SlotKind.HeavyWeapon or SlotKind.MeleeWeapon;
 
     private static bool CanPlaceIntoSlot(SlotKind kind, ItemStack item)
         => kind switch
@@ -1228,8 +1228,6 @@ public sealed partial class SciFiRogueGame : IDisposable
             SlotKind.RangedWeapon => item.IsPrimaryWeapon,
             SlotKind.HeavyWeapon => item.IsHeavyWeapon,
             SlotKind.MeleeWeapon => item.Type == ItemType.Weapon && item.WeaponKind == WeaponClass.Melee,
-            SlotKind.QuickSlotQ => item.Type == ItemType.Consumable && !item.IsStationKey,
-            SlotKind.QuickSlotR => item.Type == ItemType.Consumable && !item.IsStationKey,
             _ => false
         };
 
@@ -1239,8 +1237,6 @@ public sealed partial class SciFiRogueGame : IDisposable
         SlotKind.RangedWeapon => _meta.RangedWeapon,
         SlotKind.HeavyWeapon => _meta.HeavyWeapon,
         SlotKind.MeleeWeapon => _meta.MeleeWeapon,
-        SlotKind.QuickSlotQ => _meta.QuickSlotQ,
-        SlotKind.QuickSlotR => _meta.QuickSlotR,
         _ => null
     };
 
@@ -1250,8 +1246,6 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (kind == SlotKind.RangedWeapon) _meta.RangedWeapon = item;
         if (kind == SlotKind.HeavyWeapon) _meta.HeavyWeapon = item;
         if (kind == SlotKind.MeleeWeapon) _meta.MeleeWeapon = item;
-        if (kind == SlotKind.QuickSlotQ) _meta.QuickSlotQ = item;
-        if (kind == SlotKind.QuickSlotR) _meta.QuickSlotR = item;
     }
 
     private void LoadMetaRunBackpackIntoPlayer()
@@ -1269,7 +1263,6 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (item.IsPrimaryWeapon) return SlotKind.RangedWeapon;
         if (item.IsHeavyWeapon) return SlotKind.HeavyWeapon;
         if (item.Type == ItemType.Weapon && item.WeaponKind == WeaponClass.Melee) return SlotKind.MeleeWeapon;
-        if (item.Type == ItemType.Consumable && !item.IsStationKey) return _meta.QuickSlotQ is null ? SlotKind.QuickSlotQ : SlotKind.QuickSlotR;
         return null;
     }
 

@@ -16,7 +16,6 @@ public sealed class Inventory
     {
         if (item.IsHeavyAmmo) return TryAddHeavyAmmo(item.AmmoPercent, out _);
         if (item.IsPersistentStackableKey) return ItemStack.TryAddStackableKeyToSlots(BackpackSlots, item, out _);
-        if (TryPlaceIntoConsumableSlot(item)) return true;
 
         for (var i = 0; i < BackpackSlots.Count; i++)
         {
@@ -68,53 +67,12 @@ public sealed class Inventory
 
     public void AutoFillConsumableSlots()
     {
-        if (QuickSlotQ is null) QuickSlotQ = TakeFirstConsumableFromBackpack();
-        if (QuickSlotR is null) QuickSlotR = TakeFirstConsumableFromBackpack();
-    }
-
-    private bool TryPlaceIntoConsumableSlot(ItemStack item)
-    {
-        if (item.Type != ItemType.Consumable) return false;
-        if (item.IsStationKey) return false;
-
-        if (QuickSlotQ is null)
-        {
-            QuickSlotQ = item;
-            return true;
-        }
-
-        if (QuickSlotR is null)
-        {
-            QuickSlotR = item;
-            return true;
-        }
-
-        return false;
+        QuickSlotQ = null;
+        QuickSlotR = null;
     }
 
     public bool TryReceiveGroundConsumableWhenBackpackFull(ItemStack item)
     {
-        if (item.Type != ItemType.Consumable) return false;
-        if (item.IsStationKey) return false;
-        if (HasFreeBackpackSlot()) return false;
-        if (QuickSlotQ is not null || QuickSlotR is not null) return false;
-        if (BackpackSlots.Any(slot => slot?.Type == ItemType.Consumable)) return false;
-
-        QuickSlotQ = item;
-        return true;
-    }
-
-    private ItemStack? TakeFirstConsumableFromBackpack()
-    {
-        for (var i = 0; i < BackpackSlots.Count; i++)
-        {
-            var item = BackpackSlots[i];
-            if (item?.Type != ItemType.Consumable) continue;
-            if (item.IsStationKey) continue;
-            BackpackSlots[i] = null;
-            return item;
-        }
-
-        return null;
+        return false;
     }
 }

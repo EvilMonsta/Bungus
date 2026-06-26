@@ -252,8 +252,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         _player.Update(dt, _bunkerObstacles, BunkerWorldSize, _dashAfterImages);
         _player.UpdateCombat(dt, _projectiles);
         AddMotionTrail(previousPosition, _player.Position, Theme.Player, 15f, MotionTrailShape.Circle, 0.18f, 13f);
-        if (Raylib.IsKeyPressed(KeyboardKey.Q)) HandleConsumedQuickSlot(_player.UseQuickSlotQ());
-        if (Raylib.IsKeyPressed(KeyboardKey.R)) HandleConsumedQuickSlot(_player.UseQuickSlotR());
+        if (Raylib.IsKeyPressed(KeyboardKey.Q)) UseQuickConsumableFromBackpack(0);
+        if (Raylib.IsKeyPressed(KeyboardKey.R)) UseQuickConsumableFromBackpack(1);
         if (Raylib.IsKeyPressed((KeyboardKey)49)) _player.SelectWeaponSlot(WeaponSlot.Melee);
         if (Raylib.IsKeyPressed((KeyboardKey)50)) _player.SelectWeaponSlot(WeaponSlot.PrimaryRanged);
         if (Raylib.IsKeyPressed((KeyboardKey)51)) _player.SelectWeaponSlot(WeaponSlot.HeavyRanged);

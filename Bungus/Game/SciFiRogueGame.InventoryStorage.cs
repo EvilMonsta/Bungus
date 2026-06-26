@@ -64,6 +64,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (!_player.InventoryOpen) return;
 
         var slots = BuildSlots();
+        PruneInventorySelection();
         var m = GetUiMousePosition();
 
         foreach (var s in slots)
@@ -89,6 +90,8 @@ public sealed partial class SciFiRogueGame : IDisposable
             var from = slots.FirstOrDefault(s => Raylib.CheckCollisionPointRec(m, s.Rect));
             if (from is not null)
             {
+                if (IsShiftDown() && TryToggleInventorySelection(from)) return;
+
                 var now = Raylib.GetTime();
                 var isDoubleClick = from.Item is not null &&
                                     from.Kind == _lastClickKind &&
@@ -128,6 +131,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         if (slot.Item is null) return false;
         if (slot.Kind is SlotKind.Trash or SlotKind.Chest) return false;
+        if (IsInventorySlotSelected(slot)) return false;
 
         _player.Inventory.Trash = slot.Item;
         RemoveFromSource(new DragPayload(slot.Kind, slot.Index, slot.Item));
@@ -139,11 +143,6 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (slot.Kind == SlotKind.Chest && _openedChestIndex is not null)
         {
             return MoveChestItemToBackpack(slot.Index);
-        }
-
-        if (slot.Item?.Type == ItemType.Consumable && !slot.Item.IsStationKey)
-        {
-            return MoveConsumableToQuickSlotQ(slot);
         }
 
         if (slot.Kind == SlotKind.Backpack)
@@ -188,28 +187,65 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         RemoveFromSource(new DragPayload(slot.Kind, slot.Index, slot.Item));
         HandleConsumedQuickSlot(consumed);
-        _player.Inventory.AutoFillConsumableSlots();
         ResetInventoryUseHold();
     }
 
-    private bool MoveConsumableToQuickSlotQ(UiSlot slot)
+    private ItemStack? GetQuickConsumablePreview(int quickSlot)
     {
-        if (slot.Item?.Type != ItemType.Consumable) return false;
-        if (slot.Item.IsStationKey) return false;
-        if (slot.Kind == SlotKind.QuickSlotQ) return false;
-        if (slot.Kind is not (SlotKind.Backpack or SlotKind.QuickSlotR)) return false;
+        var index = GetQuickConsumableBackpackIndex(quickSlot);
+        return index >= 0 ? _player.Inventory.BackpackSlots[index] : null;
+    }
 
-        var target = _player.Inventory.QuickSlotQ;
-        _player.Inventory.QuickSlotQ = slot.Item;
+    private ConsumableType? UseQuickConsumableFromBackpack(int quickSlot)
+    {
+        var index = GetQuickConsumableBackpackIndex(quickSlot);
+        if (index < 0) return null;
 
-        if (slot.Kind == SlotKind.Backpack)
+        var item = _player.Inventory.BackpackSlots[index];
+        var consumed = _player.UseConsumableItem(item);
+        if (consumed is null) return null;
+
+        _player.Inventory.BackpackSlots[index] = null;
+        _selectedInventorySlots.Remove(index);
+        HandleConsumedQuickSlot(consumed);
+        return consumed;
+    }
+
+    private int GetQuickConsumableBackpackIndex(int quickSlot)
+    {
+        var candidates = _player.Inventory.BackpackSlots
+            .Select((Item, Index) => (Item, Index, Selected: _selectedInventorySlots.Contains(Index)))
+            .Where(candidate => candidate.Item?.Type == ItemType.Consumable && !candidate.Item.IsStationKey)
+            .ToList();
+        if (candidates.Count == 0) return -1;
+
+        var first = PickQuickConsumableCandidate(candidates, null);
+        if (quickSlot == 0 || first is null) return first?.Index ?? -1;
+
+        var remaining = candidates.Where(candidate => candidate.Index != first.Value.Index).ToList();
+        var second = PickQuickConsumableCandidate(remaining, first.Value.Item!.ConsumableKind);
+        return second?.Index ?? -1;
+    }
+
+    private static (ItemStack? Item, int Index, bool Selected)? PickQuickConsumableCandidate(
+        List<(ItemStack? Item, int Index, bool Selected)> candidates,
+        ConsumableType? avoidKind)
+    {
+        if (candidates.Count == 0) return null;
+
+        var selected = candidates.Where(candidate => candidate.Selected).ToList();
+        if (selected.Count > 0)
         {
-            _player.Inventory.BackpackSlots[slot.Index] = target;
-            return true;
+            return selected.FirstOrDefault(candidate => avoidKind is null || candidate.Item?.ConsumableKind != avoidKind)
+                   is var differentSelected && differentSelected.Item is not null
+                ? differentSelected
+                : selected[0];
         }
 
-        _player.Inventory.QuickSlotR = target;
-        return true;
+        return candidates.FirstOrDefault(candidate => avoidKind is null || candidate.Item?.ConsumableKind != avoidKind)
+               is var different && different.Item is not null
+            ? different
+            : candidates[0];
     }
 
     private void ResetInventoryUseHold()
@@ -219,9 +255,29 @@ public sealed partial class SciFiRogueGame : IDisposable
         _inventoryUseHoldTimer = 0f;
     }
 
+    private bool TryToggleInventorySelection(UiSlot slot)
+    {
+        if (slot.Kind != SlotKind.Backpack || slot.Item is null || slot.Index < 0) return false;
+
+        if (!_selectedInventorySlots.Add(slot.Index)) _selectedInventorySlots.Remove(slot.Index);
+        return true;
+    }
+
+    private bool IsInventorySlotSelected(UiSlot slot)
+        => slot.Kind == SlotKind.Backpack && slot.Index >= 0 && _selectedInventorySlots.Contains(slot.Index);
+
+    private void PruneInventorySelection()
+    {
+        _selectedInventorySlots.RemoveWhere(index =>
+            index < 0
+            || index >= _player.Inventory.BackpackSlots.Count
+            || _player.Inventory.BackpackSlots[index] is null);
+    }
+
     private void UpdateStorageUi()
     {
         _hovered = null;
+        NormalizeMetaQuickSlotsToRunBackpack();
         UpdateStorageScroll();
         var mouse = GetUiMousePosition();
 
@@ -593,6 +649,12 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private bool HandleStorageDoubleClick(UiSlot slot)
     {
+        if (slot.Item is { IsHeavyAmmo: true } or { Type: ItemType.Consumable })
+        {
+            if (slot.Kind == SlotKind.Storage) return MoveStorageCarryItemToRunBackpack(slot.Index);
+            if (slot.Kind == SlotKind.RunBackpack) return MoveRunBackpackCarryItemToStorage(slot.Index);
+        }
+
         if (slot.Kind == SlotKind.Storage)
         {
             return EquipFromStorage(slot.Index);
@@ -609,6 +671,82 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         return false;
+    }
+
+    private bool MoveStorageCarryItemToRunBackpack(int storageIndex)
+    {
+        if (storageIndex < 0 || storageIndex >= _meta.StorageSlots.Count) return false;
+        var item = _meta.StorageSlots[storageIndex];
+        if (item is null) return false;
+
+        if (item.IsHeavyAmmo)
+        {
+            if (!ItemStack.TryAddHeavyAmmoToSlots(_meta.RunBackpackSlots, item.AmmoPercent, out var remainingPercent)
+                && remainingPercent >= item.AmmoPercent - 0.001f) return false;
+
+            _meta.StorageSlots[storageIndex] = remainingPercent > 0f ? ItemStack.HeavyAmmo(remainingPercent) : null;
+            SavePersistentState();
+            return true;
+        }
+
+        if (item.Type != ItemType.Consumable) return false;
+        var targetIndex = _meta.RunBackpackSlots.FindIndex(slot => slot is null);
+        if (targetIndex < 0) return false;
+
+        _meta.RunBackpackSlots[targetIndex] = item;
+        _meta.StorageSlots[storageIndex] = null;
+        SavePersistentState();
+        return true;
+    }
+
+    private bool MoveRunBackpackCarryItemToStorage(int backpackIndex)
+    {
+        if (backpackIndex < 0 || backpackIndex >= _meta.RunBackpackSlots.Count) return false;
+        var item = _meta.RunBackpackSlots[backpackIndex];
+        if (item is null) return false;
+
+        if (item.IsHeavyAmmo)
+        {
+            if (!_meta.TryAddHeavyAmmo(item.AmmoPercent, out var remainingPercent)
+                && remainingPercent >= item.AmmoPercent - 0.001f) return false;
+
+            _meta.RunBackpackSlots[backpackIndex] = remainingPercent > 0f ? ItemStack.HeavyAmmo(remainingPercent) : null;
+            SavePersistentState();
+            return true;
+        }
+
+        if (item.Type != ItemType.Consumable) return false;
+        if (!_meta.AddToStorage(item)) return false;
+
+        _meta.RunBackpackSlots[backpackIndex] = null;
+        SavePersistentState();
+        return true;
+    }
+
+    private void NormalizeMetaQuickSlotsToRunBackpack()
+    {
+        if (_meta.QuickSlotQ is null && _meta.QuickSlotR is null) return;
+
+        if (_meta.QuickSlotQ is not null)
+        {
+            MoveLegacyQuickSlotToRunBackpack(_meta.QuickSlotQ);
+            _meta.QuickSlotQ = null;
+        }
+
+        if (_meta.QuickSlotR is not null)
+        {
+            MoveLegacyQuickSlotToRunBackpack(_meta.QuickSlotR);
+            _meta.QuickSlotR = null;
+        }
+
+        SavePersistentState();
+    }
+
+    private void MoveLegacyQuickSlotToRunBackpack(ItemStack item)
+    {
+        var targetIndex = _meta.RunBackpackSlots.FindIndex(slot => slot is null);
+        if (targetIndex >= 0) _meta.RunBackpackSlots[targetIndex] = item;
+        else _meta.AddToStorage(item);
     }
 
     private bool EquipFromStorage(int storageIndex)
@@ -683,9 +821,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             new UiSlot(new Rectangle(230, 206, UiSlotSize, UiSlotSize), SlotKind.Armor, -1, _meta.Armor, -1),
             new UiSlot(new Rectangle(230, 306, UiSlotSize, UiSlotSize), SlotKind.RangedWeapon, -1, _meta.RangedWeapon, -1),
             new UiSlot(new Rectangle(230, 406, UiSlotSize, UiSlotSize), SlotKind.HeavyWeapon, -1, _meta.HeavyWeapon, -1),
-            new UiSlot(new Rectangle(230, 506, UiSlotSize, UiSlotSize), SlotKind.MeleeWeapon, -1, _meta.MeleeWeapon, -1),
-            new UiSlot(new Rectangle(80, 688, UiSlotSize, UiSlotSize), SlotKind.QuickSlotQ, -1, _meta.QuickSlotQ, -1),
-            new UiSlot(new Rectangle(180, 688, UiSlotSize, UiSlotSize), SlotKind.QuickSlotR, -1, _meta.QuickSlotR, -1)
+            new UiSlot(new Rectangle(230, 506, UiSlotSize, UiSlotSize), SlotKind.MeleeWeapon, -1, _meta.MeleeWeapon, -1)
         ]);
 
         return list;
@@ -926,8 +1062,6 @@ public sealed partial class SciFiRogueGame : IDisposable
                 new UiSlot(new Rectangle(570, 216, UiSlotSize, UiSlotSize), SlotKind.RangedWeapon, null, _player.RangedWeapon, -1),
                 new UiSlot(new Rectangle(570, 314, UiSlotSize, UiSlotSize), SlotKind.HeavyWeapon, null, _player.HeavyWeapon, -1),
                 new UiSlot(new Rectangle(570, 412, UiSlotSize, UiSlotSize), SlotKind.MeleeWeapon, null, _player.MeleeWeapon, -1),
-                new UiSlot(new Rectangle(470, 520, UiSlotSize, UiSlotSize), SlotKind.QuickSlotQ, null, _player.Inventory.QuickSlotQ, -1),
-                new UiSlot(new Rectangle(568, 520, UiSlotSize, UiSlotSize), SlotKind.QuickSlotR, null, _player.Inventory.QuickSlotR, -1),
                 new UiSlot(new Rectangle(1138, 594, UiSlotSize, UiSlotSize), SlotKind.Trash, null, _player.Inventory.Trash, -1)
             ]);
         }
@@ -949,6 +1083,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         if (target.Kind == SlotKind.Trash)
         {
+            if (drag.Kind == SlotKind.Backpack && _selectedInventorySlots.Contains(drag.Index)) return;
             _player.Inventory.Trash = null;
             _player.Inventory.Trash = drag.Item;
             RemoveFromSource(drag);
@@ -991,28 +1126,15 @@ public sealed partial class SciFiRogueGame : IDisposable
             return;
         }
 
-        if (target.Kind == SlotKind.QuickSlotQ && drag.Item.Type == ItemType.Consumable && !drag.Item.IsStationKey)
-        {
-            var old = _player.Inventory.QuickSlotQ;
-            _player.Inventory.QuickSlotQ = drag.Item;
-            RemoveFromSource(drag);
-            if (old is not null) _player.Inventory.AddToBackpack(old);
-            return;
-        }
-
-        if (target.Kind == SlotKind.QuickSlotR && drag.Item.Type == ItemType.Consumable && !drag.Item.IsStationKey)
-        {
-            var old = _player.Inventory.QuickSlotR;
-            _player.Inventory.QuickSlotR = drag.Item;
-            RemoveFromSource(drag);
-            if (old is not null) _player.Inventory.AddToBackpack(old);
-            return;
-        }
 
         if (target.Kind == SlotKind.Backpack && drag.Kind == SlotKind.Backpack && drag.Index >= 0 && target.Index >= 0)
         {
             (_player.Inventory.BackpackSlots[drag.Index], _player.Inventory.BackpackSlots[target.Index]) =
                 (_player.Inventory.BackpackSlots[target.Index], _player.Inventory.BackpackSlots[drag.Index]);
+            var dragSelected = _selectedInventorySlots.Remove(drag.Index);
+            var targetSelected = _selectedInventorySlots.Remove(target.Index);
+            if (dragSelected) _selectedInventorySlots.Add(target.Index);
+            if (targetSelected) _selectedInventorySlots.Add(drag.Index);
             return;
         }
 
@@ -1049,6 +1171,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (drag.Kind == SlotKind.Backpack && drag.Index >= 0 && drag.Index < _player.Inventory.BackpackSlots.Count)
         {
             _player.Inventory.BackpackSlots[drag.Index] = null;
+            _selectedInventorySlots.Remove(drag.Index);
         }
         else if (drag.Kind == SlotKind.Armor)
         {

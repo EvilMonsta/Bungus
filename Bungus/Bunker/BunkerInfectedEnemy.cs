@@ -13,6 +13,7 @@ public sealed class BunkerInfectedEnemy(int roomId, Rectangle room, Vector2 posi
     public bool KillAwarded { get; set; }
     public float AttackVisualTimer { get; private set; }
     private readonly BunkerNavigator _navigator = new(Radius);
+    private Vector2 _attackDirection = new(1f, 0f);
     private float _attackCooldown;
     private float _trailTimer;
     private float _freezeChillTimer;
@@ -55,6 +56,8 @@ public sealed class BunkerInfectedEnemy(int roomId, Rectangle room, Vector2 posi
 
         if (distance <= 55f && _attackCooldown <= 0f)
         {
+            var direction = player.Position - Position;
+            if (direction.LengthSquared() > 0.001f) _attackDirection = Vector2.Normalize(direction);
             player.TakeDamage(20f);
             _attackCooldown = 0.75f;
             AttackVisualTimer = 0.18f;
@@ -88,7 +91,8 @@ public sealed class BunkerInfectedEnemy(int roomId, Rectangle room, Vector2 posi
         Raylib.DrawCircleLines((int)Position.X, (int)Position.Y, Radius, Palette.C(145, 225, 95));
         if (AttackVisualTimer > 0f)
         {
-            Raylib.DrawCircleSectorLines(Position, 34f, -55f, 55f, 12, Palette.C(180, 245, 105));
+            var angle = MathF.Atan2(_attackDirection.Y, _attackDirection.X) * 180f / MathF.PI;
+            Raylib.DrawCircleSectorLines(Position, 34f, angle - 55f, angle + 55f, 12, Palette.C(180, 245, 105));
         }
         BunkerSiegeEnemy.DrawHealthBar(Position, Health / 250f, 32f, 23f, Palette.C(105, 205, 72));
     }

@@ -131,6 +131,7 @@ public sealed class Player
     public bool TeslaBulletsActive => _teslaBulletsTimer > 0f;
     public bool StimActive => _stim > 0f;
     public bool Poisoned => _poison > 0f;
+    public bool Bleeding => _bleed > 0f;
     public bool RadioactiveDecompositionActive => _radioactiveDecompositionTimer > 0f;
     public bool MovementSlowed => _movementSlowTimer > 0f;
     public float RadioactiveDecompositionProgress => Math.Clamp(_radioactiveDecompositionTimer / 10f, 0f, 1f);
@@ -202,8 +203,8 @@ public sealed class Player
         HeavyWeapon = heavyWeapon;
         MeleeWeapon = meleeWeapon ?? ItemStack.StartingMelee();
         Armor = armor ?? ItemStack.StartingArmor();
-        Inventory.QuickSlotQ = quickSlotQ;
-        Inventory.QuickSlotR = quickSlotR;
+        if (quickSlotQ is not null) Inventory.AddToBackpack(quickSlotQ);
+        if (quickSlotR is not null) Inventory.AddToBackpack(quickSlotR);
         Health = MaxHealth;
         SyncArmorState();
     }

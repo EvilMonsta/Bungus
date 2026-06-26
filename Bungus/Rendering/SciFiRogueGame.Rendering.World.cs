@@ -61,6 +61,7 @@ public sealed partial class SciFiRogueGame
                     DrawWorld();
                     BeginUiScale();
                     DrawHud();
+                    DrawConsumableSelector();
                     DrawCombatCursor();
                     if (_mapOpen) DrawMapWindow();
                     else DrawInventory();

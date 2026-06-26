@@ -192,12 +192,14 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private ItemStack? GetQuickConsumablePreview(int quickSlot)
     {
+        EnsureQuickConsumableType(quickSlot);
         var index = GetQuickConsumableBackpackIndex(quickSlot);
         return index >= 0 ? _player.Inventory.BackpackSlots[index] : null;
     }
 
     private ConsumableType? UseQuickConsumableFromBackpack(int quickSlot)
     {
+        EnsureQuickConsumableType(quickSlot);
         var index = GetQuickConsumableBackpackIndex(quickSlot);
         if (index < 0) return null;
 
@@ -213,40 +215,166 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private int GetQuickConsumableBackpackIndex(int quickSlot)
     {
-        var candidates = _player.Inventory.BackpackSlots
-            .Select((Item, Index) => (Item, Index, Selected: _selectedInventorySlots.Contains(Index)))
-            .Where(candidate => candidate.Item?.Type == ItemType.Consumable && !candidate.Item.IsStationKey)
-            .ToList();
-        if (candidates.Count == 0) return -1;
+        var selectedType = GetSelectedQuickConsumableType(quickSlot);
+        if (selectedType is null) return -1;
 
-        var first = PickQuickConsumableCandidate(candidates, null);
-        if (quickSlot == 0 || first is null) return first?.Index ?? -1;
-
-        var remaining = candidates.Where(candidate => candidate.Index != first.Value.Index).ToList();
-        var second = PickQuickConsumableCandidate(remaining, first.Value.Item!.ConsumableKind);
-        return second?.Index ?? -1;
+        return _player.Inventory.BackpackSlots.FindIndex(item =>
+            item?.Type == ItemType.Consumable
+            && !item.IsStationKey
+            && item.ConsumableKind == selectedType);
     }
 
-    private static (ItemStack? Item, int Index, bool Selected)? PickQuickConsumableCandidate(
-        List<(ItemStack? Item, int Index, bool Selected)> candidates,
-        ConsumableType? avoidKind)
+    private void EnsureQuickConsumableType(int quickSlot)
     {
-        if (candidates.Count == 0) return null;
+        var selectedType = GetSelectedQuickConsumableType(quickSlot);
+        if (selectedType is not null && HasBackpackConsumable(quickSlot, selectedType.Value)) return;
 
-        var selected = candidates.Where(candidate => candidate.Selected).ToList();
-        if (selected.Count > 0)
+        foreach (var type in GetAllowedQuickConsumables(quickSlot))
         {
-            return selected.FirstOrDefault(candidate => avoidKind is null || candidate.Item?.ConsumableKind != avoidKind)
-                   is var differentSelected && differentSelected.Item is not null
-                ? differentSelected
-                : selected[0];
+            if (!HasBackpackConsumable(quickSlot, type)) continue;
+            SetSelectedQuickConsumableType(quickSlot, type);
+            return;
         }
 
-        return candidates.FirstOrDefault(candidate => avoidKind is null || candidate.Item?.ConsumableKind != avoidKind)
-               is var different && different.Item is not null
-            ? different
-            : candidates[0];
+        SetSelectedQuickConsumableType(quickSlot, null);
     }
+
+    private bool HasBackpackConsumable(int quickSlot, ConsumableType type)
+    {
+        if (!IsConsumableAllowedInQuickSlot(quickSlot, type)) return false;
+        return _player.Inventory.BackpackSlots.Any(item =>
+            item?.Type == ItemType.Consumable
+            && !item.IsStationKey
+            && item.ConsumableKind == type);
+    }
+
+    private ConsumableType? GetSelectedQuickConsumableType(int quickSlot)
+        => quickSlot == 0 ? _quickDefensiveConsumableType : _quickOffensiveConsumableType;
+
+    private void SetSelectedQuickConsumableType(int quickSlot, ConsumableType? type)
+    {
+        if (quickSlot == 0) _quickDefensiveConsumableType = type;
+        else _quickOffensiveConsumableType = type;
+    }
+
+    private static bool IsConsumableAllowedInQuickSlot(int quickSlot, ConsumableType type)
+        => quickSlot == 0
+            ? type is ConsumableType.Medkit or ConsumableType.Stim or ConsumableType.ProtectiveDome or ConsumableType.MidaMiniTurret
+            : type is ConsumableType.FreezeGrenade or ConsumableType.HeGrenade or ConsumableType.StickyBullets or ConsumableType.TeslaBullets;
+
+    private static ConsumableType[] GetAllowedQuickConsumables(int quickSlot)
+        => quickSlot == 0
+            ? [ConsumableType.Medkit, ConsumableType.Stim, ConsumableType.ProtectiveDome, ConsumableType.MidaMiniTurret]
+            : [ConsumableType.FreezeGrenade, ConsumableType.HeGrenade, ConsumableType.StickyBullets, ConsumableType.TeslaBullets];
+
+    private List<ConsumableType> GetAvailableQuickConsumables(int quickSlot)
+    {
+        var result = new List<ConsumableType>();
+        foreach (var type in GetAllowedQuickConsumables(quickSlot))
+        {
+            if (HasBackpackConsumable(quickSlot, type)) result.Add(type);
+        }
+        return result;
+    }
+
+    private bool IsConsumableSelectorOpen => _activeConsumableSelectorSlot >= 0;
+
+    private float GetConsumableSelectorAdjustedDt(float dt)
+        => IsConsumableSelectorOpen ? dt * 0.2f : dt;
+
+    private void ResetQuickConsumableSelector()
+    {
+        _heldConsumableSelectorSlot = -1;
+        _activeConsumableSelectorSlot = -1;
+        _consumableSelectorHoldTimer = 0f;
+        _consumableSelectorOpenTimer = 0f;
+        _consumableSelectorOpened = false;
+    }
+
+    private void UpdateQuickConsumableSelectorInput(float dt)
+    {
+        UpdateQuickConsumableSelectorSlot(0, KeyboardKey.Q, dt);
+        if (_heldConsumableSelectorSlot < 0 || _heldConsumableSelectorSlot == 1)
+        {
+            UpdateQuickConsumableSelectorSlot(1, KeyboardKey.E, dt);
+        }
+    }
+
+    private void UpdateQuickConsumableSelectorSlot(int quickSlot, KeyboardKey key, float dt)
+    {
+        const float selectorHoldDelay = 0.18f;
+
+        if (_heldConsumableSelectorSlot < 0 && Raylib.IsKeyPressed(key))
+        {
+            _heldConsumableSelectorSlot = quickSlot;
+            _activeConsumableSelectorSlot = -1;
+            _consumableSelectorHoldTimer = 0f;
+            _consumableSelectorOpened = false;
+        }
+
+        if (_heldConsumableSelectorSlot != quickSlot) return;
+
+        if (Raylib.IsKeyDown(key))
+        {
+            _consumableSelectorHoldTimer += dt;
+            if (!_consumableSelectorOpened
+                && _consumableSelectorHoldTimer >= selectorHoldDelay
+                && GetAvailableQuickConsumables(quickSlot).Count > 0)
+            {
+                _activeConsumableSelectorSlot = quickSlot;
+                _consumableSelectorOpenTimer = 0f;
+                _consumableSelectorOpened = true;
+            }
+            if (_consumableSelectorOpened) _consumableSelectorOpenTimer += dt;
+            return;
+        }
+
+        if (!Raylib.IsKeyReleased(key)) return;
+
+        if (_consumableSelectorOpened)
+        {
+            var selected = GetHoveredSelectorConsumable(_activeConsumableSelectorSlot);
+            if (selected is not null) SetSelectedQuickConsumableType(_activeConsumableSelectorSlot, selected);
+        }
+        else
+        {
+            UseQuickConsumableFromBackpack(quickSlot);
+        }
+
+        _heldConsumableSelectorSlot = -1;
+        _activeConsumableSelectorSlot = -1;
+        _consumableSelectorHoldTimer = 0f;
+        _consumableSelectorOpenTimer = 0f;
+        _consumableSelectorOpened = false;
+    }
+
+    private ConsumableType? GetHoveredSelectorConsumable(int quickSlot)
+    {
+        if (quickSlot < 0) return null;
+
+        var options = GetAvailableQuickConsumables(quickSlot);
+        if (options.Count == 0) return null;
+
+        var center = GetConsumableSelectorCenter();
+        var mouse = GetUiMousePosition();
+        var delta = mouse - center;
+        if (delta.LengthSquared() < 36f * 36f)
+        {
+            var current = GetSelectedQuickConsumableType(quickSlot);
+            return current is not null && options.Contains(current.Value) ? current : options[0];
+        }
+
+        var angle = MathF.Atan2(delta.Y, delta.X);
+        if (angle < 0f) angle += MathF.PI * 2f;
+        var index = Math.Clamp((int)(angle / (MathF.PI * 2f / options.Count)), 0, options.Count - 1);
+        return options[index];
+    }
+
+    private static Color GetConsumableColor(ConsumableType type)
+        => ItemStack.Consumable(type).Color;
+
+    private static Vector2 GetConsumableSelectorCenter()
+        => GetUiScreenCenter();
 
     private void ResetInventoryUseHold()
     {

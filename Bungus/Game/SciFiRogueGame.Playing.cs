@@ -18,6 +18,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (_terminalOpen)
         {
+            ResetQuickConsumableSelector();
             UpdateTerminalPanel();
             UpdateCursorVisibility();
             return;
@@ -25,6 +26,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (_openTerminalNoteIndex is not null)
         {
+            ResetQuickConsumableSelector();
             UpdateTerminalNotePopup();
             UpdateCursorVisibility();
             return;
@@ -46,6 +48,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (Raylib.IsKeyPressed(KeyboardKey.M))
         {
+            ResetQuickConsumableSelector();
             _mapOpen = !_mapOpen;
             _drag = null;
             ResetInventoryUseHold();
@@ -54,12 +57,14 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (_mapOpen)
         {
+            ResetQuickConsumableSelector();
             UpdateMapWindow();
             return;
         }
 
         if (Raylib.IsKeyPressed(KeyboardKey.Escape))
         {
+            ResetQuickConsumableSelector();
             if (_player.InventoryOpen) CloseRunInventory();
             else
             {
@@ -71,6 +76,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (Raylib.IsKeyPressed(KeyboardKey.Tab))
         {
+            ResetQuickConsumableSelector();
             _player.InventoryOpen = !_player.InventoryOpen;
             if (!_player.InventoryOpen) CloseRunInventory();
             else
@@ -81,6 +87,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (_challengeMode && _player.InventoryOpen)
         {
+            ResetQuickConsumableSelector();
             UpdateInventoryUi();
             UpdateLevelUi();
             if (_drag is null) _player.Inventory.AutoFillConsumableSlots();
@@ -95,16 +102,16 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         var enemyCollisionObstacles = BuildEnemyCollisionObstacles();
         var playerInvisibleForIntro = IsPlayerInvisibleForRunIntro();
+        if (!playerInvisibleForIntro) UpdateQuickConsumableSelectorInput(dt);
+        dt = GetConsumableSelectorAdjustedDt(dt);
         var playerPreviousPosition = _player.Position;
         _player.Update(dt, _obstacles, _worldSize, _dashAfterImages);
         AddMotionTrail(playerPreviousPosition, _player.Position, Theme.Player, 15f, MotionTrailShape.Circle, 0.18f, 13f);
         _player.UpdateCombat(dt, _projectiles);
-        if (!playerInvisibleForIntro && Raylib.IsKeyPressed(KeyboardKey.Q)) UseQuickConsumableFromBackpack(0);
-        if (!playerInvisibleForIntro && Raylib.IsKeyPressed(KeyboardKey.R)) UseQuickConsumableFromBackpack(1);
         if (Raylib.IsKeyPressed((KeyboardKey)49)) _player.SelectWeaponSlot(WeaponSlot.Melee);
         if (Raylib.IsKeyPressed((KeyboardKey)50)) _player.SelectWeaponSlot(WeaponSlot.PrimaryRanged);
         if (Raylib.IsKeyPressed((KeyboardKey)51)) _player.SelectWeaponSlot(WeaponSlot.HeavyRanged);
-        if (!playerInvisibleForIntro && !_player.InventoryOpen && Raylib.IsMouseButtonPressed(MouseButton.Right)) _player.ToggleRocketPulseMode();
+        if (!playerInvisibleForIntro && !_player.InventoryOpen && !IsConsumableSelectorOpen && Raylib.IsMouseButtonPressed(MouseButton.Right)) _player.ToggleRocketPulseMode();
 
         var mouseWorld = Raylib.GetScreenToWorld2D(GetUiMousePosition(), _camera);
         var linearRelease = _player.IsLinearRifleEquipped && Raylib.IsMouseButtonReleased(MouseButton.Left);
@@ -112,6 +119,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (!playerInvisibleForIntro
             && !_player.InventoryOpen
             && activeWeapon?.Pattern == WeaponPattern.RamBomber
+            && !IsConsumableSelectorOpen
             && Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
             _player.Attack(mouseWorld, _projectiles, _swings, _obstacles, _worldSize, _dashAfterImages);
@@ -119,6 +127,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         else if (activeWeapon?.Pattern != WeaponPattern.RamBomber
             && (Raylib.IsMouseButtonDown(MouseButton.Left) || linearRelease)
             && !playerInvisibleForIntro
+            && !IsConsumableSelectorOpen
             && !_player.InventoryOpen)
         {
             _player.Attack(mouseWorld, _projectiles, _swings, _obstacles, _worldSize, _dashAfterImages);
@@ -160,6 +169,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private void CloseRunInventory()
     {
+        ResetQuickConsumableSelector();
         _player.InventoryOpen = false;
         _openedChestIndex = null;
         ClearPendingLevelUpPoints();

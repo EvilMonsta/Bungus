@@ -242,31 +242,32 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         if (_player.InventoryOpen)
         {
+            ResetQuickConsumableSelector();
             UpdateInventoryUi();
             UpdateLevelUi();
             if (_drag is null) _player.Inventory.AutoFillConsumableSlots();
             return;
         }
 
+        UpdateQuickConsumableSelectorInput(dt);
+        dt = GetConsumableSelectorAdjustedDt(dt);
         var previousPosition = _player.Position;
         _player.Update(dt, _bunkerObstacles, BunkerWorldSize, _dashAfterImages);
         _player.UpdateCombat(dt, _projectiles);
         AddMotionTrail(previousPosition, _player.Position, Theme.Player, 15f, MotionTrailShape.Circle, 0.18f, 13f);
-        if (Raylib.IsKeyPressed(KeyboardKey.Q)) UseQuickConsumableFromBackpack(0);
-        if (Raylib.IsKeyPressed(KeyboardKey.R)) UseQuickConsumableFromBackpack(1);
         if (Raylib.IsKeyPressed((KeyboardKey)49)) _player.SelectWeaponSlot(WeaponSlot.Melee);
         if (Raylib.IsKeyPressed((KeyboardKey)50)) _player.SelectWeaponSlot(WeaponSlot.PrimaryRanged);
         if (Raylib.IsKeyPressed((KeyboardKey)51)) _player.SelectWeaponSlot(WeaponSlot.HeavyRanged);
-        if (Raylib.IsMouseButtonPressed(MouseButton.Right)) _player.ToggleRocketPulseMode();
+        if (!IsConsumableSelectorOpen && Raylib.IsMouseButtonPressed(MouseButton.Right)) _player.ToggleRocketPulseMode();
 
         var mouseWorld = Raylib.GetScreenToWorld2D(GetUiMousePosition(), _camera);
         var linearRelease = _player.IsLinearRifleEquipped && Raylib.IsMouseButtonReleased(MouseButton.Left);
         var activeWeapon = _player.ActiveWeapon;
-        if (activeWeapon?.Pattern == WeaponPattern.RamBomber && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        if (activeWeapon?.Pattern == WeaponPattern.RamBomber && !IsConsumableSelectorOpen && Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
             _player.Attack(mouseWorld, _projectiles, _swings, _bunkerObstacles, BunkerWorldSize, _dashAfterImages);
         }
-        else if (activeWeapon?.Pattern != WeaponPattern.RamBomber && (Raylib.IsMouseButtonDown(MouseButton.Left) || linearRelease))
+        else if (activeWeapon?.Pattern != WeaponPattern.RamBomber && !IsConsumableSelectorOpen && (Raylib.IsMouseButtonDown(MouseButton.Left) || linearRelease))
         {
             _player.Attack(mouseWorld, _projectiles, _swings, _bunkerObstacles, BunkerWorldSize, _dashAfterImages);
         }

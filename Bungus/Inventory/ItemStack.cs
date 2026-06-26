@@ -853,15 +853,15 @@ public sealed class ItemStack
     {
         return t switch
         {
-            ConsumableType.Medkit => new ItemStack(ItemType.Consumable, "Medkit", "Restore 25 HP + 10% max HP. Hotkey Q/R.", ArmorRarity.Common, Palette.C(130, 210, 120), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
-            ConsumableType.Stim => new ItemStack(ItemType.Consumable, "Stim", "Move speed boost. Hotkey Q/R.", ArmorRarity.Common, Palette.C(220, 220, 120), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
-            ConsumableType.ProtectiveDome => new ItemStack(ItemType.Consumable, "Protective Dome", "Deploy a dome that blocks enemy shots and absorbs 200 damage. Hotkey Q/R.", ArmorRarity.Common, Palette.C(120, 190, 255), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
-            ConsumableType.TeslaBullets => new ItemStack(ItemType.Consumable, "Tesla Bullets", "For 15 seconds ranged hits chain lightning to up to two nearby enemies. Hotkey Q/R.", ArmorRarity.Common, Palette.C(120, 230, 255), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
-            ConsumableType.FreezeGrenade => new ItemStack(ItemType.Consumable, "Freeze Grenade", "Throw a freezing grenade. Enemies caught inside are frozen, then slowed. Hotkey Q/R.", ArmorRarity.Common, Palette.C(130, 220, 255), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
-            ConsumableType.HeGrenade => new ItemStack(ItemType.Consumable, "HE Grenade", "Throw a high explosive grenade. Hotkey Q/R.", ArmorRarity.Common, Palette.C(255, 150, 80), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
-            ConsumableType.MidaMiniTurret => new ItemStack(ItemType.Consumable, "MIDA Mini-Turret", "Deploys a temporary mini-turret that fires at nearby enemies. Hotkey Q/R.", ArmorRarity.Common, Palette.C(255, 220, 120), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
+            ConsumableType.Medkit => new ItemStack(ItemType.Consumable, "Medkit", "Restore 25 HP + 10% max HP. Hotkey Q/E.", ArmorRarity.Common, Palette.C(130, 210, 120), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
+            ConsumableType.Stim => new ItemStack(ItemType.Consumable, "Stim", "Move speed boost. Hotkey Q/E.", ArmorRarity.Common, Palette.C(220, 220, 120), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
+            ConsumableType.ProtectiveDome => new ItemStack(ItemType.Consumable, "Protective Dome", "Deploy a dome that blocks enemy shots and absorbs 200 damage. Hotkey Q/E.", ArmorRarity.Common, Palette.C(120, 190, 255), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
+            ConsumableType.TeslaBullets => new ItemStack(ItemType.Consumable, "Tesla Bullets", "For 15 seconds ranged hits chain lightning to up to two nearby enemies. Hotkey Q/E.", ArmorRarity.Common, Palette.C(120, 230, 255), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
+            ConsumableType.FreezeGrenade => new ItemStack(ItemType.Consumable, "Freeze Grenade", "Throw a freezing grenade. Enemies caught inside are frozen, then slowed. Hotkey Q/E.", ArmorRarity.Common, Palette.C(130, 220, 255), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
+            ConsumableType.HeGrenade => new ItemStack(ItemType.Consumable, "HE Grenade", "Throw a high explosive grenade. Hotkey Q/E.", ArmorRarity.Common, Palette.C(255, 150, 80), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
+            ConsumableType.MidaMiniTurret => new ItemStack(ItemType.Consumable, "MIDA Mini-Turret", "Deploys a temporary mini-turret that fires at nearby enemies. Hotkey Q/E.", ArmorRarity.Common, Palette.C(255, 220, 120), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false),
             ConsumableType.StationKey => StationKey(),
-            _ => new ItemStack(ItemType.Consumable, "Sticky Bullets", "For 15 seconds your damage slows enemies by 30% for 1 second. Hotkey Q/R.", ArmorRarity.Common, Palette.C(235, 235, 235), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false)
+            _ => new ItemStack(ItemType.Consumable, "Sticky Bullets", "For 15 seconds your damage slows enemies by 30% for 1 second. Hotkey Q/E.", ArmorRarity.Common, Palette.C(235, 235, 235), null, WeaponPattern.Standard, t, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, false)
         };
     }
 

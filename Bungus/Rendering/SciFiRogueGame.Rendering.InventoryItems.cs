@@ -301,6 +301,11 @@ public sealed partial class SciFiRogueGame
             return false;
         }
 
+        if (relativePath.Contains(Path.Combine("Assets", "Icons", "Consumables"), StringComparison.OrdinalIgnoreCase))
+        {
+            Raylib.ImageColorReplace(ref image, Palette.C(138, 255, 166), Color.Blank);
+        }
+
         texture = Raylib.LoadTextureFromImage(image);
         Raylib.UnloadImage(image);
 
@@ -841,7 +846,7 @@ public sealed partial class SciFiRogueGame
 
         if (item.IsDeviceDataFragment) return lines;
         if (item.IsStationKey) lines.Add(("Key item | opens station entrance", item.Color));
-        else lines.Add(("Use by Q/R", Color.Green));
+        else lines.Add(("Use by Q/E", Color.Green));
         return lines;
     }
 

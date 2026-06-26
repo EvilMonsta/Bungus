@@ -134,6 +134,13 @@ public sealed partial class SciFiRogueGame : IDisposable
     private int _storageSortMode = -1;
     private readonly HashSet<int> _selectedInventorySlots = [];
     private readonly HashSet<(SlotKind Kind, int Index)> _selectedStorageSlots = [];
+    private ConsumableType? _quickDefensiveConsumableType;
+    private ConsumableType? _quickOffensiveConsumableType;
+    private int _heldConsumableSelectorSlot = -1;
+    private int _activeConsumableSelectorSlot = -1;
+    private float _consumableSelectorHoldTimer;
+    private float _consumableSelectorOpenTimer;
+    private bool _consumableSelectorOpened;
     private float _playerPeriodicDamageTextAccumulator;
     private float _playerPeriodicDamageTextTimer;
     private bool _requestExit;

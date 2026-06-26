@@ -40,7 +40,7 @@ public sealed partial class SciFiRogueGame
 
         var activeWeapon = _player.ActiveWeapon;
         Raylib.DrawText($"Current: {activeWeapon?.Name ?? "None"} {BuildWeaponDamageText(_player, activeWeapon, _player.ActiveWeaponClass)}", 20, 48, 22, activeWeapon?.Color ?? Color.LightGray);
-        Raylib.DrawText($"Consumables: Q [{(GetQuickConsumablePreview(0)?.Name ?? "-")}]  R [{(GetQuickConsumablePreview(1)?.Name ?? "-")}]", 20, 78, 20, Color.White);
+        Raylib.DrawText($"Consumables: Q [{(GetQuickConsumablePreview(0)?.Name ?? "-")}]  E [{(GetQuickConsumablePreview(1)?.Name ?? "-")}]", 20, 78, 20, Color.White);
         if (!_challengeMode) Raylib.DrawText($"Run score {_runScore}", 20, 108, 20, Color.Gold);
         if (!_inBunker) DrawExtractionHud();
         DrawVitalBars();
@@ -50,6 +50,64 @@ public sealed partial class SciFiRogueGame
         if (_pitDifficultyOpen) DrawPitDifficultySelection();
         Raylib.DrawText("WASD move | LMB attack | 1 melee | 2 primary | 3 heavy | TAB inventory | ESC menu", 20, GetUiScreenHeight() - 28, 18, Color.Gray);
         if (!_inBunker) DrawZoneArrows();
+    }
+
+    private void DrawConsumableSelector()
+    {
+        if (!IsConsumableSelectorOpen) return;
+
+        var slot = _activeConsumableSelectorSlot;
+        var options = GetAvailableQuickConsumables(slot);
+        if (options.Count == 0) return;
+
+        var center = GetConsumableSelectorCenter();
+        var t = Math.Clamp(_consumableSelectorOpenTimer / 0.18f, 0f, 1f);
+        var ease = 1f - MathF.Pow(1f - t, 3f);
+        var outerRadius = 158f * ease;
+        var innerRadius = 72f * ease;
+        var iconRadius = 116f * ease;
+        var selected = GetHoveredSelectorConsumable(slot) ?? GetSelectedQuickConsumableType(slot);
+        var slice = 360f / options.Count;
+
+        Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(0, 0, 0, (byte)(70 * ease)));
+        Raylib.DrawCircleV(center, outerRadius + 10f * ease, Palette.C(80, 170, 255, (byte)(22 * ease)));
+
+        for (var i = 0; i < options.Count; i++)
+        {
+            var type = options[i];
+            var start = i * slice + 2f;
+            var end = (i + 1) * slice - 2f;
+            var isSelected = selected == type;
+            var baseColor = GetConsumableColor(type);
+            var color = isSelected
+                ? Palette.C(baseColor.R, baseColor.G, baseColor.B, (byte)(205 * ease))
+                : Palette.C(16, 24, 38, (byte)(188 * ease));
+
+            Raylib.DrawCircleSector(center, outerRadius, start, end, 48, color);
+            Raylib.DrawCircleSectorLines(center, outerRadius, start, end, 48, isSelected
+                ? Palette.C(235, 245, 255, (byte)(220 * ease))
+                : Palette.C(92, 142, 190, (byte)(130 * ease)));
+
+            var mid = (start + end) * 0.5f * MathF.PI / 180f;
+            var iconPos = center + new Vector2(MathF.Cos(mid), MathF.Sin(mid)) * iconRadius;
+            DrawConsumableSelectorIcon(type, iconPos, (isSelected ? 62f : 54f) * ease);
+        }
+
+        Raylib.DrawCircleV(center, innerRadius, Palette.C(7, 10, 18, (byte)(235 * ease)));
+        Raylib.DrawCircleLines((int)center.X, (int)center.Y, innerRadius, Palette.C(120, 200, 255, (byte)(190 * ease)));
+        Raylib.DrawCircleLines((int)center.X, (int)center.Y, outerRadius, Palette.C(235, 245, 255, (byte)(135 * ease)));
+
+        var current = selected ?? GetSelectedQuickConsumableType(slot);
+        if (current is not null) DrawConsumableSelectorIcon(current.Value, center, 72f * ease);
+    }
+
+    private void DrawConsumableSelectorIcon(ConsumableType type, Vector2 center, float size)
+    {
+        var rect = new Rectangle(center.X - size * 0.5f, center.Y - size * 0.5f, size, size);
+        if (!TryDrawItemTexture(ItemStack.Consumable(type), rect))
+        {
+            Raylib.DrawCircleV(center, size * 0.32f, GetConsumableColor(type));
+        }
     }
 
     private void DrawCombatCursor()

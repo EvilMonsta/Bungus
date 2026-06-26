@@ -46,7 +46,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
     private static int GetMetaScoreRequired(int level)
     {
-        return 500 + Math.Max(0, level - 1) * 500;
+        return 500 + Math.Max(0, level - 1) * 250;
     }
 
     private void SetDisplayMode(DisplayMode mode)
@@ -832,8 +832,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
 
         RegisterPromoCodeUse(code, false);
-        AddMetaScore(3000);
-        return (true, "Success: +3000 XP.");
+        AddMetaScore(2500);
+        return (true, "Success: +2500 XP.");
     }
 
     private (bool Success, string Message) ApplyRukCode()

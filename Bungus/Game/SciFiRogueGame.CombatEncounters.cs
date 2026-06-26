@@ -250,7 +250,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 TryDropEnemyCache(b.Position);
                 _chests.Add(new LootChest(b.Position, RollMiniBossLoot()));
                 _player.RegisterKill(5);
-                AddRunScore(100);
+                AddRunScore(200);
             }
         }
     }
@@ -273,7 +273,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             }
             TryDropEnemyCache(_destroyerBoss.Position);
             _player.RegisterKill(25);
-            AddRunScore(1000);
+            AddRunScore(1150);
             _chests.Add(new LootChest(_destroyerBoss.Position, RollBossLoot()));
         }
     }

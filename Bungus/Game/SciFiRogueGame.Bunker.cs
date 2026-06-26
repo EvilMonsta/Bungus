@@ -330,7 +330,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             if (!enemy.Alive)
             {
-                AwardBunkerEnemyKill(enemy, 3);
+                AwardBunkerEnemyKill(enemy, 50, 3);
                 continue;
             }
             if (IsFrozenTarget(enemy)) continue;
@@ -341,7 +341,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             if (!enemy.Alive)
             {
-                AwardBunkerEnemyKill(enemy, 3);
+                AwardBunkerEnemyKill(enemy, 50, 3);
                 continue;
             }
             if (IsFrozenTarget(enemy)) continue;
@@ -352,7 +352,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             if (!enemy.Alive)
             {
-                AwardBunkerEnemyKill(enemy, 2);
+                AwardBunkerEnemyKill(enemy, 40, 2);
                 continue;
             }
             if (IsFrozenTarget(enemy)) continue;
@@ -370,7 +370,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (!_revealedBunkerRooms.Contains(scrib.RoomId)) continue;
             if (!scrib.Alive)
             {
-                AwardBunkerEnemyKill(scrib, 1);
+                AwardBunkerEnemyKill(scrib, 10, 1);
                 _bunkerScribs.RemoveAt(i);
                 continue;
             }
@@ -378,7 +378,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             if (scrib.Update(dt, _player.Position, enemyObstacles)) ExplodeBunkerScrib(scrib.Position);
             if (!scrib.Alive)
             {
-                AwardBunkerEnemyKill(scrib, 1);
+                AwardBunkerEnemyKill(scrib, 10, 1);
                 _bunkerScribs.RemoveAt(i);
             }
         }
@@ -465,7 +465,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             _bunkerTyrant.KillAwarded = true;
             _player.RegisterKill(20);
-            AddRunScore(20);
+            AddRunScore(1500);
         }
         _bunkerTyrantDoorSealTimer = -1f;
         SetBunkerDoorOpen(18, 19, true);
@@ -532,35 +532,35 @@ public sealed partial class SciFiRogueGame : IDisposable
         }
     }
 
-    private void AwardBunkerEnemyKill(BunkerSiegeEnemy enemy, int experience)
+    private void AwardBunkerEnemyKill(BunkerSiegeEnemy enemy, int experience, int killPoints)
     {
         if (enemy.KillAwarded) return;
         enemy.KillAwarded = true;
-        _player.RegisterKill(experience);
+        _player.RegisterKill(killPoints);
         AddRunScore(experience);
     }
 
-    private void AwardBunkerEnemyKill(BunkerAssaultEnemy enemy, int experience)
+    private void AwardBunkerEnemyKill(BunkerAssaultEnemy enemy, int experience, int killPoints)
     {
         if (enemy.KillAwarded) return;
         enemy.KillAwarded = true;
-        _player.RegisterKill(experience);
+        _player.RegisterKill(killPoints);
         AddRunScore(experience);
     }
 
-    private void AwardBunkerEnemyKill(BunkerInfectedEnemy enemy, int experience)
+    private void AwardBunkerEnemyKill(BunkerInfectedEnemy enemy, int experience, int killPoints)
     {
         if (enemy.KillAwarded) return;
         enemy.KillAwarded = true;
-        _player.RegisterKill(experience);
+        _player.RegisterKill(killPoints);
         AddRunScore(experience);
     }
 
-    private void AwardBunkerEnemyKill(BunkerScrib enemy, int experience)
+    private void AwardBunkerEnemyKill(BunkerScrib enemy, int experience, int killPoints)
     {
         if (enemy.KillAwarded) return;
         enemy.KillAwarded = true;
-        _player.RegisterKill(experience);
+        _player.RegisterKill(killPoints);
         AddRunScore(experience);
     }
 

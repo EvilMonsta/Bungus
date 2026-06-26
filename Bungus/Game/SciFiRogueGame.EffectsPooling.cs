@@ -101,7 +101,7 @@ public sealed partial class SciFiRogueGame
     private void AddDamageText(object target, float amount, Color color)
     {
         if (amount <= 0f) return;
-        AddFloatingCombatText(target, MathF.Ceiling(amount).ToString("0"), color, amount >= 100f ? 24f : 20f);
+        AddFloatingCombatText(target, amount.ToString("0.0"), color, amount >= 100f ? 24f : 20f);
     }
 
     private void AddFloatingCombatText(object target, string value, Color color, float size = 20f)
@@ -147,13 +147,13 @@ public sealed partial class SciFiRogueGame
     private void AddHealingText(object target, float amount)
     {
         if (amount <= 0.01f) return;
-        AddFloatingCombatText(target, $"+{MathF.Ceiling(amount):0}", Palette.C(118, 255, 148), amount >= 50f ? 23f : 20f);
+        AddFloatingCombatText(target, $"+{amount:0.0}", Palette.C(118, 255, 148), amount >= 50f ? 23f : 20f);
     }
 
     private void AddShieldText(object target, float amount)
     {
         if (amount <= 0.01f) return;
-        AddFloatingCombatText(target, $"{MathF.Ceiling(amount):0}", Palette.C(120, 205, 255), amount >= 50f ? 23f : 20f);
+        AddFloatingCombatText(target, $"{amount:0.0}", Palette.C(120, 205, 255), amount >= 50f ? 23f : 20f);
     }
 
     private void AddImmuneText(object target)

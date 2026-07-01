@@ -148,7 +148,12 @@ public sealed partial class SciFiRogueGame : IDisposable
             else e.UpdateAwareness(playerTarget, dt, enemyCollisionObstacles);
             e.UpdateMovement(dt, playerTarget, enemyCollisionObstacles, _worldSize);
             AddMotionTrail(previousPosition, e.Position, e.IsStrong ? Theme.EnemyStrong : Theme.Enemy, e.IsStrong ? 11f : 12f, e.IsStrong ? MotionTrailShape.Triangle : MotionTrailShape.Circle);
-            if (!playerInvisible) e.TryShootBurst(playerTarget, _projectiles);
+            if (!playerInvisible)
+            {
+                var projectileCountBefore = _projectiles.Count;
+                e.TryShootBurst(playerTarget, _projectiles);
+                PlayEnemyShotSoundIfProjectilesAdded(projectileCountBefore);
+            }
 
             if (!playerInvisible && e.TryMeleeHit(_player) && _rng.NextSingle() <= 0.05f)
             {
@@ -189,7 +194,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var previousPosition = h.Position;
             if (IsFrozenTarget(h)) continue;
+            var projectileCountBefore = _projectiles.Count;
             h.Update(dt, playerTarget, _projectiles, enemyCollisionObstacles, _worldSize);
+            PlayEnemyShotSoundIfProjectilesAdded(projectileCountBefore);
             AddMotionTrail(previousPosition, h.Position, Palette.C(255, 110, 180), 17f, MotionTrailShape.Hex, 0.08f);
             if (!h.Alive && !h.KillAwarded)
             {
@@ -213,7 +220,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var previousPosition = turret.Position;
             if (IsFrozenTarget(turret)) continue;
+            var projectileCountBefore = _projectiles.Count;
             turret.Update(dt, playerTarget, _projectiles, enemyCollisionObstacles, _challengeMode && !playerInvisible);
+            PlayEnemyShotSoundIfProjectilesAdded(projectileCountBefore);
             AddMotionTrail(previousPosition, turret.Position, Palette.C(230, 80, 80), 15f, MotionTrailShape.Square, rotateWithMovement: false);
             if (!turret.Alive && !turret.KillAwarded)
             {
@@ -237,7 +246,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var previousPosition = b.Position;
             if (IsFrozenTarget(b)) continue;
+            var projectileCountBefore = _projectiles.Count;
             b.Update(dt, playerTarget, _projectiles, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages, _challengeMode && !playerInvisible);
+            PlayEnemyShotSoundIfProjectilesAdded(projectileCountBefore);
             AddMotionTrail(previousPosition, b.Position, Palette.C(230, 100, 100), 21f, MotionTrailShape.Square, 0.2f, rotateWithMovement: false);
             if (!b.Alive && !b.KillAwarded)
             {
@@ -261,7 +272,9 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         var previousPosition = _destroyerBoss.Position;
         if (IsFrozenTarget(_destroyerBoss)) return;
+        var projectileCountBefore = _projectiles.Count;
         _destroyerBoss.Update(dt, playerTarget, _projectiles, _player, enemyCollisionObstacles, _worldSize, _dashAfterImages);
+        PlayEnemyShotSoundIfProjectilesAdded(projectileCountBefore);
         AddMotionTrail(previousPosition, _destroyerBoss.Position, Theme.Boss, 24f, MotionTrailShape.Square, 0.2f, rotateWithMovement: false);
         if (!_destroyerBoss.Alive && !_destroyerBoss.KillAwarded)
         {
@@ -308,7 +321,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var previousPosition = toxic.Position;
             if (IsFrozenTarget(toxic)) continue;
+            var projectileCountBefore = _projectiles.Count;
             toxic.Update(dt, playerTarget, _projectiles, enemyCollisionObstacles, _worldSize, _challengeMode && !playerInvisible);
+            PlayEnemyShotSoundIfProjectilesAdded(projectileCountBefore);
             AddMotionTrail(previousPosition, toxic.Position, Palette.C(220, 110, 100), 12f, MotionTrailShape.Triangle);
             if (!toxic.Alive && !toxic.KillAwarded)
             {
@@ -329,7 +344,9 @@ public sealed partial class SciFiRogueGame : IDisposable
             var previousPosition = _stationBoss.Position;
             if (!IsFrozenTarget(_stationBoss))
             {
+                var projectileCountBefore = _projectiles.Count;
                 _stationBoss.Update(dt, playerTarget, _projectiles, _player, enemyCollisionObstacles, _worldSize);
+                PlayEnemyShotSoundIfProjectilesAdded(projectileCountBefore);
                 AddMotionTrail(previousPosition, _stationBoss.Position, Palette.C(255, 40, 40), 30f, MotionTrailShape.Circle, 0.2f);
                 if (!_stationBoss.Alive && !_stationBoss.KillAwarded)
                 {
@@ -351,7 +368,9 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             var previousPosition = boss.Position;
             if (IsFrozenTarget(boss)) continue;
+            var projectileCountBefore = _projectiles.Count;
             boss.Update(dt, playerTarget, _projectiles, _player, enemyCollisionObstacles, _worldSize);
+            PlayEnemyShotSoundIfProjectilesAdded(projectileCountBefore);
             AddMotionTrail(previousPosition, boss.Position, Palette.C(255, 40, 40), 30f, MotionTrailShape.Circle, 0.2f);
             if (!boss.Alive && !boss.KillAwarded)
             {

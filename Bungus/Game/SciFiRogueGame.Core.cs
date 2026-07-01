@@ -315,6 +315,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         else if (_antialiasingMode == AntialiasingMode.Msaa4x) Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint);
         else if (_vsyncEnabled) Raylib.SetConfigFlags(ConfigFlags.VSyncHint);
         Raylib.InitWindow(W, H, "Bungus");
+        InitializeAudio();
         _targetFps = LoadStartupTargetFps();
         Raylib.SetTargetFPS(_targetFps);
         Raylib.SetExitKey(KeyboardKey.Null);

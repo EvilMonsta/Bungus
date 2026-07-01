@@ -253,7 +253,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         dt = GetConsumableSelectorAdjustedDt(dt);
         var previousPosition = _player.Position;
         _player.Update(dt, _bunkerObstacles, BunkerWorldSize, _dashAfterImages);
-        _player.UpdateCombat(dt, _projectiles);
+        UpdatePlayerQueuedShotsWithSound(dt);
         AddMotionTrail(previousPosition, _player.Position, Theme.Player, 15f, MotionTrailShape.Circle, 0.18f, 13f);
         if (Raylib.IsKeyPressed((KeyboardKey)49)) _player.SelectWeaponSlot(WeaponSlot.Melee);
         if (Raylib.IsKeyPressed((KeyboardKey)50)) _player.SelectWeaponSlot(WeaponSlot.PrimaryRanged);
@@ -265,11 +265,11 @@ public sealed partial class SciFiRogueGame : IDisposable
         var activeWeapon = _player.ActiveWeapon;
         if (activeWeapon?.Pattern == WeaponPattern.RamBomber && !IsConsumableSelectorOpen && Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
-            _player.Attack(mouseWorld, _projectiles, _swings, _bunkerObstacles, BunkerWorldSize, _dashAfterImages);
+            TryPlayerAttackWithSound(mouseWorld, _bunkerObstacles, BunkerWorldSize);
         }
         else if (activeWeapon?.Pattern != WeaponPattern.RamBomber && !IsConsumableSelectorOpen && (Raylib.IsMouseButtonDown(MouseButton.Left) || linearRelease))
         {
-            _player.Attack(mouseWorld, _projectiles, _swings, _bunkerObstacles, BunkerWorldSize, _dashAfterImages);
+            TryPlayerAttackWithSound(mouseWorld, _bunkerObstacles, BunkerWorldSize);
         }
 
         if (Raylib.IsKeyPressed(KeyboardKey.F) && TryActivateBunkerTyrantSwitch())
@@ -334,7 +334,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                 continue;
             }
             if (IsFrozenTarget(enemy)) continue;
+            var projectileCountBefore = _projectiles.Count;
             enemy.Update(dt, _player.Position, enemyObstacles, _projectiles);
+            PlayEnemyShotSoundIfProjectilesAdded(projectileCountBefore);
         }
 
         foreach (var enemy in _bunkerAssaultEnemies.Where(enemy => _revealedBunkerRooms.Contains(enemy.RoomId)))
@@ -345,7 +347,9 @@ public sealed partial class SciFiRogueGame : IDisposable
                 continue;
             }
             if (IsFrozenTarget(enemy)) continue;
+            var projectileCountBefore = _projectiles.Count;
             enemy.Update(dt, _player, enemyObstacles, _projectiles);
+            PlayEnemyShotSoundIfProjectilesAdded(projectileCountBefore);
         }
 
         foreach (var enemy in _bunkerInfectedEnemies.Where(enemy => _revealedBunkerRooms.Contains(enemy.RoomId)))
@@ -418,6 +422,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         if (!IsFrozenTarget(_bunkerTyrant))
         {
+            var projectileCountBefore = _projectiles.Count;
             _bunkerTyrant.Update(
                 dt,
                 _player.Position,
@@ -428,6 +433,7 @@ public sealed partial class SciFiRogueGame : IDisposable
                 BunkerTyrantLeftSpawn,
                 BunkerTyrantRightSpawn,
                 () => Array.Fill(_bunkerTyrantSwitches, false));
+            PlayEnemyShotSoundIfProjectilesAdded(projectileCountBefore);
         }
 
         if (_bunkerTyrant.ShockwaveReady) TriggerBunkerTyrantShockwave();

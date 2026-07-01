@@ -107,7 +107,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         var playerPreviousPosition = _player.Position;
         _player.Update(dt, _obstacles, _worldSize, _dashAfterImages);
         AddMotionTrail(playerPreviousPosition, _player.Position, Theme.Player, 15f, MotionTrailShape.Circle, 0.18f, 13f);
-        _player.UpdateCombat(dt, _projectiles);
+        UpdatePlayerQueuedShotsWithSound(dt);
         if (Raylib.IsKeyPressed((KeyboardKey)49)) _player.SelectWeaponSlot(WeaponSlot.Melee);
         if (Raylib.IsKeyPressed((KeyboardKey)50)) _player.SelectWeaponSlot(WeaponSlot.PrimaryRanged);
         if (Raylib.IsKeyPressed((KeyboardKey)51)) _player.SelectWeaponSlot(WeaponSlot.HeavyRanged);
@@ -122,7 +122,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             && !IsConsumableSelectorOpen
             && Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
-            _player.Attack(mouseWorld, _projectiles, _swings, _obstacles, _worldSize, _dashAfterImages);
+            TryPlayerAttackWithSound(mouseWorld, _obstacles, _worldSize);
         }
         else if (activeWeapon?.Pattern != WeaponPattern.RamBomber
             && (Raylib.IsMouseButtonDown(MouseButton.Left) || linearRelease)
@@ -130,7 +130,7 @@ public sealed partial class SciFiRogueGame : IDisposable
             && !IsConsumableSelectorOpen
             && !_player.InventoryOpen)
         {
-            _player.Attack(mouseWorld, _projectiles, _swings, _obstacles, _worldSize, _dashAfterImages);
+            TryPlayerAttackWithSound(mouseWorld, _obstacles, _worldSize);
         }
 
         RebuildCombatTargetCache();
@@ -174,6 +174,29 @@ public sealed partial class SciFiRogueGame : IDisposable
         _openedChestIndex = null;
         ClearPendingLevelUpPoints();
         ResetInventoryUseHold();
+    }
+
+    private bool TryPlayerAttackWithSound(Vector2 target, List<Obstacle> obstacles, int worldSize)
+    {
+        var weaponClass = _player.ActiveWeaponClass;
+        var projectileCountBefore = _projectiles.Count;
+        var swingCountBefore = _swings.Count;
+        var attacked = _player.Attack(target, _projectiles, _swings, obstacles, worldSize, _dashAfterImages);
+        if (attacked && weaponClass == WeaponClass.Ranged) PlayPlayerShotSounds(_projectiles.Count - projectileCountBefore);
+        else if (attacked && weaponClass == WeaponClass.Melee) PlayPlayerSlashSounds(_swings.Count - swingCountBefore);
+        return attacked;
+    }
+
+    private void UpdatePlayerQueuedShotsWithSound(float dt)
+    {
+        var projectileCountBefore = _projectiles.Count;
+        _player.UpdateCombat(dt, _projectiles);
+        PlayPlayerShotSounds(_projectiles.Count - projectileCountBefore);
+    }
+
+    private void PlayEnemyShotSoundIfProjectilesAdded(int projectileCountBefore)
+    {
+        PlayEnemyShotSounds(_projectiles.Count - projectileCountBefore);
     }
 
 }

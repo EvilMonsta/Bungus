@@ -15,10 +15,10 @@ public sealed partial class SciFiRogueGame
         var fill = WithAlpha(Mix(Opaque(Theme.Background), Color.Black, 0.42f), alpha);
         Raylib.DrawRectangle(0, 0, width, height, fill);
 
-        const string text = "Loading...";
+        var text = T("common.loading");
         const int fontSize = 42;
         var textColor = WithAlpha(Color.White, alpha);
-        Raylib.DrawText(text, width / 2 - Raylib.MeasureText(text, fontSize) / 2, height / 2 - fontSize / 2, fontSize, textColor);
+        DrawUiText(text, width / 2 - MeasureUiText(text, fontSize) / 2, height / 2 - fontSize / 2, fontSize, textColor);
     }
 
     private void DrawHud()
@@ -26,29 +26,32 @@ public sealed partial class SciFiRogueGame
         if (!_challengeMode)
         {
             DrawExperienceBar();
-            Raylib.DrawText($"Level {_player.Level} ({_player.Kills}/{_player.KillsTarget})", 20, 14, 24, Color.White);
+            DrawUiText($"{T("hud.level")} {_player.Level} ({_player.Kills}/{_player.KillsTarget})", 20, 14, 24, Color.White);
         }
         else
         {
-            Raylib.DrawText($"Pit level {_player.Level}", 20, 14, 24, Color.White);
+            DrawUiText($"{T("hud.pit_level")} {_player.Level}", 20, 14, 24, Color.White);
             var timer = float.IsPositiveInfinity(_pitWaveTimer) ? "?" : $"{MathF.Ceiling(MathF.Max(0f, _pitWaveTimer)):0}";
-            Raylib.DrawText(timer, GetUiScreenWidth() / 2 - Raylib.MeasureText(timer, 56) / 2, 12, 56, Palette.C(130, 230, 255));
-            var waveText = $"Wave {Math.Max(1, _pitNextWave - 1)}";
-            Raylib.DrawText(waveText, GetUiScreenWidth() / 2 - Raylib.MeasureText(waveText, 22) / 2, 72, 22, Color.White);
+            DrawUiText(timer, GetUiScreenWidth() / 2 - MeasureUiText(timer, 56) / 2, 12, 56, Palette.C(130, 230, 255));
+            var waveText = $"{T("hud.wave")} {Math.Max(1, _pitNextWave - 1)}";
+            DrawUiText(waveText, GetUiScreenWidth() / 2 - MeasureUiText(waveText, 22) / 2, 72, 22, Color.White);
             if (_challengeKind == ChallengeKind.PitNightmare) DrawPitNightmareModifiers();
         }
 
         var activeWeapon = _player.ActiveWeapon;
-        Raylib.DrawText($"Current: {activeWeapon?.Name ?? "None"} {BuildWeaponDamageText(_player, activeWeapon, _player.ActiveWeaponClass)}", 20, 48, 22, activeWeapon?.Color ?? Color.LightGray);
-        Raylib.DrawText($"Consumables: Q [{(GetQuickConsumablePreview(0)?.Name ?? "-")}]  E [{(GetQuickConsumablePreview(1)?.Name ?? "-")}]", 20, 78, 20, Color.White);
-        if (!_challengeMode) Raylib.DrawText($"Run score {_runScore}", 20, 108, 20, Color.Gold);
+        var activeWeaponName = activeWeapon is null ? T("common.none") : LocalizedItemName(activeWeapon);
+        var quickQ = GetQuickConsumablePreview(0);
+        var quickE = GetQuickConsumablePreview(1);
+        DrawUiText($"{T("hud.current")}: {activeWeaponName} {BuildWeaponDamageText(_player, activeWeapon, _player.ActiveWeaponClass)}", 20, 48, 22, activeWeapon?.Color ?? Color.LightGray);
+        DrawUiText($"{T("hud.consumables")}: Q [{(quickQ is null ? "-" : LocalizedItemName(quickQ))}]  E [{(quickE is null ? "-" : LocalizedItemName(quickE))}]", 20, 78, 20, Color.White);
+        if (!_challengeMode) DrawUiText($"{T("hud.run_score")} {_runScore}", 20, 108, 20, Color.Gold);
         if (!_inBunker) DrawExtractionHud();
         DrawVitalBars();
         DrawLevelUpIndicator();
         DrawStatusEffects();
         if (_pitRewardOpen) DrawPitRewardSelection();
         if (_pitDifficultyOpen) DrawPitDifficultySelection();
-        Raylib.DrawText("WASD move | LMB attack | 1 melee | 2 primary | 3 heavy | TAB inventory | ESC menu", 20, GetUiScreenHeight() - 28, 18, Color.Gray);
+        DrawUiText(T("hud.controls"), 20, GetUiScreenHeight() - 28, 18, Color.Gray);
         if (!_inBunker) DrawZoneArrows();
     }
 
@@ -164,8 +167,8 @@ public sealed partial class SciFiRogueGame
         var panel = new Rectangle(mapRect.X - 22f, mapRect.Y - 58f, mapRect.Width + 44f, mapRect.Height + 86f);
         Raylib.DrawRectangleRec(panel, Palette.C(6, 10, 20, 235));
         Raylib.DrawRectangleLinesEx(panel, 2f, Palette.C(100, 190, 255));
-        Raylib.DrawText("Map", (int)panel.X + 18, (int)panel.Y + 16, 28, Color.White);
-        Raylib.DrawText("LMB: place/move marker | RMB near marker: remove | M/Esc: close", (int)panel.X + 92, (int)panel.Y + 23, 18, Color.LightGray);
+        DrawUiText(T("hud.map"), (int)panel.X + 18, (int)panel.Y + 16, 28, Color.White);
+        DrawUiText(T("hud.map_help"), (int)panel.X + 92, (int)panel.Y + 23, 18, Color.LightGray);
 
         Raylib.DrawRectangleRec(mapRect, Palette.C(12, 18, 28, 255));
         Raylib.DrawRectangleLinesEx(mapRect, 2f, Color.SkyBlue);
@@ -315,7 +318,7 @@ public sealed partial class SciFiRogueGame
             new Vector2(x, y + 20),
             new Vector2(x + 24, y + 20),
             Palette.C(80, 230, 110));
-        Raylib.DrawText("Level Up", x + 34, y + 2, 22, Palette.C(120, 255, 140));
+        DrawUiText(T("hud.level_up"), x + 34, y + 2, 22, Palette.C(120, 255, 140));
     }
 
     private void DrawStatusEffects()
@@ -365,8 +368,8 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawCircleV(center, 12f, color);
 
         var fontSize = 18;
-        var textWidth = Raylib.MeasureText(label, fontSize);
-        Raylib.DrawText(label, (int)(center.X - textWidth * 0.5f), (int)(center.Y - fontSize * 0.5f), fontSize, Color.White);
+            var textWidth = MeasureUiText(label, fontSize);
+            DrawUiText(label, (int)(center.X - textWidth * 0.5f), (int)(center.Y - fontSize * 0.5f), fontSize, Color.White);
 
         DrawCircularProgressFrame(center, 19f, progress, color);
     }
@@ -463,7 +466,7 @@ public sealed partial class SciFiRogueGame
                 Math.Clamp(_player.Shield / MathF.Max(_player.ShieldCapacity, 0.001f), 0f, 1f),
                 Palette.C(92, 176, 255),
                 Color.Black,
-                $"SHIELD {_player.Shield:0}/{_player.ShieldCapacity:0}",
+                $"{T("hud.shield")} {_player.Shield:0}/{_player.ShieldCapacity:0}",
                 18);
         }
 
@@ -471,9 +474,9 @@ public sealed partial class SciFiRogueGame
         DrawStatusBar(dashRect, _player.DashCooldownProgress, Palette.C(72, 210, 96), Color.Black, string.Empty, 14);
 
         var heavyWeapon = _player.ActiveWeapon?.IsHeavyWeapon == true ? _player.ActiveWeapon : _player.HeavyWeapon;
-        var ammoText = $"Heavy Ammo: {_player.Inventory.GetHeavyAmmoShotCount(heavyWeapon)}";
+        var ammoText = $"{T("hud.heavy_ammo")}: {_player.Inventory.GetHeavyAmmoShotCount(heavyWeapon)}";
         var ammoFont = 20;
-        var ammoX = hpRect.X + hpRect.Width - Raylib.MeasureText(ammoText, ammoFont);
+        var ammoX = hpRect.X + hpRect.Width - MeasureUiText(ammoText, ammoFont);
         if (_player.IsLegendaryRocketPulseRifleEquipped)
         {
             ammoX -= 48f;
@@ -484,13 +487,13 @@ public sealed partial class SciFiRogueGame
         var knownCode = GetKnownTerminalCodeDisplay();
         if (!string.IsNullOrEmpty(knownCode))
         {
-            var codeText = $"Access code: {knownCode}";
+            var codeText = $"{T("hud.access_code")}: {knownCode}";
             var codeFont = 20;
-            var codeX = hpRect.X + hpRect.Width - Raylib.MeasureText(codeText, codeFont);
-            Raylib.DrawText(codeText, (int)codeX, (int)hpRect.Y - 106, codeFont, Palette.C(235, 205, 110));
+            var codeX = hpRect.X + hpRect.Width - MeasureUiText(codeText, codeFont);
+            DrawUiText(codeText, (int)codeX, (int)hpRect.Y - 106, codeFont, Palette.C(235, 205, 110));
         }
 
-        Raylib.DrawText(ammoText, (int)ammoX, (int)hpRect.Y - 78, ammoFont, Palette.C(120, 210, 255));
+        DrawUiText(ammoText, (int)ammoX, (int)hpRect.Y - 78, ammoFont, Palette.C(120, 210, 255));
     }
 
     private void DrawRocketPulseModeText(Vector2 position, int fontSize)
@@ -513,10 +516,10 @@ public sealed partial class SciFiRogueGame
 
         if (!string.IsNullOrEmpty(label))
         {
-            var textWidth = Raylib.MeasureText(label, fontSize);
+            var textWidth = MeasureUiText(label, fontSize);
             var textX = (int)(rect.X + rect.Width * 0.5f - textWidth * 0.5f);
             var textY = (int)(rect.Y + rect.Height * 0.5f - fontSize * 0.5f);
-            Raylib.DrawText(label, textX, textY, fontSize, Color.White);
+            DrawUiText(label, textX, textY, fontSize, Color.White);
         }
     }
 }

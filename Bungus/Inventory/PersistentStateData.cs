@@ -11,6 +11,7 @@ public sealed class PersistentStateData
     public bool VSyncEnabled { get; set; }
     public int TargetFps { get; set; } = 60;
     public VisualEffectsIntensity VisualEffectsIntensity { get; set; } = VisualEffectsIntensity.Normal;
+    public GameLanguage Language { get; set; } = GameLanguage.English;
     public bool DamageNumbersEnabled { get; set; } = true;
     public bool ScreenShakeEnabled { get; set; } = true;
     public string SelectedMapName { get; set; } = "Baselands";

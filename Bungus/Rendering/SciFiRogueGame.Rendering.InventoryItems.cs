@@ -14,19 +14,19 @@ public sealed partial class SciFiRogueGame
         {
             Raylib.DrawRectangle(32, 92, 1216, 650, Palette.C(6, 10, 20, 220));
             Raylib.DrawRectangleLines(32, 92, 1216, 650, Color.SkyBlue);
-            Raylib.DrawText("Inventory", 46, 116, 24, Color.White);
+            DrawUiText(T("inventory.title"), 46, 116, 24, Color.White);
 
             DrawBackpackGrid(new Vector2(690, 118), 6, 5);
-            Raylib.DrawText("Backpack", 690, 98, 20, Color.LightGray);
-            Raylib.DrawText("Equipment", 570, 98, 20, Color.LightGray);
-            Raylib.DrawText("Stats", 54, 146, 20, Color.LightGray);
+            DrawUiText(T("inventory.backpack"), 690, 98, 20, Color.LightGray);
+            DrawUiText(T("inventory.equipment"), 570, 98, 20, Color.LightGray);
+            DrawUiText(T("inventory.stats"), 54, 146, 20, Color.LightGray);
 
             DrawInventoryStatRow("STR", _player.Str, _pendingStrengthPoints, 54, 176);
             DrawInventoryStatRow("DEX", _player.Dex, _pendingDexterityPoints, 54, 206);
             DrawInventoryStatRow("SPD", _player.Spd, _pendingSpeedPoints, 54, 236);
             DrawInventoryStatRow("GUN", _player.Guns, _pendingGunsmithPoints, 54, 266);
-            Raylib.DrawText($"Free points: {_player.StatPoints - GetPendingLevelUpPointCount()}", 54, 296, 18, Color.Yellow);
-            Raylib.DrawText($"Total points: {_player.StatPoints}", 54, 320, 18, Color.LightGray);
+            DrawUiText($"{T("inventory.free_points")}: {_player.StatPoints - GetPendingLevelUpPointCount()}", 54, 296, 18, Color.Yellow);
+            DrawUiText($"{T("inventory.total_points")}: {_player.StatPoints}", 54, 320, 18, Color.LightGray);
 
             if (_player.StatPoints > 0)
             {
@@ -36,8 +36,8 @@ public sealed partial class SciFiRogueGame
                 DrawPlus(new Rectangle(252, 264, 22, 22));
                 if (GetPendingLevelUpPointCount() > 0)
                 {
-                    DrawButton(new Rectangle(54, 350, 120, 30), "Confirm");
-                    DrawButton(new Rectangle(184, 350, 120, 30), "Reset");
+                    DrawButton(new Rectangle(54, 350, 120, 30), T("common.confirm"));
+                    DrawButton(new Rectangle(184, 350, 120, 30), T("common.reset"));
                 }
             }
 
@@ -47,14 +47,14 @@ public sealed partial class SciFiRogueGame
         {
             Raylib.DrawRectangle(40, 138, 610, 548, Palette.C(6, 10, 20, 220));
             Raylib.DrawRectangleLines(40, 138, 610, 548, Color.SkyBlue);
-            Raylib.DrawText("Backpack", 56, 146, 20, Color.White);
+            DrawUiText(T("inventory.backpack"), 56, 146, 20, Color.White);
             DrawBackpackGrid(new Vector2(56, 170), 6, 5);
 
             Raylib.DrawRectangle(720, 138, 500, 230, Palette.C(6, 10, 20, 220));
             Raylib.DrawRectangleLines(720, 138, 500, 230, Color.SkyBlue);
-            Raylib.DrawText("Chest", 740, 150, 24, Color.White);
+            DrawUiText(T("inventory.chest"), 740, 150, 24, Color.White);
             DrawBackpackGrid(new Vector2(740, 190), 5, 1);
-            DrawButton(TakeAllButtonRect, "Take all [X]");
+            DrawButton(TakeAllButtonRect, T("inventory.take_all"));
         }
 
         var comparison = new ComparisonContext(_player, _player.Armor, _player.RangedWeapon, _player.HeavyWeapon, _player.MeleeWeapon);
@@ -110,15 +110,15 @@ public sealed partial class SciFiRogueGame
     private void DrawSynthCoinsCounter(int rightMargin, int y, int fontSize)
     {
         var text = $"SynthCoins: {_meta.SynthCoins}";
-        var x = GetUiScreenWidth() - rightMargin - Raylib.MeasureText(text, fontSize);
-        Raylib.DrawText(text, x, y, fontSize, Palette.C(120, 230, 255));
+        var x = GetUiScreenWidth() - rightMargin - MeasureUiText(text, fontSize);
+        DrawUiText(text, x, y, fontSize, Palette.C(120, 230, 255));
     }
 
     private void DrawCryptoTokensCounter(int rightMargin, int y, int fontSize)
     {
         var text = $"CryptoTokens: {_meta.CryptoTokens}";
-        var x = GetUiScreenWidth() - rightMargin - Raylib.MeasureText(text, fontSize);
-        Raylib.DrawText(text, x, y, fontSize, Palette.C(210, 150, 255));
+        var x = GetUiScreenWidth() - rightMargin - MeasureUiText(text, fontSize);
+        DrawUiText(text, x, y, fontSize, Palette.C(210, 150, 255));
     }
 
     private void DrawItemIcon(ItemStack item, Rectangle rect, ComparisonContext? comparison = null, SlotKind? sourceKind = null)
@@ -734,7 +734,7 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawLineEx(new Vector2(chip.X + chip.Width * 0.18f, chip.Y + chip.Height * 0.5f), new Vector2(chip.X + chip.Width * 0.82f, chip.Y + chip.Height * 0.5f), MathF.Max(2f, rect.Height * 0.04f), Palette.C(245, 196, 72));
     }
 
-    private static void DrawTooltip(ItemStack item, Vector2 mouse, ComparisonContext? comparison = null)
+    private void DrawTooltip(ItemStack item, Vector2 mouse, ComparisonContext? comparison = null)
     {
         var detailLines = BuildTooltipDetails(item, comparison);
         var x = (int)mouse.X + 20;
@@ -743,25 +743,25 @@ public sealed partial class SciFiRogueGame
         const int padding = 8;
         const int lineHeight = 20;
         var textWidth = width - padding * 2;
-        var descriptionLines = WrapText(item.Description, 16, textWidth);
+        var descriptionLines = WrapText(LocalizedItemDescription(item), 16, textWidth);
         var wrappedDetails = detailLines
             .SelectMany(line => WrapText(line.Text, 16, textWidth).Select(text => (Text: text, line.Color)))
             .ToList();
         var height = 44 + descriptionLines.Count * lineHeight + 8 + wrappedDetails.Count * lineHeight + padding;
         Raylib.DrawRectangle(x, y, width, height, Palette.C(0, 0, 0, 220));
         Raylib.DrawRectangleLines(x, y, width, height, Color.SkyBlue);
-        Raylib.DrawText(item.Name, x + 8, y + 8, 18, Color.White);
+        DrawUiText(LocalizedItemName(item), x + 8, y + 8, 18, Color.White);
         var lineY = y + 32;
         foreach (var line in descriptionLines)
         {
-            Raylib.DrawText(line, x + padding, lineY, 16, Color.LightGray);
+            DrawUiText(line, x + padding, lineY, 16, Color.LightGray);
             lineY += lineHeight;
         }
 
         lineY += 8;
         foreach (var (text, color) in wrappedDetails)
         {
-            Raylib.DrawText(text, x + padding, lineY, 16, color);
+            DrawUiText(text, x + padding, lineY, 16, color);
             lineY += lineHeight;
         }
     }
@@ -779,7 +779,7 @@ public sealed partial class SciFiRogueGame
         foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
             var candidate = string.IsNullOrEmpty(current) ? word : $"{current} {word}";
-            if (Raylib.MeasureText(candidate, fontSize) <= maxWidth)
+            if (MeasureUiText(candidate, fontSize) <= maxWidth)
             {
                 current = candidate;
                 continue;
@@ -793,13 +793,13 @@ public sealed partial class SciFiRogueGame
         return lines;
     }
 
-    private static List<(string Text, Color Color)> BuildTooltipDetails(ItemStack item, ComparisonContext? comparison)
+    private List<(string Text, Color Color)> BuildTooltipDetails(ItemStack item, ComparisonContext? comparison)
     {
         var lines = new List<(string Text, Color Color)>();
 
         if (item.Type == ItemType.Armor)
         {
-            lines.Add(($"Armor {item.Defense:0} | Resilience {item.ResiliencePercent * 100f:0}% | {item.Rarity}", item.Color));
+            lines.Add(($"{T("storage.armor")} {item.Defense:0} | Resilience {item.ResiliencePercent * 100f:0}% | {LocalizedRarity(item.Rarity)}", item.Color));
             if (MathF.Abs(item.MovementSpreadPercent) > 0.001f)
             {
                 var sign = item.MovementSpreadPercent > 0f ? "+" : "-";
@@ -814,7 +814,7 @@ public sealed partial class SciFiRogueGame
             if (item.ExplosionResistancePercent > 0f) lines.Add(($"Explosion resist +{item.ExplosionResistancePercent * 100f:0}%", Palette.C(255, 170, 120)));
             if (item.HealingBonusPercent > 0f) lines.Add(($"Healing +{item.HealingBonusPercent * 100f:0}%", Palette.C(135, 230, 150)));
             if (item.DashRecoveryPercent > 0f) lines.Add(($"Dash recovery +{item.DashRecoveryPercent * 100f:0}%", Palette.C(120, 230, 180)));
-            if (item.ShieldMax > 0f) lines.Add(($"Shield {item.ShieldMax:0}", Palette.C(120, 205, 255)));
+            if (item.ShieldMax > 0f) lines.Add(($"{T("hud.shield")} {item.ShieldMax:0}", Palette.C(120, 205, 255)));
             if (item.RegenPercentPerSecond > 0f) lines.Add(($"Regen {item.RegenPercentPerSecond * 100f:0.0}%/sec", Palette.C(160, 255, 170)));
             return lines;
         }
@@ -823,7 +823,7 @@ public sealed partial class SciFiRogueGame
         {
             if (item.Pattern == WeaponPattern.RamBomber)
             {
-                lines.Add(("Base damage: ??? | Ranged", item.Color));
+                lines.Add(($"{(_language == GameLanguage.Russian ? "Базовый урон" : "Base damage")}: ??? | {(_language == GameLanguage.Russian ? "Дальний бой" : "Ranged")}", item.Color));
                 lines.Add(("Fire rate: click only", Palette.C(170, 220, 255)));
                 lines.Add(("Explosion radius: 1000", Palette.C(255, 170, 120)));
                 lines.Add(("Effect damage: 1 / 1000 / 10000", Palette.C(180, 230, 255)));
@@ -839,7 +839,7 @@ public sealed partial class SciFiRogueGame
 
         if (item.IsHeavyAmmo)
         {
-            lines.Add(($"Heavy ammo: {item.AmmoPercent:0.0}%", Palette.C(120, 210, 255)));
+            lines.Add(($"{T("hud.heavy_ammo")}: {item.AmmoPercent:0.0}%", Palette.C(120, 210, 255)));
             lines.Add(("Used by heavy weapons.", Color.LightGray));
             return lines;
         }
@@ -850,9 +850,12 @@ public sealed partial class SciFiRogueGame
         return lines;
     }
 
-    private static void AddWeaponStatLines(List<(string Text, Color Color)> lines, ItemStack item)
+    private void AddWeaponStatLines(List<(string Text, Color Color)> lines, ItemStack item)
     {
-        lines.Add(($"Base damage: {GetWeaponBaseHitDamage(item):0.0} | {item.WeaponKind}", item.Color));
+        var weaponKind = _language == GameLanguage.Russian
+            ? item.WeaponKind == WeaponClass.Melee ? "Ближний бой" : "Дальний бой"
+            : item.WeaponKind?.ToString() ?? string.Empty;
+        lines.Add(($"{(_language == GameLanguage.Russian ? "Базовый урон" : "Base damage")}: {GetWeaponBaseHitDamage(item):0.0} | {weaponKind}", item.Color));
 
         if (GetWeaponBurstCount(item) is int burstCount)
         {
@@ -870,13 +873,13 @@ public sealed partial class SciFiRogueGame
         }
 
         var range = GetWeaponRange(item);
-        if (range > 0f) lines.Add(($"Range: {range:0}", Palette.C(190, 210, 240)));
+        if (range > 0f) lines.Add(($"{(_language == GameLanguage.Russian ? "Дальность" : "Range")}: {range:0}", Palette.C(190, 210, 240)));
 
         var explosionRadius = GetWeaponExplosionRadius(item);
         if (explosionRadius > 0f)
         {
             lines.Add(($"Explosion radius: {explosionRadius:0}", Palette.C(255, 170, 120)));
-            lines.Add(($"Explosion damage: {GetWeaponExplosionDamage(item):0.0}", Palette.C(255, 190, 130)));
+            lines.Add(($"{(_language == GameLanguage.Russian ? "Урон взрыва" : "Explosion damage")}: {GetWeaponExplosionDamage(item):0.0}", Palette.C(255, 190, 130)));
         }
 
         foreach (var effect in GetWeaponEffectLines(item))
@@ -986,7 +989,7 @@ public sealed partial class SciFiRogueGame
     private static float GetLinearRifleChargeTime(ItemStack item)
         => item.Rarity == ArmorRarity.Legendary ? 0.7f : 0.8f;
 
-    private static List<(string Text, Color Color)> GetWeaponEffectLines(ItemStack item)
+    private List<(string Text, Color Color)> GetWeaponEffectLines(ItemStack item)
     {
         var lines = new List<(string Text, Color Color)>();
         if (item.Pattern == WeaponPattern.Toxikus)

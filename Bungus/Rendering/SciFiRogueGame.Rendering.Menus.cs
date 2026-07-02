@@ -16,15 +16,15 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawText("a0.4", 86, 150, 24, Palette.C(150, 185, 220));
         DrawMetaProgressHeader();
 
-        DrawButton(MainMenuButtonRect(0), "Play");
-        DrawButton(MainMenuButtonRect(1), "Storage");
-        DrawButton(MainMenuButtonRect(2), "Store");
-        DrawButton(MainMenuButtonRect(3), "Cradle");
-        DrawButton(MainMenuButtonRect(4), "Settings");
-        DrawButton(MainMenuButtonRect(5), "Exit");
-        DrawButton(MainMenuCodesButtonRect(), "Codes");
-        DrawButton(MainMenuChangelogButtonRect(), "Changelog");
-        DrawButton(MainMenuAboutButtonRect(), "About");
+        DrawButton(MainMenuButtonRect(0), T("menu.play"));
+        DrawButton(MainMenuButtonRect(1), T("menu.storage"));
+        DrawButton(MainMenuButtonRect(2), T("menu.store"));
+        DrawButton(MainMenuButtonRect(3), T("menu.cradle"));
+        DrawButton(MainMenuButtonRect(4), T("menu.settings"));
+        DrawButton(MainMenuButtonRect(5), T("menu.exit"));
+        DrawButton(MainMenuCodesButtonRect(), T("menu.codes"));
+        DrawButton(MainMenuChangelogButtonRect(), T("menu.changelog"));
+        DrawButton(MainMenuAboutButtonRect(), T("menu.about"));
 
         if (_codesPopupOpen) DrawCodesPopup();
         if (_changelogPopupOpen) DrawChangelogPopup();
@@ -390,7 +390,7 @@ public sealed partial class SciFiRogueGame
 
         var codeFont = 42;
         Raylib.DrawText(note.Text, (int)(panel.X + panel.Width / 2f - Raylib.MeasureText(note.Text, codeFont) / 2f), (int)panel.Y + 82, codeFont, Palette.C(235, 205, 110));
-        DrawButton(TerminalNoteCloseButtonRect(), "Close");
+        DrawButton(TerminalNoteCloseButtonRect(), T("common.close"));
     }
 
     private void DrawCodesPopup()
@@ -404,16 +404,16 @@ public sealed partial class SciFiRogueGame
 
         Raylib.DrawRectangleRec(popup, Palette.C(10, 18, 30, 240));
         Raylib.DrawRectangleLinesEx(popup, 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText("Codes", (int)popup.X + 24, (int)popup.Y + 22, 28, Color.White);
-        Raylib.DrawText("Enter a promo code", (int)popup.X + 30, (int)popup.Y + 58, 20, Color.LightGray);
+        DrawUiText(T("codes.title"), (int)popup.X + 24, (int)popup.Y + 22, 28, Color.White);
+        DrawUiText(T("codes.enter"), (int)popup.X + 30, (int)popup.Y + 58, 20, Color.LightGray);
 
         Raylib.DrawRectangleRec(input, Palette.C(18, 26, 40, 255));
         Raylib.DrawRectangleLinesEx(input, 2f, Color.Black);
-        var shownInput = string.IsNullOrEmpty(_codeInput) ? "CODE" : _codeInput;
+        var shownInput = string.IsNullOrEmpty(_codeInput) ? T("codes.placeholder") : _codeInput;
         var inputColor = string.IsNullOrEmpty(_codeInput) ? Palette.C(130, 145, 168) : Color.White;
-        Raylib.DrawText(shownInput, (int)input.X + 14, (int)input.Y + 10, 24, inputColor);
+        DrawUiText(shownInput, (int)input.X + 14, (int)input.Y + 10, 24, inputColor);
 
-        DrawButton(apply, "Apply");
+        DrawButton(apply, T("common.apply"));
 
         Raylib.DrawRectangleRec(close, Palette.C(36, 56, 90));
         Raylib.DrawRectangleLinesEx(close, 2f, Color.White);
@@ -422,7 +422,7 @@ public sealed partial class SciFiRogueGame
         if (!string.IsNullOrEmpty(_codeStatusText))
         {
             var statusColor = _codeStatusSuccess ? Palette.C(120, 220, 140) : Palette.C(255, 120, 120);
-            Raylib.DrawText(_codeStatusText, (int)popup.X + 30, (int)popup.Y + 146, 20, statusColor);
+            DrawUiText(_codeStatusText, (int)popup.X + 30, (int)popup.Y + 146, 20, statusColor);
         }
     }
 
@@ -435,7 +435,7 @@ public sealed partial class SciFiRogueGame
 
         Raylib.DrawRectangleRec(popup, Palette.C(10, 18, 30, 242));
         Raylib.DrawRectangleLinesEx(popup, 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText("About", (int)popup.X + 24, (int)popup.Y + 22, 30, Color.White);
+        DrawUiText(T("menu.about"), (int)popup.X + 24, (int)popup.Y + 22, 30, Color.White);
 
         Raylib.DrawRectangleRec(close, Palette.C(36, 56, 90));
         Raylib.DrawRectangleLinesEx(close, 2f, Color.White);
@@ -443,19 +443,19 @@ public sealed partial class SciFiRogueGame
 
         var lines = new[]
         {
-            "Developer:",
+            T("about.developer"),
             "Rambros",
             "",
-            "Tester:",
+            T("about.tester"),
             "Yukii(yukendoze)",
             "",
-            "Contributors:",
+            T("about.contributors"),
             "Inferlas, Maks1mka, Jinko, BlackyCGS",
             "",
-            "Special thanks to my nerve cells",
-            "for letting this become more than just an idea.",
+            T("about.thanks_1"),
+            T("about.thanks_2"),
             "",
-            "Bungus will keep getting better."
+            T("about.future")
         };
 
         const int fontSize = 22;
@@ -464,8 +464,8 @@ public sealed partial class SciFiRogueGame
         var y = popup.Y + popup.Height / 2f - totalHeight / 2f + 8f;
         foreach (var line in lines)
         {
-            var width = Raylib.MeasureText(line, fontSize);
-            Raylib.DrawText(line, (int)(popup.X + popup.Width / 2f - width / 2f), (int)y, fontSize, string.IsNullOrEmpty(line) ? Color.White : Color.LightGray);
+            var width = MeasureUiText(line, fontSize);
+            DrawUiText(line, (int)(popup.X + popup.Width / 2f - width / 2f), (int)y, fontSize, string.IsNullOrEmpty(line) ? Color.White : Color.LightGray);
             y += lineStep;
         }
     }
@@ -480,7 +480,7 @@ public sealed partial class SciFiRogueGame
 
         Raylib.DrawRectangleRec(popup, Palette.C(10, 18, 30, 248));
         Raylib.DrawRectangleLinesEx(popup, 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText("Changelog", (int)popup.X + 28, (int)popup.Y + 22, 32, Color.White);
+        DrawUiText(T("menu.changelog"), (int)popup.X + 28, (int)popup.Y + 22, 32, Color.White);
 
         Raylib.DrawRectangleRec(close, Palette.C(36, 56, 90));
         Raylib.DrawRectangleLinesEx(close, 2f, Color.White);
@@ -497,7 +497,7 @@ public sealed partial class SciFiRogueGame
             if (y + lineStep >= content.Y && y <= content.Y + content.Height)
             {
                 var color = line.Version ? Palette.C(110, 210, 255) : Color.LightGray;
-                Raylib.DrawText(line.Text, (int)content.X + 14, (int)y, 20, color);
+                DrawUiText(line.Text, (int)content.X + 14, (int)y, 20, color);
             }
             y += lineStep;
         }
@@ -528,14 +528,14 @@ public sealed partial class SciFiRogueGame
 
     private void DrawMapSelect()
     {
-        DrawTitle(_deploymentListMode == DeploymentListMode.Expeditions ? "Expeditions" : "Challenges", 64, 66);
-        Raylib.DrawText(_deploymentListMode == DeploymentListMode.Expeditions ? "Choose your landing zone" : "Choose a trial", 72, 118, 26, Color.LightGray);
-        DrawButton(DeploymentToggleRect(), _deploymentListMode == DeploymentListMode.Expeditions ? "Challenges" : "Expeditions");
+        DrawTitle(_deploymentListMode == DeploymentListMode.Expeditions ? T("map.expeditions") : T("map.challenges"), 64, 66);
+        DrawUiText(_deploymentListMode == DeploymentListMode.Expeditions ? T("map.choose_landing") : T("map.choose_trial"), 72, 118, 26, Color.LightGray);
+        DrawButton(DeploymentToggleRect(), _deploymentListMode == DeploymentListMode.Expeditions ? T("map.challenges") : T("map.expeditions"));
 
         if (_deploymentListMode == DeploymentListMode.Challenges)
         {
-            DrawChallengeCard(MapCardRect(0), "Pit", "Wave survival trial", false, 0);
-            DrawChallengeCard(MapCardRect(1), "Pit (Nightmare)", "Bring your own gear", true, 1);
+            DrawChallengeCard(MapCardRect(0), T("map.pit"), T("map.wave_survival"), false, 0);
+            DrawChallengeCard(MapCardRect(1), T("map.pit_nightmare"), T("map.bring_gear"), true, 1);
         }
         else
         {
@@ -545,7 +545,7 @@ public sealed partial class SciFiRogueGame
             }
         }
 
-        DrawButton(MapSelectBackButtonRect(), "Back");
+        DrawButton(MapSelectBackButtonRect(), T("common.back"));
         if (_pitNightmareInfoOpen) DrawPitNightmareInfoPopup();
     }
 
@@ -561,8 +561,8 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawCircleGradient((int)(arena.X + arena.Width * 0.5f), (int)(arena.Y + arena.Height * 0.5f), 64, nightmare ? Palette.C(255, 80, 110, 120) : Palette.C(150, 90, 255, 120), Palette.C(40, 20, 80, 20));
         Raylib.DrawRectangleLinesEx(new Rectangle(arena.X + 36, arena.Y + 22, arena.Width - 72, arena.Height - 44), 3f, nightmare ? Palette.C(180, 55, 80) : Palette.C(120, 80, 200));
 
-        Raylib.DrawText(title, (int)card.X + 42, (int)card.Y + 174, 36, Color.White);
-        Raylib.DrawText(subtitle, (int)card.X + 42, (int)card.Y + 220, 22, Color.LightGray);
+        DrawUiText(title, (int)card.X + 42, (int)card.Y + 174, 36, Color.White);
+        DrawUiText(subtitle, (int)card.X + 42, (int)card.Y + 220, 22, Color.LightGray);
         if (!nightmare) return;
 
         var info = ChallengeInfoButtonRect(index);
@@ -577,24 +577,24 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(0, 0, 0, 145));
         Raylib.DrawRectangleRec(popup, Palette.C(14, 18, 30, 245));
         Raylib.DrawRectangleLinesEx(popup, 2f, Palette.C(210, 90, 120));
-        Raylib.DrawText("Pit (Nightmare)", (int)popup.X + 30, (int)popup.Y + 26, 34, Color.White);
+        DrawUiText(T("map.pit_nightmare"), (int)popup.X + 30, (int)popup.Y + 26, 34, Color.White);
 
         var lines = new[]
         {
-            "Enter only with your own equipment",
-            "Equipment roulettes are disabled",
-            "Enemy speed +50%",
-            "Enemy health +25%",
-            "Every 3 waves: difficulty modifier",
-            "CryptoTokens for every 10 completed waves"
+            T("map.nightmare_1"),
+            T("map.nightmare_2"),
+            T("map.nightmare_3"),
+            T("map.nightmare_4"),
+            T("map.nightmare_5"),
+            T("map.nightmare_6")
         };
 
         for (var i = 0; i < lines.Length; i++)
         {
-            Raylib.DrawText(lines[i], (int)popup.X + 38, (int)popup.Y + 92 + i * 34, 22, Color.LightGray);
+            DrawUiText(lines[i], (int)popup.X + 38, (int)popup.Y + 92 + i * 34, 22, Color.LightGray);
         }
 
-        DrawButton(PitNightmareInfoCloseRect(), "Ok");
+        DrawButton(PitNightmareInfoCloseRect(), T("common.ok"));
     }
 
     private void DrawMapCard(MapDefinition map, Rectangle card)
@@ -607,9 +607,9 @@ public sealed partial class SciFiRogueGame
         var inner = new Rectangle(card.X + 8, card.Y + 8, card.Width - 16, card.Height - 16);
         DrawMapCardScene(map, inner);
 
-        Raylib.DrawText(map.Name, (int)card.X + 34, (int)card.Y + 40, 36, Color.White);
+        DrawUiText(map.Name, (int)card.X + 34, (int)card.Y + 40, 36, Color.White);
         DrawDifficultySkulls(map.Difficulty, new Vector2(card.X + 42, card.Y + 92));
-        Raylib.DrawText("Click to deploy", (int)(card.X + card.Width - 206), (int)(card.Y + card.Height - 72), 22, Palette.C(170, 220, 255));
+        DrawUiText(T("map.click_deploy"), (int)(card.X + card.Width - 226), (int)(card.Y + card.Height - 72), 22, Palette.C(170, 220, 255));
     }
 
     private static void DrawMapCardScene(MapDefinition map, Rectangle rect)

@@ -160,6 +160,7 @@ public sealed partial class SciFiRogueGame : IDisposable
     private float _lastObservedPlayerHealth = -1f;
     private float _lastObservedPlayerShield = -1f;
     private VisualEffectsIntensity _visualEffectsIntensity = VisualEffectsIntensity.Normal;
+    private GameLanguage _language = GameLanguage.English;
     private bool _damageNumbersEnabled = true;
     private bool _screenShakeEnabled = true;
     private Rectangle? _pressedUiButtonRect;
@@ -172,6 +173,8 @@ public sealed partial class SciFiRogueGame : IDisposable
     private bool _vsyncEnabled;
     private int _targetFps = 60;
     private static DisplayMode s_activeDisplayMode = DisplayMode.Windowed;
+    private static Font s_uiFont;
+    private static bool s_uiFontReady;
     private float _nextHexSpawnTimer;
     private readonly MetaProfile _meta = new();
     private readonly List<ExtractPortal> _extractPortals = [];
@@ -315,6 +318,7 @@ public sealed partial class SciFiRogueGame : IDisposable
         else if (_antialiasingMode == AntialiasingMode.Msaa4x) Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint);
         else if (_vsyncEnabled) Raylib.SetConfigFlags(ConfigFlags.VSyncHint);
         Raylib.InitWindow(W, H, "Bungus");
+        LoadUiFont();
         InitializeAudio();
         _targetFps = LoadStartupTargetFps();
         Raylib.SetTargetFPS(_targetFps);
@@ -326,6 +330,71 @@ public sealed partial class SciFiRogueGame : IDisposable
     }
 
     private VisualTheme Theme => _themes[_themeIndex];
+
+    private static void LoadUiFont()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Fonts", "segoeui.ttf"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Fonts", "arial.ttf"),
+            Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts", "ui.ttf")
+        };
+
+        var fontPath = candidates.FirstOrDefault(File.Exists);
+        if (fontPath is null) return;
+
+        var codepoints = BuildUiFontCodepoints();
+        foreach (var baseSize in new[] { 256, 192, 128 })
+        {
+            s_uiFont = Raylib.LoadFontEx(fontPath, baseSize, codepoints, codepoints.Length);
+            s_uiFontReady = s_uiFont.Texture.Id != 0;
+            if (!s_uiFontReady) continue;
+
+            var texture = s_uiFont.Texture;
+            Raylib.GenTextureMipmaps(ref texture);
+            Raylib.SetTextureFilter(texture, TextureFilter.Trilinear);
+            s_uiFont.Texture = texture;
+            return;
+        }
+    }
+
+    private static int[] BuildUiFontCodepoints()
+    {
+        var points = new List<int>();
+        for (var i = 32; i <= 126; i++) points.Add(i);
+        for (var i = 0x0400; i <= 0x04FF; i++) points.Add(i);
+        points.Add(0x00A0);
+        points.Add(0x00AB);
+        points.Add(0x00BB);
+        points.Add(0x2116);
+        return points.Distinct().ToArray();
+    }
+
+    private static int MeasureUiText(string text, int fontSize)
+    {
+        if (!s_uiFontReady) return Raylib.MeasureText(text, fontSize);
+
+        return (int)MathF.Ceiling(Raylib.MeasureTextEx(s_uiFont, text, fontSize, 0f).X);
+    }
+
+    private static void DrawUiText(string text, int x, int y, int fontSize, Color color)
+    {
+        if (s_uiFontReady)
+        {
+            Raylib.DrawTextEx(s_uiFont, text, new Vector2(x, y), fontSize, 0f, color);
+            return;
+        }
+
+        Raylib.DrawText(text, x, y, fontSize, color);
+    }
+
+    private static void UnloadUiFont()
+    {
+        if (!s_uiFontReady) return;
+
+        Raylib.UnloadFont(s_uiFont);
+        s_uiFontReady = false;
+    }
 
     private static bool IsUiScaledWindowed => s_activeDisplayMode == DisplayMode.Windowed;
 

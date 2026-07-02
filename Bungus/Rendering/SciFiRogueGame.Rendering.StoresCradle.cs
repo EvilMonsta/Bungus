@@ -8,31 +8,31 @@ public sealed partial class SciFiRogueGame
     private void DrawStorage()
     {
         var previewPlayer = CreateLandingPreviewPlayer();
-        DrawTitle("Storage", 48, 56);
-        Raylib.DrawText("Equip items here before deployment. Extracted loot returns to this stash.", 70, 106, 24, Color.LightGray);
-        Raylib.DrawText($"Capacity {GetStoredItemCount()}/{MetaProfile.StorageCapacity}", 70, 138, 22, Color.White);
+        DrawTitle(T("storage.title"), 48, 56);
+        DrawUiText(T("storage.description"), 70, 106, 24, Color.LightGray);
+        DrawUiText($"{T("storage.capacity")} {GetStoredItemCount()}/{MetaProfile.StorageCapacity}", 70, 138, 22, Color.White);
         DrawSynthCoinsCounter(24, 138, 22);
-        Raylib.DrawText("Shift+click selects items. Hold X on a selected item to sell selected.", 850, 800, 20, Color.LightGray);
+        DrawUiText(T("storage.selection_help"), 850, 800, 20, Color.LightGray);
 
         Raylib.DrawRectangle(40, 190, 300, 600, MenuPanelFill());
         Raylib.DrawRectangleLinesEx(new Rectangle(40, 190, 300, 600), 2f, MenuPanelLine());
-        Raylib.DrawText("Loadout", 72, 164, 24, Color.White);
-        Raylib.DrawText("Armor", 72, 240, 18, Color.LightGray);
-        Raylib.DrawText("Primary", 72, 340, 18, Color.LightGray);
-        Raylib.DrawText("Heavy", 72, 440, 18, Color.LightGray);
-        Raylib.DrawText("Melee", 72, 540, 18, Color.LightGray);
-        Raylib.DrawText("Consumables", 72, 640, 18, Color.LightGray);
+        DrawUiText(T("storage.loadout"), 72, 164, 24, Color.White);
+        DrawUiText(T("storage.armor"), 72, 240, 18, Color.LightGray);
+        DrawUiText(T("storage.primary"), 72, 340, 18, Color.LightGray);
+        DrawUiText(T("storage.heavy"), 72, 440, 18, Color.LightGray);
+        DrawUiText(T("storage.melee"), 72, 540, 18, Color.LightGray);
+        DrawUiText(T("storage.consumables"), 72, 640, 18, Color.LightGray);
 
         var runBackpackPanel = new Rectangle(400, 190, 460, 550);
         Raylib.DrawRectangleRec(runBackpackPanel, MenuPanelFill());
         Raylib.DrawRectangleLinesEx(runBackpackPanel, 2f, MenuPanelLine());
-        Raylib.DrawText("Run Backpack", 410, 164, 24, Color.White);
+        DrawUiText(T("storage.run_backpack"), 410, 164, 24, Color.White);
         DrawStorageGrid(new Vector2(410, 200), 5, 6);
 
         var stashPanel = StashPanelRect();
         Raylib.DrawRectangleRec(stashPanel, MenuPanelFill());
         Raylib.DrawRectangleLinesEx(stashPanel, 2f, MenuPanelLine());
-        Raylib.DrawText("Stash", 900, 164, 24, Color.White);
+        DrawUiText(T("storage.stash"), 900, 164, 24, Color.White);
         var firstVisible = _storageScrollRow * StashGridColumns + 1;
         var lastVisible = Math.Min(_meta.StorageSlots.Count, (_storageScrollRow + StashVisibleRows) * StashGridColumns);
         Raylib.DrawText($"{firstVisible}-{lastVisible}", (int)stashPanel.X + 178, 112, 18, Color.LightGray);
@@ -40,7 +40,7 @@ public sealed partial class SciFiRogueGame
         DrawStashScrollBar(stashPanel);
         DrawStorageSortButtons();
 
-        DrawButton(StorageBackButtonRect(), "Back");
+        DrawButton(StorageBackButtonRect(), T("common.back"));
 
         var slots = BuildStorageSlots();
         var comparison = new ComparisonContext(previewPlayer, _meta.Armor, _meta.RangedWeapon, _meta.HeavyWeapon, _meta.MeleeWeapon);
@@ -84,8 +84,8 @@ public sealed partial class SciFiRogueGame
     {
         var previewPlayer = CreateLandingPreviewPlayer();
         var comparison = new ComparisonContext(previewPlayer, _meta.Armor, _meta.RangedWeapon, _meta.HeavyWeapon, _meta.MeleeWeapon);
-        DrawTitle("Armory", 48, 56);
-        Raylib.DrawText("Buy equipment. Stock refreshes after each run.", 70, 106, 24, Color.LightGray);
+        DrawTitle(T("armory.title"), 48, 56);
+        DrawUiText(T("armory.description"), 70, 106, 24, Color.LightGray);
         DrawSynthCoinsCounter(70, 138, 24);
         DrawCryptoTokensCounter(70, 164, 24);
 
@@ -99,7 +99,7 @@ public sealed partial class SciFiRogueGame
             DrawArmoryOffer(_meta.ArmoryOffers[i], ArmoryOfferRect(i), comparison);
         }
 
-        DrawButton(ArmoryBackButtonRect(), "Back");
+        DrawButton(ArmoryBackButtonRect(), T("common.back"));
 
         if (_hovered is not null) DrawTooltip(_hovered, GetUiMousePosition(), comparison);
     }
@@ -139,9 +139,9 @@ public sealed partial class SciFiRogueGame
     {
         var x = GetUiScreenWidth() - 220;
         var y = 80;
-        Raylib.DrawText($"Enemy damage: +{_pitNightmareDamageBonusPercent:0}%", x, y, 20, Palette.C(255, 145, 145));
-        Raylib.DrawText($"Enemy health: +{_pitNightmareHealthBonusPercent:0}%", x, y + 26, 20, Palette.C(160, 255, 170));
-        Raylib.DrawText($"Enemy speed: +{_pitNightmareSpeedBonusPercent:0}%", x, y + 52, 20, Palette.C(150, 210, 255));
+        DrawUiText($"{T("pit.enemy_damage")}: +{_pitNightmareDamageBonusPercent:0}%", x, y, 20, Palette.C(255, 145, 145));
+        DrawUiText($"{T("pit.enemy_health")}: +{_pitNightmareHealthBonusPercent:0}%", x, y + 26, 20, Palette.C(160, 255, 170));
+        DrawUiText($"{T("pit.enemy_speed")}: +{_pitNightmareSpeedBonusPercent:0}%", x, y + 52, 20, Palette.C(150, 210, 255));
     }
 
     private void DrawPitDifficultySelection()
@@ -151,22 +151,22 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(0, 0, 0, 170));
         Raylib.DrawRectangleRec(panel, Palette.C(10, 16, 28, 245));
         Raylib.DrawRectangleLinesEx(panel, 2f, Palette.C(210, 90, 120));
-        Raylib.DrawText("Nightmare modifier", (int)panel.X + 32, (int)panel.Y + 28, 34, Color.White);
-        if (ready) Raylib.DrawText("The next difficulty modifier is active.", (int)panel.X + 32, (int)panel.Y + 72, 22, Color.LightGray);
+        DrawUiText(T("pit.nightmare_modifier"), (int)panel.X + 32, (int)panel.Y + 28, 34, Color.White);
+        if (ready) DrawUiText(T("pit.next_modifier_active"), (int)panel.X + 32, (int)panel.Y + 72, 22, Color.LightGray);
 
         var card = PitDifficultyCardRect();
         Raylib.DrawRectangleRec(card, Palette.C(18, 26, 42, 245));
         Raylib.DrawRectangleLinesEx(card, 2f, Color.LightGray);
-        Raylib.DrawText("Modifier", (int)card.X + 18, (int)card.Y + 18, 24, Color.White);
+        DrawUiText(T("pit.modifier"), (int)card.X + 18, (int)card.Y + 18, 24, Color.White);
         DrawPitDifficultyRoulette(card);
 
         if (ready)
         {
             var result = FormatPitDifficultyOffer(_pitDifficultyOffer);
-            Raylib.DrawText(result, (int)card.X + 18, (int)card.Y + 56, 24, GetPitDifficultyColor(_pitDifficultyOffer.Kind));
+            DrawUiText(result, (int)card.X + 18, (int)card.Y + 56, 24, GetPitDifficultyColor(_pitDifficultyOffer.Kind));
         }
 
-        DrawButton(PitDifficultyOkButtonRect(), "Ok", ready);
+        DrawButton(PitDifficultyOkButtonRect(), T("common.ok"), ready);
     }
 
     private void DrawPitDifficultyRoulette(Rectangle card)
@@ -212,12 +212,12 @@ public sealed partial class SciFiRogueGame
         Raylib.EndScissorMode();
     }
 
-    private static string FormatPitDifficultyOffer(PitDifficultyOffer offer)
+    private string FormatPitDifficultyOffer(PitDifficultyOffer offer)
         => offer.Kind switch
         {
-            'D' => $"Damage +{offer.Percent:0}%",
-            'H' => $"Health +{offer.Percent:0}%",
-            _ => $"Speed +{offer.Percent:0}%"
+            'D' => $"{T("pit.damage")} +{offer.Percent:0}%",
+            'H' => $"{T("pit.health")} +{offer.Percent:0}%",
+            _ => $"{T("pit.speed")} +{offer.Percent:0}%"
         };
 
     private static Color GetPitDifficultyColor(char kind)
@@ -237,11 +237,11 @@ public sealed partial class SciFiRogueGame
     private static void DrawStorePrice(Rectangle rect, string text, Color color)
     {
         const int fontSize = 16;
-        var textWidth = Raylib.MeasureText(text, fontSize);
+        var textWidth = MeasureUiText(text, fontSize);
         var x = (int)(rect.X + rect.Width - textWidth - 7);
         var y = (int)rect.Y + 6;
         Raylib.DrawRectangle(x - 4, y - 3, textWidth + 8, fontSize + 6, Palette.C(0, 0, 0, 205));
-        Raylib.DrawText(text, x, y, fontSize, color);
+        DrawUiText(text, x, y, fontSize, color);
     }
 
     private static void DrawStoreDisabledOverlay(Rectangle rect)
@@ -260,24 +260,24 @@ public sealed partial class SciFiRogueGame
         var panel = PitRewardPanelRect();
         Raylib.DrawRectangleRec(panel, Palette.C(10, 16, 28, 245));
         Raylib.DrawRectangleLinesEx(panel, 2f, Palette.C(191, 120, 255));
-        Raylib.DrawText("Wave reward", (int)panel.X + 32, (int)panel.Y + 28, 34, Color.White);
-        if (ready) Raylib.DrawText("Choose up to four items, or skip the offer.", (int)panel.X + 32, (int)panel.Y + 72, 22, Color.LightGray);
+        DrawUiText(T("pit.wave_reward"), (int)panel.X + 32, (int)panel.Y + 28, 34, Color.White);
+        if (ready) DrawUiText(T("pit.reward_hint"), (int)panel.X + 32, (int)panel.Y + 72, 22, Color.LightGray);
 
-        var labels = new[] { "Melee", "Primary", "Heavy", "Armor" };
+        var labels = new[] { T("storage.melee"), T("storage.primary"), T("storage.heavy"), T("storage.armor") };
         for (var i = 0; i < _pitRewardOffers.Count; i++)
         {
             var rect = PitRewardCardRect(i);
             var item = _pitRewardOffers[i];
             Raylib.DrawRectangleRec(rect, Palette.C(18, 26, 42, 245));
             Raylib.DrawRectangleLinesEx(rect, 2f, Color.LightGray);
-            Raylib.DrawText(labels[i], (int)rect.X + 18, (int)rect.Y + 18, 24, Color.White);
+            DrawUiText(labels[i], (int)rect.X + 18, (int)rect.Y + 18, 24, Color.White);
             DrawPitRoulette(i, rect, comparison);
 
             if (_pitRewardSpinElapsed >= PitRewardSpinDurations[i])
             {
-                Raylib.DrawText(item.Name, (int)rect.X + 18, (int)rect.Y + 52, 18, item.Color);
-                var rarity = item.Rarity == ArmorRarity.Rare ? "Rare" : item.Rarity.ToString();
-                Raylib.DrawText(rarity, (int)rect.X + 18, (int)rect.Y + 76, 16, Color.LightGray);
+                DrawUiText(LocalizedItemName(item), (int)rect.X + 18, (int)rect.Y + 52, 18, item.Color);
+                var rarity = LocalizedRarity(item.Rarity);
+                DrawUiText(rarity, (int)rect.X + 18, (int)rect.Y + 76, 16, Color.LightGray);
                 var winningIconRect = PitRewardWinningIconRect(i);
                 if (Raylib.CheckCollisionPointRec(mouse, winningIconRect))
                 {
@@ -287,10 +287,10 @@ public sealed partial class SciFiRogueGame
             }
 
             var claimEnabled = ready && !_pitRewardClaimed[i];
-            DrawButton(PitRewardTakeButtonRect(i), _pitRewardClaimed[i] ? "Claimed" : "Claim", claimEnabled);
+            DrawButton(PitRewardTakeButtonRect(i), _pitRewardClaimed[i] ? T("pit.claimed") : T("pit.claim"), claimEnabled);
         }
 
-        DrawButton(PitRewardSkipButtonRect(), "Skip", ready);
+        DrawButton(PitRewardSkipButtonRect(), T("pit.skip"), ready);
         if (hoveredReward is not null) DrawTooltip(hoveredReward, mouse, comparison);
     }
 
@@ -342,40 +342,40 @@ public sealed partial class SciFiRogueGame
     {
         var previewPlayer = CreateLandingPreviewPlayer();
 
-        DrawTitle("Cradle", 56, 60);
-        Raylib.DrawText("Account upgrades", 74, 126, 28, Color.LightGray);
+        DrawTitle(T("cradle.title"), 56, 60);
+        DrawUiText(T("cradle.upgrades"), 74, 126, 28, Color.LightGray);
 
         var statPanel = new Rectangle(70, 170, 430, 390);
         Raylib.DrawRectangleRec(statPanel, MenuPanelFill());
         Raylib.DrawRectangleLinesEx(statPanel, 2f, MenuPanelLine());
-        Raylib.DrawText($"General level: {_meta.Level}", 96, 204, 26, Color.Gold);
-        Raylib.DrawText($"Next level: {_meta.Score}/{GetMetaScoreRequired(_meta.Level)}", 96, 240, 22, Color.White);
+        DrawUiText($"{T("cradle.general_level")}: {_meta.Level}", 96, 204, 26, Color.Gold);
+        DrawUiText($"{T("cradle.next_level")}: {_meta.Score}/{GetMetaScoreRequired(_meta.Level)}", 96, 240, 22, Color.White);
         DrawCradleStatLine("HP", $"{previewPlayer.MaxHealth:0}", 96, 292, Palette.C(140, 220, 160));
-        DrawCradleStatLine("Speed", $"x{previewPlayer.SpeedMultiplier:0.00}", 96, 324, Palette.C(170, 220, 255));
-        DrawCradleStatLine("Ranged damage", $"+{_meta.CradleGunsmith * 0.4f:0.0}%", 96, 356, Palette.C(255, 180, 100));
-        DrawCradleStatLine("Melee damage", $"+{_meta.CradleFighter * 0.4f:0.0}%", 96, 388, Palette.C(255, 180, 100));
-        DrawCradleStatLine("Melee attack speed", $"+{_meta.CradleMeleeSpeed * 1.6f:0.0}%", 96, 420, Palette.C(150, 220, 255));
-        DrawCradleStatLine("Dash recovery", $"+{_meta.CradleDashRecovery:0}%", 96, 452, Palette.C(150, 240, 170));
-        DrawCradleStatLine("Stability", $"{_meta.CradleStability:0}%", 96, 484, Color.White);
-        DrawCradleStatLine("Arcane", $"+{_meta.CradleArcane:0}%", 96, 516, Palette.C(235, 85, 85));
+        DrawCradleStatLine(T("cradle.speed"), $"x{previewPlayer.SpeedMultiplier:0.00}", 96, 324, Palette.C(170, 220, 255));
+        DrawCradleStatLine(T("cradle.ranged_damage"), $"+{_meta.CradleGunsmith * 0.4f:0.0}%", 96, 356, Palette.C(255, 180, 100));
+        DrawCradleStatLine(T("cradle.melee_damage"), $"+{_meta.CradleFighter * 0.4f:0.0}%", 96, 388, Palette.C(255, 180, 100));
+        DrawCradleStatLine(T("cradle.melee_attack_speed"), $"+{_meta.CradleMeleeSpeed * 1.6f:0.0}%", 96, 420, Palette.C(150, 220, 255));
+        DrawCradleStatLine(T("cradle.dash_recovery"), $"+{_meta.CradleDashRecovery:0}%", 96, 452, Palette.C(150, 240, 170));
+        DrawCradleStatLine(T("cradle.stability"), $"{_meta.CradleStability:0}%", 96, 484, Color.White);
+        DrawCradleStatLine(T("cradle.arcane"), $"+{_meta.CradleArcane:0}%", 96, 516, Palette.C(235, 85, 85));
 
         var freeRect = new Rectangle(1322, 74, 170, 54);
         Raylib.DrawRectangleRec(freeRect, MenuPanelFill(0.90f));
         Raylib.DrawRectangleLinesEx(freeRect, 2f, MenuPanelLine());
-        Raylib.DrawText("Points", (int)freeRect.X + 14, (int)freeRect.Y + 8, 18, Color.LightGray);
+        DrawUiText(T("cradle.points"), (int)freeRect.X + 14, (int)freeRect.Y + 8, 18, Color.LightGray);
         var freeText = $"{GetAvailableCradleCells()}";
-        Raylib.DrawText(freeText, (int)(freeRect.X + freeRect.Width - Raylib.MeasureText(freeText, 30) - 16), (int)freeRect.Y + 14, 30, Color.Gold);
+        DrawUiText(freeText, (int)(freeRect.X + freeRect.Width - MeasureUiText(freeText, 30) - 16), (int)freeRect.Y + 14, 30, Color.Gold);
 
         foreach (var track in CradleTracks) DrawCradleTrack(track);
         DrawCradleTrackTooltip();
 
-        DrawButton(new Rectangle(70, 620, 220, 52), "Back");
+        DrawButton(new Rectangle(70, 620, 220, 52), T("common.back"));
     }
 
     private static void DrawCradleStatLine(string label, string value, int x, int y, Color color)
     {
         const int fontSize = 20;
-        Raylib.DrawText($"{label}: {value}", x, y, fontSize, color);
+        DrawUiText($"{label}: {value}", x, y, fontSize, color);
     }
 
     private void DrawCradleTrack(CradleTrack track)
@@ -385,7 +385,7 @@ public sealed partial class SciFiRogueGame
         var label = GetCradleTrackLabel(track);
         var active = _meta.GetCradleTrack(track);
 
-        Raylib.DrawText(label, 540, y + 5, 20, Color.LightGray);
+        DrawUiText(label, 540, y + 5, 20, Color.LightGray);
 
         const float cellWidth = 32f;
         const float cellHeight = 14f;
@@ -401,7 +401,7 @@ public sealed partial class SciFiRogueGame
 
         DrawCradleButton(CradlePlusRect(track), "+", active < 15 && GetAvailableCradleCells() > 0);
         DrawCradleButton(CradleMinusRect(track), "-", active > 0);
-        Raylib.DrawText(GetCradleTrackBonusText(track, active), 1404, y + 5, 20, GetCradleTrackColor(track));
+        DrawUiText(GetCradleTrackBonusText(track, active), 1404, y + 5, 20, GetCradleTrackColor(track));
     }
 
     private static void DrawCradleTrackCurves(Rectangle trackRect, int active, Color activeColor, int row)
@@ -477,25 +477,25 @@ public sealed partial class SciFiRogueGame
         DrawButtonPulseFill(rect, Palette.C(120, 210, 255), hover);
         Raylib.DrawRectangleLinesEx(rect, 2f, line);
         var fontSize = 24;
-        Raylib.DrawText(
+        DrawUiText(
             label,
-            (int)(rect.X + rect.Width / 2f - Raylib.MeasureText(label, fontSize) / 2f),
+            (int)(rect.X + rect.Width / 2f - MeasureUiText(label, fontSize) / 2f),
             (int)(rect.Y + rect.Height / 2f - fontSize / 2f),
             fontSize,
             line);
     }
 
-    private static string GetCradleTrackLabel(CradleTrack track) => track switch
+    private string GetCradleTrackLabel(CradleTrack track) => track switch
     {
-        CradleTrack.Health => "Health",
-        CradleTrack.Speed => "Speed",
-        CradleTrack.MeleeSpeed => "Melee attack speed",
-        CradleTrack.DashRecovery => "Dash recovery",
-        CradleTrack.Stability => "Stability",
-        CradleTrack.Gunsmith => "Gunsmith",
-        CradleTrack.Fighter => "Fighter",
-        CradleTrack.Arcane => "Arcane",
-        _ => "Track"
+        CradleTrack.Health => T("cradle.health"),
+        CradleTrack.Speed => T("cradle.speed"),
+        CradleTrack.MeleeSpeed => T("cradle.melee_attack_speed"),
+        CradleTrack.DashRecovery => T("cradle.dash_recovery"),
+        CradleTrack.Stability => T("cradle.stability"),
+        CradleTrack.Gunsmith => T("cradle.gunsmith"),
+        CradleTrack.Fighter => T("cradle.fighter"),
+        CradleTrack.Arcane => T("cradle.arcane"),
+        _ => T("cradle.track")
     };
 
     private static string GetCradleTrackBonusText(CradleTrack track, int active) => track switch
@@ -537,23 +537,23 @@ public sealed partial class SciFiRogueGame
 
         Raylib.DrawRectangleRec(rect, Palette.C(8, 14, 24, 245));
         Raylib.DrawRectangleLinesEx(rect, 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText(title, (int)x + padding, (int)y + 12, 22, Color.White);
+        DrawUiText(title, (int)x + padding, (int)y + 12, 22, Color.White);
         for (var i = 0; i < bodyLines.Count; i++)
         {
-            Raylib.DrawText(bodyLines[i], (int)x + padding, (int)y + 44 + i * 24, 18, Color.LightGray);
+            DrawUiText(bodyLines[i], (int)x + padding, (int)y + 44 + i * 24, 18, Color.LightGray);
         }
     }
 
-    private static string GetCradleTrackDescription(CradleTrack track) => track switch
+    private string GetCradleTrackDescription(CradleTrack track) => track switch
     {
-        CradleTrack.Health => "Increases maximum health by 5 for each active cell.",
-        CradleTrack.Speed => "Increases movement speed by 2.8% for each active cell.",
-        CradleTrack.MeleeSpeed => "Increases melee attack speed by 1.6% for each active cell, reducing time between melee attacks.",
-        CradleTrack.DashRecovery => "Reduces dash cooldown by 1% for each active cell.",
-        CradleTrack.Stability => "Reduces moving ranged spread by 1% for each active cell.",
-        CradleTrack.Gunsmith => "Increases ranged weapon damage by 0.4% for each active cell.",
-        CradleTrack.Fighter => "Increases melee weapon damage by 0.4% for each active cell.",
-        CradleTrack.Arcane => "Each active cell increases player poison damage and duration, slow strength and duration, stim strength and duration, health regeneration, shield recovery, freeze and chill duration, Tesla damage, and radioactive decomposition duration and damage bonus by 1%. Shield recovery delay is reduced.",
+        CradleTrack.Health => T("cradle.health_desc"),
+        CradleTrack.Speed => T("cradle.speed_desc"),
+        CradleTrack.MeleeSpeed => T("cradle.melee_speed_desc"),
+        CradleTrack.DashRecovery => T("cradle.dash_recovery_desc"),
+        CradleTrack.Stability => T("cradle.stability_desc"),
+        CradleTrack.Gunsmith => T("cradle.gunsmith_desc"),
+        CradleTrack.Fighter => T("cradle.fighter_desc"),
+        CradleTrack.Arcane => T("cradle.arcane_desc"),
         _ => string.Empty
     };
 
@@ -579,19 +579,19 @@ public sealed partial class SciFiRogueGame
         const int valueColumnX = 102;
         const int maxPendingWidth = 116;
 
-        Raylib.DrawText(label, x, y, fontSize, Color.LightGray);
-        Raylib.DrawText($"{value}", valueColumnX, y, fontSize, Color.LightGray);
+        DrawUiText(label, x, y, fontSize, Color.LightGray);
+        DrawUiText($"{value}", valueColumnX, y, fontSize, Color.LightGray);
         if (pending <= 0) return;
 
         var pendingText = $"(+{pending})";
         var pendingX = valueColumnX + 44;
-        if (Raylib.MeasureText(pendingText, fontSize) <= maxPendingWidth)
+        if (MeasureUiText(pendingText, fontSize) <= maxPendingWidth)
         {
-            Raylib.DrawText(pendingText, pendingX, y, fontSize, Color.LightGray);
+            DrawUiText(pendingText, pendingX, y, fontSize, Color.LightGray);
             return;
         }
 
-        Raylib.DrawText(pendingText, x, y + 18, 16, Color.LightGray);
+        DrawUiText(pendingText, x, y + 18, 16, Color.LightGray);
     }
 
     private void DrawMetaProgressHeader()
@@ -604,7 +604,7 @@ public sealed partial class SciFiRogueGame
 
         Raylib.DrawRectangleRec(square, Palette.C(18, 32, 52, 235));
         Raylib.DrawRectangleLinesEx(square, 2f, Palette.C(108, 170, 228));
-        Raylib.DrawText($"{_meta.Level}", (int)(square.X + square.Width / 2f - Raylib.MeasureText($"{_meta.Level}", 36) / 2f), (int)(square.Y + 20), 36, Color.Gold);
+        DrawUiText($"{_meta.Level}", (int)(square.X + square.Width / 2f - MeasureUiText($"{_meta.Level}", 36) / 2f), (int)(square.Y + 20), 36, Color.Gold);
 
         Raylib.DrawRectangleRec(bar, Palette.C(14, 24, 40, 235));
         var fill = new Rectangle(bar.X + progressInset, bar.Y + progressInset, Math.Max(0, (bar.Width - progressInset * 2f) * progress), bar.Height - progressInset * 2f);
@@ -612,6 +612,6 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawRectangleLinesEx(bar, 2f, Palette.C(108, 170, 228));
 
         var progressText = $"{_meta.Score}/{required}";
-        Raylib.DrawText(progressText, (int)(bar.X + bar.Width / 2f - Raylib.MeasureText(progressText, 28) / 2f), (int)(bar.Y + bar.Height / 2f - 14), 28, Color.White);
+        DrawUiText(progressText, (int)(bar.X + bar.Width / 2f - MeasureUiText(progressText, 28) / 2f), (int)(bar.Y + bar.Height / 2f - 14), 28, Color.White);
     }
 }

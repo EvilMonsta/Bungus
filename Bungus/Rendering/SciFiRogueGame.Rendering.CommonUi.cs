@@ -7,104 +7,119 @@ public sealed partial class SciFiRogueGame
 {
     private void DrawSettings()
     {
-        DrawTitle("Settings", SettingsTitleY(), SettingsTitleSize());
+        DrawTitle(T("settings.title"), SettingsTitleY(), SettingsTitleSize());
 
-        DrawSettingsLabel("Display", SettingsColumnCenter(0), SettingsLabelY(0));
-        DrawButton(SettingsDisplayButtonRect(0), _displayMode == DisplayMode.Windowed ? "> Windowed <" : "Windowed");
-        DrawButton(SettingsDisplayButtonRect(1), _displayMode == DisplayMode.Fullscreen ? "> Fullscreen <" : "Fullscreen");
+        DrawSettingsLabel(T("settings.display"), SettingsColumnCenter(0), SettingsLabelY(0));
+        DrawButton(SettingsDisplayButtonRect(0), SelectedText(LocalizedDisplayMode(DisplayMode.Windowed), _displayMode == DisplayMode.Windowed));
+        DrawButton(SettingsDisplayButtonRect(1), SelectedText(LocalizedDisplayMode(DisplayMode.Fullscreen), _displayMode == DisplayMode.Fullscreen));
 
-        DrawSettingsLabel("Texture filter", SettingsColumnCenter(0), SettingsLabelY(1));
+        DrawSettingsLabel(T("settings.texture_filter"), SettingsColumnCenter(0), SettingsLabelY(1));
         DrawButton(SettingsTextureFilterButtonRect(0), _textureFilteringMode == TextureFilteringMode.Point ? "> Point <" : "Point");
         DrawButton(SettingsTextureFilterButtonRect(1), _textureFilteringMode == TextureFilteringMode.Bilinear ? "> Bilinear <" : "Bilinear");
 
-        DrawSettingsLabel("Damage numbers", SettingsColumnCenter(0), SettingsLabelY(2));
-        DrawButton(SettingsDamageNumbersButtonRect(0), !_damageNumbersEnabled ? "> Off <" : "Off");
-        DrawButton(SettingsDamageNumbersButtonRect(1), _damageNumbersEnabled ? "> On <" : "On");
+        DrawSettingsLabel(T("settings.damage_numbers"), SettingsColumnCenter(0), SettingsLabelY(2));
+        DrawButton(SettingsDamageNumbersButtonRect(0), SelectedText(T("common.off"), !_damageNumbersEnabled));
+        DrawButton(SettingsDamageNumbersButtonRect(1), SelectedText(T("common.on"), _damageNumbersEnabled));
 
-        DrawSettingsLabel("Effects", SettingsColumnCenter(0), SettingsLabelY(3));
-        DrawButton(SettingsEffectsButtonRect(0), _visualEffectsIntensity == VisualEffectsIntensity.Low ? "> Low <" : "Low");
-        DrawButton(SettingsEffectsButtonRect(1), _visualEffectsIntensity == VisualEffectsIntensity.Normal ? "> Normal <" : "Normal");
-        DrawButton(SettingsEffectsButtonRect(2), _visualEffectsIntensity == VisualEffectsIntensity.High ? "> High <" : "High");
+        DrawSettingsLabel(T("settings.effects"), SettingsColumnCenter(0), SettingsLabelY(3));
+        DrawButton(SettingsEffectsButtonRect(0), SelectedText(LocalizedEffects(VisualEffectsIntensity.Low), _visualEffectsIntensity == VisualEffectsIntensity.Low));
+        DrawButton(SettingsEffectsButtonRect(1), SelectedText(LocalizedEffects(VisualEffectsIntensity.Normal), _visualEffectsIntensity == VisualEffectsIntensity.Normal));
+        DrawButton(SettingsEffectsButtonRect(2), SelectedText(LocalizedEffects(VisualEffectsIntensity.High), _visualEffectsIntensity == VisualEffectsIntensity.High));
 
-        DrawSettingsLabel("Choose theme", SettingsColumnCenter(1), SettingsThemeLabelY());
+        DrawSettingsLabel(T("settings.choose_theme"), SettingsColumnCenter(1), SettingsThemeLabelY());
         for (var i = 0; i < _themes.Count; i++)
         {
-            var name = i == _themeIndex ? $"> {_themes[i].Name} <" : _themes[i].Name;
+            var themeName = LocalizedThemeName(_themes[i].Name);
+            var name = SelectedText(themeName, i == _themeIndex);
             DrawButton(SettingsThemeButtonRect(i), name);
         }
 
-        DrawSettingsLabel("VSync", SettingsColumnCenter(2), SettingsLabelY(0));
-        DrawButton(SettingsVSyncButtonRect(0), !_vsyncEnabled ? "> Off <" : "Off");
-        DrawButton(SettingsVSyncButtonRect(1), _vsyncEnabled ? "> On <" : "On");
+        DrawSettingsLabel(T("settings.language"), SettingsColumnCenter(1), SettingsLanguageLabelY());
+        DrawButton(SettingsLanguageButtonRect(0), SelectedText(T("settings.english"), _language == GameLanguage.English));
+        DrawButton(SettingsLanguageButtonRect(1), SelectedText(T("settings.russian"), _language == GameLanguage.Russian));
 
-        DrawSettingsLabel("Antialiasing", SettingsColumnCenter(2), SettingsLabelY(1));
-        DrawButton(SettingsAntialiasingButtonRect(0), _antialiasingMode == AntialiasingMode.Off ? "> Off <" : "Off");
+        DrawSettingsLabel("VSync", SettingsColumnCenter(2), SettingsLabelY(0));
+        DrawButton(SettingsVSyncButtonRect(0), SelectedText(T("common.off"), !_vsyncEnabled));
+        DrawButton(SettingsVSyncButtonRect(1), SelectedText(T("common.on"), _vsyncEnabled));
+
+        DrawSettingsLabel(T("settings.antialiasing"), SettingsColumnCenter(2), SettingsLabelY(1));
+        DrawButton(SettingsAntialiasingButtonRect(0), SelectedText(T("common.off"), _antialiasingMode == AntialiasingMode.Off));
         DrawButton(SettingsAntialiasingButtonRect(1), _antialiasingMode == AntialiasingMode.Msaa4x ? "> MSAA x4 <" : "MSAA x4");
-        DrawSettingsHint("Restart applies antialiasing and VSync", SettingsColumnCenter(2), SettingsHintY());
+        DrawSettingsHint(T("settings.restart_graphics"), SettingsColumnCenter(2), SettingsHintY());
 
         DrawSettingsLabel("FPS", SettingsColumnCenter(2), SettingsLabelY(2));
         DrawButton(SettingsFpsButtonRect(0), _targetFps == 30 ? "> 30 <" : "30");
         DrawButton(SettingsFpsButtonRect(1), _targetFps == 60 ? "> 60 <" : "60");
         DrawButton(SettingsFpsButtonRect(2), _targetFps == 120 ? "> 120 <" : "120");
 
-        DrawSettingsLabel("Screen shake", SettingsColumnCenter(2), SettingsLabelY(3));
-        DrawButton(SettingsScreenShakeButtonRect(0), !_screenShakeEnabled ? "> Off <" : "Off");
-        DrawButton(SettingsScreenShakeButtonRect(1), _screenShakeEnabled ? "> On <" : "On");
+        DrawSettingsLabel(T("settings.screen_shake"), SettingsColumnCenter(2), SettingsLabelY(3));
+        DrawButton(SettingsScreenShakeButtonRect(0), SelectedText(T("common.off"), !_screenShakeEnabled));
+        DrawButton(SettingsScreenShakeButtonRect(1), SelectedText(T("common.on"), _screenShakeEnabled));
 
-        DrawButton(SettingsBackButtonRect(), "Back");
+        DrawButton(SettingsBackButtonRect(), T("common.back"));
     }
 
     private static void DrawSettingsLabel(string text, float centerX, int y)
     {
         var size = CompactSettingsLayout() ? 24 : 28;
-        var x = centerX - Raylib.MeasureText(text, size) / 2f;
-        Raylib.DrawText(text, (int)x, y, size, Color.LightGray);
+        var x = centerX - MeasureUiText(text, size) / 2f;
+        DrawUiText(text, (int)x, y, size, Color.LightGray);
     }
 
     private static void DrawSettingsHint(string text, float centerX, int y)
     {
         var size = CompactSettingsLayout() ? 16 : 18;
-        var x = centerX - Raylib.MeasureText(text, size) / 2f;
-        Raylib.DrawText(text, (int)x, y, size, Palette.C(150, 185, 220));
+        var x = centerX - MeasureUiText(text, size) / 2f;
+        DrawUiText(text, (int)x, y, size, Palette.C(150, 185, 220));
     }
 
     private void DrawPause()
     {
         Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(0, 0, 0, 175));
-        DrawTitle("Paused", 170, 64);
-        DrawButton(CenterRect(0, 320, 320, 62), "Resume");
-        DrawButton(CenterRect(0, 400, 320, 62), "Abandon run");
+        DrawTitle(T("pause.title"), 170, 64);
+        DrawButton(CenterRect(0, 320, 320, 62), T("pause.resume"));
+        DrawButton(CenterRect(0, 400, 320, 62), T("pause.abandon"));
     }
 
     private void DrawDeath()
     {
         Raylib.DrawRectangle(0, 0, GetUiScreenWidth(), GetUiScreenHeight(), Palette.C(0, 0, 0, 180));
-        DrawTitle(_deathHeader, 150, 68);
-        var lines = _deathBody.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        DrawTitle(LocalizedDeathText(_deathHeader), 150, 68);
+        var lines = LocalizedDeathText(_deathBody).Split('\n', StringSplitOptions.RemoveEmptyEntries);
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];
-            Raylib.DrawText(line, (GetUiScreenWidth() - Raylib.MeasureText(line, 24)) / 2, 250 + i * 34, 24, Color.LightGray);
+            DrawUiText(line, (GetUiScreenWidth() - MeasureUiText(line, 24)) / 2, 250 + i * 34, 24, Color.LightGray);
         }
-        DrawButton(CenterRect(0, 320, 320, 62), "Deploy again");
-        DrawButton(CenterRect(0, 400, 320, 62), "Main menu");
+        DrawButton(CenterRect(0, 320, 320, 62), T("death.deploy_again"));
+        DrawButton(CenterRect(0, 400, 320, 62), T("death.main_menu"));
     }
+
+    private string LocalizedDeathText(string text)
+        => _language == GameLanguage.Russian
+            ? text
+                .Replace(English["death.default_title"], T("death.default_title"), StringComparison.OrdinalIgnoreCase)
+                .Replace(English["death.default_body"], T("death.default_body"), StringComparison.OrdinalIgnoreCase)
+                .Replace("Run abandoned", T("death.abandoned_title"), StringComparison.OrdinalIgnoreCase)
+                .Replace("Earned:", $"{T("death.earned")}:", StringComparison.OrdinalIgnoreCase)
+                .Replace("Retained XP:", $"{T("death.retained_xp")}:", StringComparison.OrdinalIgnoreCase)
+            : text;
 
     private void DrawNotice()
     {
         if (string.IsNullOrWhiteSpace(_noticeText)) return;
 
-        var width = Math.Max(360, Raylib.MeasureText(_noticeText, 20) + 36);
+        var width = Math.Max(360, MeasureUiText(_noticeText, 20) + 36);
         var rect = new Rectangle(GetUiScreenWidth() - width - 30, 26, width, 46);
         Raylib.DrawRectangleRec(rect, Palette.C(12, 22, 36, 220));
         Raylib.DrawRectangleLinesEx(rect, 2f, Palette.C(110, 185, 240));
-        Raylib.DrawText(_noticeText, (int)rect.X + 18, (int)rect.Y + 12, 20, Color.White);
+        DrawUiText(_noticeText, (int)rect.X + 18, (int)rect.Y + 12, 20, Color.White);
     }
 
     private static void DrawTitle(string text, int y, int size)
     {
-        var x = (GetUiScreenWidth() - Raylib.MeasureText(text, size)) / 2;
-        Raylib.DrawText(text, x, y, size, Color.White);
+        var x = (GetUiScreenWidth() - MeasureUiText(text, size)) / 2;
+        DrawUiText(text, x, y, size, Color.White);
     }
 
     private static void DrawButton(Rectangle rect, string text, bool enabled = true)
@@ -113,8 +128,19 @@ public sealed partial class SciFiRogueGame
         Raylib.DrawRectangleRec(rect, !enabled ? Palette.C(34, 38, 48) : hover ? Palette.C(68, 112, 186) : Palette.C(36, 56, 90));
         DrawButtonPulseFill(rect, Palette.C(120, 210, 255), hover);
         Raylib.DrawRectangleLinesEx(rect, 2f, enabled ? Color.White : Color.DarkGray);
-        const int fs = 24;
-        Raylib.DrawText(text, (int)(rect.X + rect.Width / 2 - Raylib.MeasureText(text, fs) / 2f), (int)(rect.Y + rect.Height / 2 - fs / 2f), fs, enabled ? Color.White : Color.Gray);
+        var fs = FitUiFontSize(text, 24, 16, rect.Width - 16f);
+        DrawUiText(text, (int)(rect.X + rect.Width / 2 - MeasureUiText(text, fs) / 2f), (int)(rect.Y + rect.Height / 2 - fs / 2f), fs, enabled ? Color.White : Color.Gray);
+    }
+
+    private static int FitUiFontSize(string text, int preferred, int minimum, float maxWidth)
+    {
+        var size = preferred;
+        while (size > minimum && MeasureUiText(text, size) > maxWidth)
+        {
+            size--;
+        }
+
+        return size;
     }
 
     private static void DrawButtonPulseFill(Rectangle rect, Color color, bool active)
@@ -230,9 +256,9 @@ public sealed partial class SciFiRogueGame
 
         const int fontSize = 20;
         var text = StorageSortButtonLabel(index);
-        Raylib.DrawText(
+        DrawUiText(
             text,
-            (int)(rect.X + rect.Width / 2f - Raylib.MeasureText(text, fontSize) / 2f),
+            (int)(rect.X + rect.Width / 2f - MeasureUiText(text, fontSize) / 2f),
             (int)(rect.Y + rect.Height / 2f - fontSize / 2f),
             fontSize,
             Color.White);
@@ -270,12 +296,12 @@ public sealed partial class SciFiRogueGame
     {
         if (_challengeMode)
         {
-            Raylib.DrawText($"Challenge {_selectedMapName}", 20, 138, 22, Palette.C(191, 120, 255));
-            Raylib.DrawText($"Completed waves {_pitCompletedWaves.Count}", 20, 168, 20, Palette.C(165, 195, 220));
+            DrawUiText($"{T("extract.challenge")} {_selectedMapName}", 20, 138, 22, Palette.C(191, 120, 255));
+            DrawUiText($"{T("extract.completed_waves")} {_pitCompletedWaves.Count}", 20, 168, 20, Palette.C(165, 195, 220));
             if (_challengeKind == ChallengeKind.PitNightmare)
             {
-                var portalText = _pitNightmarePortalActive ? "Exit portal active" : "Exit portal inactive";
-                Raylib.DrawText(portalText, 20, 198, 20, _pitNightmarePortalActive ? Palette.C(170, 220, 255) : Color.Gray);
+                var portalText = _pitNightmarePortalActive ? T("extract.exit_portal_active") : T("extract.exit_portal_inactive");
+                DrawUiText(portalText, 20, 198, 20, _pitNightmarePortalActive ? Palette.C(170, 220, 255) : Color.Gray);
             }
             return;
         }
@@ -286,20 +312,20 @@ public sealed partial class SciFiRogueGame
         if (_lastChanceActive)
         {
             timerText = IsLastChancePortalOpen()
-                ? $"Last portal active {FormatTime(_lastChanceTimer)}"
-                : $"Last chance {FormatTime(_lastChanceTimer)}";
+                ? $"{T("extract.last_portal")} {FormatTime(_lastChanceTimer)}"
+                : $"{T("extract.last_chance")} {FormatTime(_lastChanceTimer)}";
             color = Palette.C(255, 95, 95);
         }
         else
         {
             timerText = _extractPortals.Count == 0
-                ? $"Portals in {FormatTime(_portalUnlockTimer)}"
-                : $"Portals active {FormatTime(_portalActiveTimer)}";
+                ? $"{T("extract.portals_in")} {FormatTime(_portalUnlockTimer)}"
+                : $"{T("extract.portals_active")} {FormatTime(_portalActiveTimer)}";
             color = _extractPortals.Count == 0 ? Color.LightGray : Palette.C(110, 215, 255);
         }
 
-        Raylib.DrawText(timerText, 20, 138, 22, color);
-        Raylib.DrawText($"Map {_selectedMapName}", 20, 168, 20, Palette.C(165, 195, 220));
+        DrawUiText(timerText, 20, 138, 22, color);
+        DrawUiText($"{T("extract.map")} {_selectedMapName}", 20, 168, 20, Palette.C(165, 195, 220));
     }
 
     private void DrawLowHealthOverlay()
@@ -551,6 +577,8 @@ public sealed partial class SciFiRogueGame
 
     private static int SettingsThemeLabelY() => CompactSettingsLayout() ? 150 : 255;
 
+    private static int SettingsLanguageLabelY() => CompactSettingsLayout() ? 392 : 568;
+
     private static int SettingsHintY()
         => SettingsButtonY(1) + (CompactSettingsLayout() ? 43 : 52);
 
@@ -598,6 +626,13 @@ public sealed partial class SciFiRogueGame
         var height = CompactSettingsLayout() ? 36f : 44f;
         var step = CompactSettingsLayout() ? 40f : 50f;
         return new Rectangle(SettingsColumnCenter(1) - width * 0.5f, SettingsButtonY(0) + index * step, width, height);
+    }
+
+    private static Rectangle SettingsLanguageButtonRect(int index)
+    {
+        var rect = SettingsPairButtonRect(1, index, 3);
+        rect.Y = CompactSettingsLayout() ? 424 : 608;
+        return rect;
     }
 
     private static Rectangle SettingsBackButtonRect()

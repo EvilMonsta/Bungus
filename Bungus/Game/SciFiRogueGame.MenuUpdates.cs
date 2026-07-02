@@ -186,26 +186,26 @@ public sealed partial class SciFiRogueGame : IDisposable
         var offer = _meta.ArmoryOffers[index];
         if (offer.Purchased && !offer.Item.IsHeavyAmmo)
         {
-            ShowNotice("This armory item is already sold.");
+            ShowNotice(T("notice.sold"));
             return;
         }
 
         var price = GetArmoryPrice(offer.Item);
         if (_meta.SynthCoins < price)
         {
-            ShowNotice("Not enough SynthCoins.");
+            ShowNotice(T("notice.not_enough_coins"));
             return;
         }
 
         if (offer.Item.IsHeavyAmmo && !CanStorePurchasedHeavyAmmo(offer.Item.AmmoPercent))
         {
-            ShowNotice("Not enough storage space for Heavy Ammo.");
+            ShowNotice(T("notice.not_enough_storage_ammo"));
             return;
         }
 
         if (!offer.Item.IsHeavyAmmo && !_meta.HasFreeStorageSlot())
         {
-            ShowNotice("Storage is full.");
+            ShowNotice(T("notice.storage_full"));
             return;
         }
 
@@ -218,12 +218,12 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             _meta.SynthCoins += price;
             if (!offer.Item.IsHeavyAmmo) offer.Purchased = false;
-            ShowNotice("Storage is full.");
+            ShowNotice(T("notice.storage_full"));
             return;
         }
 
         SavePersistentState();
-        ShowNotice($"Bought {offer.Item.Name} for {price} SynthCoins.");
+        ShowNotice(string.Format(T("notice.bought"), offer.Item.Name, price, "SynthCoins"));
     }
 
     private bool CanStorePurchasedHeavyAmmo(float percent)
@@ -248,20 +248,20 @@ public sealed partial class SciFiRogueGame : IDisposable
         var offer = _meta.TokenStoreOffers[index];
         if (offer.Purchased)
         {
-            ShowNotice("This token item is already sold.");
+            ShowNotice(T("notice.sold"));
             return;
         }
 
         var price = GetTokenStorePrice(offer);
         if (_meta.CryptoTokens < price)
         {
-            ShowNotice("Not enough CryptoTokens.");
+            ShowNotice(T("notice.not_enough_tokens"));
             return;
         }
 
         if (!_meta.HasFreeStorageSlot())
         {
-            ShowNotice("Storage is full.");
+            ShowNotice(T("notice.storage_full"));
             return;
         }
 
@@ -271,12 +271,12 @@ public sealed partial class SciFiRogueGame : IDisposable
         {
             _meta.CryptoTokens += price;
             offer.Purchased = false;
-            ShowNotice("Storage is full.");
+            ShowNotice(T("notice.storage_full"));
             return;
         }
 
         SavePersistentState();
-        ShowNotice($"Bought {offer.Item.Name} for {price} CryptoTokens.");
+        ShowNotice(string.Format(T("notice.bought"), offer.Item.Name, price, "CryptoTokens"));
     }
 
     private void UpdateCradle()
@@ -326,6 +326,8 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (Clicked(SettingsEffectsButtonRect(0))) SetVisualEffectsIntensity(VisualEffectsIntensity.Low);
         if (Clicked(SettingsEffectsButtonRect(1))) SetVisualEffectsIntensity(VisualEffectsIntensity.Normal);
         if (Clicked(SettingsEffectsButtonRect(2))) SetVisualEffectsIntensity(VisualEffectsIntensity.High);
+        if (Clicked(SettingsLanguageButtonRect(0))) SetLanguage(GameLanguage.English);
+        if (Clicked(SettingsLanguageButtonRect(1))) SetLanguage(GameLanguage.Russian);
 
         for (var i = 0; i < _themes.Count; i++)
         {
@@ -339,13 +341,24 @@ public sealed partial class SciFiRogueGame : IDisposable
         if (Clicked(SettingsBackButtonRect()) || Raylib.IsKeyPressed(KeyboardKey.Escape)) _state = GameState.MainMenu;
     }
 
+    private void SetLanguage(GameLanguage language)
+    {
+        if (_language == language) return;
+
+        _language = language;
+        if (_deathHeader == English["death.default_title"] || _deathHeader == Russian["death.default_title"]) _deathHeader = T("death.default_title");
+        if (_deathBody == English["death.default_body"] || _deathBody == Russian["death.default_body"]) _deathBody = T("death.default_body");
+        SavePersistentState();
+        ShowNotice(T("notice.language_changed"));
+    }
+
     private void SetAntialiasingMode(AntialiasingMode mode)
     {
         if (_antialiasingMode == mode) return;
 
         _antialiasingMode = mode;
         SavePersistentState();
-        ShowNotice("Restart the game to apply antialiasing.");
+        ShowNotice(T("notice.restart_antialiasing"));
     }
 
     private void SetVSyncEnabled(bool enabled)
@@ -354,7 +367,7 @@ public sealed partial class SciFiRogueGame : IDisposable
 
         _vsyncEnabled = enabled;
         SavePersistentState();
-        ShowNotice("Restart the game to apply VSync.");
+        ShowNotice(T("notice.restart_vsync"));
     }
 
     private void SetTextureFilteringMode(TextureFilteringMode mode)

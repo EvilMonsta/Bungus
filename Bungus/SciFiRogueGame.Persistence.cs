@@ -23,7 +23,7 @@ public sealed partial class SciFiRogueGame
             var data = DeserializePersistentStateFile(json, out var migratedLegacySave);
             if (data is null)
             {
-                ShowNotice("Save tampering detected. Profile was reset.");
+                ShowNotice(T("notice.save_reset"));
                 SavePersistentState();
                 return;
             }
@@ -35,6 +35,7 @@ public sealed partial class SciFiRogueGame
             _vsyncEnabled = data.VSyncEnabled;
             _targetFps = NormalizeTargetFps(data.TargetFps);
             _visualEffectsIntensity = Enum.IsDefined(data.VisualEffectsIntensity) ? data.VisualEffectsIntensity : VisualEffectsIntensity.Normal;
+            _language = Enum.IsDefined(data.Language) ? data.Language : GameLanguage.English;
             _damageNumbersEnabled = data.DamageNumbersEnabled;
             _screenShakeEnabled = data.ScreenShakeEnabled;
             Raylib.SetTargetFPS(_targetFps);
@@ -60,6 +61,7 @@ public sealed partial class SciFiRogueGame
             _vsyncEnabled = false;
             _targetFps = 60;
             _visualEffectsIntensity = VisualEffectsIntensity.Normal;
+            _language = GameLanguage.English;
             _damageNumbersEnabled = true;
             _screenShakeEnabled = true;
             Raylib.SetTargetFPS(_targetFps);
@@ -90,6 +92,7 @@ public sealed partial class SciFiRogueGame
                 VSyncEnabled = _vsyncEnabled,
                 TargetFps = _targetFps,
                 VisualEffectsIntensity = _visualEffectsIntensity,
+                Language = _language,
                 DamageNumbersEnabled = _damageNumbersEnabled,
                 ScreenShakeEnabled = _screenShakeEnabled,
                 SelectedMapName = _selectedMapName,
@@ -389,6 +392,7 @@ public sealed partial class SciFiRogueGame
     {
         SavePersistentState();
         UnloadIconTextures();
+        UnloadUiFont();
         DisposeAudio();
         Raylib.ShowCursor();
         Raylib.CloseWindow();

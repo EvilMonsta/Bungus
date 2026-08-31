@@ -335,9 +335,9 @@ public sealed partial class SciFiRogueGame : IDisposable
     {
         var candidates = new[]
         {
+            Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts", "PixCyrillic.ttf"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Fonts", "segoeui.ttf"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Fonts", "arial.ttf"),
-            Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts", "ui.ttf")
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Fonts", "arial.ttf")
         };
 
         var fontPath = candidates.FirstOrDefault(File.Exists);
